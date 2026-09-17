@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StayChat OS — Run your hotel on WhatsApp</title>
+  <meta name="description" content="The all-in-one hotel management platform: AI WhatsApp receptionist, your own commission-free booking engine, guest Wi-Fi per booking, and 40+ integrations.">
+  <style>
+    :root {
+      --bg:#0a1220; --bg2:#0e1930; --surface:#121f36; --border:#1e2f4d;
+      --text:#e8eef8; --muted:#93a5c4; --p:#4f8cff; --p2:#7aa8ff;
+      --accent:#22d3a7; --warn:#fbbf24; --grad:linear-gradient(135deg,#4f8cff,#22d3a7);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+           background:var(--bg); color:var(--text); line-height:1.6; overflow-x:hidden; }
+    a { color:inherit; text-decoration:none; }
+    .wrap { max-width:1140px; margin:0 auto; padding:0 24px; }
+    section { padding:84px 0; }
+    .kicker { display:inline-block; font-size:12px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase;
+              color:var(--p2); background:rgba(79,140,255,.1); border:1px solid rgba(79,140,255,.3);
+              padding:6px 14px; border-radius:20px; margin-bottom:18px; }
+    h2 { font-size:clamp(26px,4vw,38px); font-weight:800; letter-spacing:-.5px; margin-bottom:14px; }
+    .sub { color:var(--muted); font-size:16px; max-width:640px; }
+    .center { text-align:center; }
+    .center .sub { margin:0 auto; }
+
+    /* nav */
+    nav { position:sticky; top:0; z-index:50; background:rgba(10,18,32,.85); backdrop-filter:blur(12px);
+          border-bottom:1px solid var(--border); }
+    .nav-in { display:flex; align-items:center; justify-content:space-between; height:64px; }
+    .logo { font-weight:800; font-size:18px; display:flex; align-items:center; gap:8px; }
+    .logo .dot { width:10px; height:10px; border-radius:50%; background:var(--grad); }
+    .nav-links { display:flex; gap:26px; font-size:14px; color:var(--muted); }
+    .nav-links a:hover { color:var(--text); }
+    .nav-cta { display:flex; gap:10px; }
+    .btn { display:inline-block; padding:10px 20px; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer; border:none; }
+    .btn-p { background:var(--grad); color:#06101f; }
+    .btn-p:hover { filter:brightness(1.1); }
+    .btn-o { border:1.5px solid var(--border); color:var(--text); background:transparent; }
+    .btn-o:hover { border-color:var(--p); }
+    .btn-lg { padding:14px 28px; font-size:16px; border-radius:12px; }
+
+    /* hero */
+    .hero { padding:96px 0 70px; position:relative; }
+    .hero::before { content:''; position:absolute; inset:0; pointer-events:none;
+      background:radial-gradient(600px 300px at 20% 0%, rgba(79,140,255,.14), transparent),
+                 radial-gradient(600px 300px at 85% 10%, rgba(34,211,167,.1), transparent); }
+    .hero .wrap { position:relative; }
+    .hero h1 { font-size:clamp(34px,6vw,58px); font-weight:800; letter-spacing:-1.5px; line-height:1.08; max-width:760px; }
+    .hero h1 .g { background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
+    .hero p.lead { color:var(--muted); font-size:clamp(15px,2vw,19px); max-width:620px; margin:20px 0 30px; }
+    .hero-ctas { display:flex; gap:14px; flex-wrap:wrap; }
+    .hero-note { font-size:12px; color:var(--muted); margin-top:14px; }
+    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:56px; }
+    .stat { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px 20px; }
+    .stat b { font-size:clamp(20px,3vw,28px); font-weight:800; display:block; background:var(--grad);
+              -webkit-background-clip:text; background-clip:text; color:transparent; }
+    .stat span { font-size:12.5px; color:var(--muted); }
+
+    /* features */
+    .grid { display:grid; gap:16px; }
+    .g3 { grid-template-columns:repeat(3,1fr); }
+    .g2 { grid-template-columns:repeat(2,1fr); }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:24px;
+            transition:transform .15s, border-color .15s; }
+    .card:hover { transform:translateY(-3px); border-color:var(--p); }
+    .card .ico { font-size:26px; margin-bottom:12px; }
+    .card h3 { font-size:16.5px; font-weight:700; margin-bottom:8px; }
+    .card p { font-size:13.5px; color:var(--muted); }
+    .card ul { list-style:none; margin-top:10px; }
+    .card li { font-size:13px; color:var(--muted); padding-left:18px; position:relative; margin-bottom:5px; }
+    .card li::before { content:'✓'; position:absolute; left:0; color:var(--accent); font-weight:800; }
+
+    /* steps */
+    .steps { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; counter-reset:step; margin-top:36px; }
+    .step { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:20px; position:relative; }
+    .step::before { counter-increment:step; content:counter(step); position:absolute; top:-14px; left:18px;
+      width:28px; height:28px; border-radius:50%; background:var(--grad); color:#06101f; font-weight:800;
+      display:flex; align-items:center; justify-content:center; font-size:14px; }
+    .step h4 { font-size:14.5px; margin:8px 0 6px; }
+    .step p { font-size:12.5px; color:var(--muted); }
+
+    /* integrations */
+    .int-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px; margin-top:36px; }
+    .int { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px; }
+    .int .h { display:flex; align-items:center; gap:10px; font-weight:700; font-size:14.5px; margin-bottom:6px; }
+    .int .n { font-size:11px; font-weight:800; color:#06101f; background:var(--grad); border-radius:12px; padding:2px 9px; }
+    .int p { font-size:12.5px; color:var(--muted); }
+
+    /* pricing */
+    .plans { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:40px; }
+    .plan { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:28px; position:relative; }
+    .plan.hot { border-color:var(--p); box-shadow:0 0 0 1px var(--p), 0 20px 50px rgba(79,140,255,.15); }
+    .plan .tag { position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--grad);
+                 color:#06101f; font-size:11px; font-weight:800; padding:4px 14px; border-radius:12px; letter-spacing:.5px; }
+    .plan h3 { font-size:17px; }
+    .plan .price { font-size:38px; font-weight:800; margin:10px 0 2px; }
+    .plan .price small { font-size:14px; color:var(--muted); font-weight:500; }
+    .plan ul { list-style:none; margin:18px 0 22px; }
+    .plan li { font-size:13.5px; color:var(--muted); padding:5px 0 5px 24px; position:relative; }
+    .plan li::before { content:'✓'; position:absolute; left:2px; color:var(--accent); font-weight:800; }
+    .plan .btn { width:100%; text-align:center; }
+
+    /* faq */
+    .faq { max-width:760px; margin:36px auto 0; }
+    details { background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:10px; }
+    summary { cursor:pointer; padding:16px 20px; font-weight:600; font-size:14.5px; list-style:none; display:flex; justify-content:space-between; align-items:center; }
+    summary::after { content:'+'; font-size:20px; color:var(--p2); }
+    details[open] summary::after { content:'–'; }
+    details .a { padding:0 20px 16px; font-size:13.5px; color:var(--muted); }
+
+    /* cta band */
+    .band { background:linear-gradient(135deg,rgba(79,140,255,.12),rgba(34,211,167,.1)); border:1px solid var(--border);
+            border-radius:22px; padding:52px 40px; text-align:center; }
+
+    footer { border-top:1px solid var(--border); padding:34px 0; color:var(--muted); font-size:13px; }
+    .foot-in { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:center; }
+
+    /* chat widget */
+    .chat-fab { position:fixed; right:22px; bottom:22px; z-index:90; width:60px; height:60px; border-radius:50%;
+                border:none; background:var(--grad); color:#06101f; font-size:26px; cursor:pointer;
+                box-shadow:0 10px 30px rgba(79,140,255,.4); transition:transform .15s; }
+    .chat-fab:hover { transform:scale(1.07); }
+    .chat-box { position:fixed; right:22px; bottom:94px; z-index:90; width:min(380px,calc(100vw - 32px));
+                height:min(560px,calc(100vh - 130px)); background:var(--bg2); border:1px solid var(--border);
+                border-radius:18px; display:none; flex-direction:column; overflow:hidden;
+                box-shadow:0 30px 70px rgba(0,0,0,.5); }
+    .chat-box.open { display:flex; }
+    .chat-head { padding:14px 16px; background:var(--surface); border-bottom:1px solid var(--border);
+                 display:flex; align-items:center; gap:10px; }
+    .chat-head .av { width:34px; height:34px; border-radius:50%; background:var(--grad); display:flex;
+                     align-items:center; justify-content:center; font-size:17px; }
+    .chat-head b { font-size:14px; display:block; }
+    .chat-head span { font-size:11px; color:var(--accent); }
+    .chat-body { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+    .msg { max-width:85%; padding:10px 13px; border-radius:14px; font-size:13.5px; white-space:pre-wrap; }
+    .msg.bot { background:var(--surface); border:1px solid var(--border); border-bottom-left-radius:4px; align-self:flex-start; }
+    .msg.user { background:var(--p); color:#fff; border-bottom-right-radius:4px; align-self:flex-end; }
+    .msg.typing span { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--muted);
+                       margin-right:3px; animation:blink 1.2s infinite; }
+    .msg.typing span:nth-child(2){ animation-delay:.2s } .msg.typing span:nth-child(3){ animation-delay:.4s }
+    @keyframes blink { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 10px; }
+    .chip { font-size:11.5px; padding:6px 11px; border-radius:14px; border:1px solid var(--border);
+            background:var(--surface); color:var(--muted); cursor:pointer; }
+    .chip:hover { border-color:var(--p); color:var(--text); }
+    .chat-in { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); background:var(--surface); }
+    .chat-in input { flex:1; background:var(--bg); border:1.5px solid var(--border); border-radius:10px;
+                     color:var(--text); padding:10px 12px; font-size:13.5px; outline:none; }
+    .chat-in input:focus { border-color:var(--p); }
+    .chat-in button { background:var(--grad); border:none; border-radius:10px; width:44px; font-size:17px; cursor:pointer; color:#06101f; }
+
+    @media (max-width:900px) {
+      .g3 { grid-template-columns:repeat(2,1fr); }
+      .steps { grid-template-columns:repeat(2,1fr); }
+      .plans { grid-template-columns:1fr; }
+      .nav-links { display:none; }
+      .stats { grid-template-columns:repeat(2,1fr); }
+    }
+    @media (max-width:600px) {
+      .g3, .g2, .steps { grid-template-columns:1fr; }
+      section { padding:60px 0; }
+      .nav-cta .btn-o { display:none; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="logo" href="/landing.html"><span class="dot"></span>StayChat OS</a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#integrations">Integrations</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="nav-cta">
+      <a class="btn btn-o" href="/app">Sign in</a>
+      <a class="btn btn-p" href="/book.html?hotel=hospitally">Book a Stay</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="kicker">Hotel Management · WhatsApp-first</span>
+    <h1>Run your entire hotel from <span class="g">one WhatsApp-powered platform</span></h1>
+    <p class="lead">AI receptionist answering guests 24/7, your own commission-free booking engine, front desk,
+      housekeeping, POS, accounting and guest Wi-Fi — with 40+ integrations from door locks to IPTV.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-p btn-lg" href="/app">Try the Live Demo</a>
+      <a class="btn btn-o btn-lg" href="/book.html?hotel=hospitally">Book a Stay →</a>
+    </div>
+    <div class="hero-note">No card needed for the demo · 14-day trial on all plans · ask the assistant bottom-right anything</div>
+    <div class="stats">
+      <div class="stat"><b>24/7</b><span>AI receptionist on WhatsApp</span></div>
+      <div class="stat"><b>0%</b><span>OTA commission on direct bookings</span></div>
+      <div class="stat"><b>49</b><span>pre-built integrations, 12 categories</span></div>
+      <div class="stat"><b>100%</b><span>tenant-isolated data, AES-256-GCM</span></div>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <div class="center"><span class="kicker">Features</span>
+      <h2>Everything a hotel needs, nothing it doesn't</h2>
+      <p class="sub">One platform replacing the front-desk binder, the WhatsApp group, the POS app and the OTA commission.</p>
+    </div>
+    <div class="grid g3" style="margin-top:44px">
+      <div class="card"><div class="ico">🤖</div><h3>AI Receptionist on WhatsApp</h3>
+        <p>Official WhatsApp Business Cloud API with a real-time shared inbox. The AI answers bookings, Wi-Fi, facilities and room service instantly — and even knows live booking status by tender code.</p></div>
+      <div class="card"><div class="ico">🌐</div><h3>Your Own Booking Engine</h3>
+        <p>A public booking page priced from your real rate card. Guests get a tender code, your desk confirms with one click — zero OTA commission.</p>
+        <ul><li>WhatsApp updates at every step</li><li>Printable confirmation with QR</li><li>Spam caps, no inventory squatting</li></ul></div>
+      <div class="card"><div class="ico">🛎️</div><h3>Front Desk &amp; Reservations</h3>
+        <p>Room rack, single and group bookings, check-in/checkout with balance blocking, folios, deposits as real money — every state change atomic and audited.</p></div>
+      <div class="card"><div class="ico">📶</div><h3>Guest Wi-Fi per Booking</h3>
+        <p>Sessions created on check-in, revoked on checkout. Speed tiered by room type — suites get 100 Mbps. Real pushes to UniFi and MikroTik; guests self-serve via a QR-able portal.</p></div>
+      <div class="card"><div class="ico">🧾</div><h3>POS &amp; Double-Entry Accounting</h3>
+        <p>Restaurant and bar tickets charge to rooms or group accounts. Every payment posts to a ledger whose trial balance always balances. Departmental end-of-day closings.</p></div>
+      <div class="card"><div class="ico">🔐</div><h3>Fraud-Aware Permissions</h3>
+        <p>A capability matrix split into use/manage: front desk can check guests in but only managers can void ledgers, alter prices or cancel paid bookings. Every sensitive action is audit-logged.</p></div>
+      <div class="card"><div class="ico">🧹</div><h3>Housekeeping &amp; Maintenance</h3>
+        <p>Task SLAs with auto-assignment, room-status flow from dirty to ready, maintenance requests that actually reach the right technician.</p></div>
+      <div class="card"><div class="ico">🔔</div><h3>Staff Notifications</h3>
+        <p>New online booking? The desk gets a WhatsApp within seconds — code, guest, dates, total. Confirmations and rejections broadcast to the whole team.</p></div>
+      <div class="card"><div class="ico">📊</div><h3>Analytics &amp; Reports</h3>
+        <p>Occupancy, revenue, booking-engine funnel (submissions → confirmations → revenue), per-department insights and exportable reports.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="how" style="background:var(--bg2)">
+  <div class="wrap">
+    <div class="center"><span class="kicker">How it works</span>
+      <h2>From link to check-in, in four steps</h2></div>
+    <div class="steps">
+      <div class="step"><h4>Guest books on your page</h4><p>Live availability priced from your rate card — name and phone only, pay at the hotel.</p></div>
+      <div class="step"><h4>They get a tender code</h4><p>Like an airline PNR: short, phone-readable. WhatsApp confirmation lands instantly.</p></div>
+      <div class="step"><h4>Your desk confirms</h4><p>Submission appears with the code front-and-center; one click holds the room and notifies the guest.</p></div>
+      <div class="step"><h4>Check-in just works</h4><p>Code tendered at the desk → Wi-Fi provisioned → folio, POS and checkout handled in the same system.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="integrations">
+  <div class="wrap">
+    <div class="center"><span class="kicker">Integrations</span>
+      <h2>49 services. 12 categories. Encrypted &amp; probe-tested.</h2>
+      <p class="sub">Credentials are stored AES-256-GCM encrypted, and every service has a live connection test — cloud APIs get authenticated probes, on-prem gear gets reachability checks.</p>
+    </div>
+    <div class="int-grid">
+      <div class="int"><div class="h">💳 Payment Gateways <span class="n">4</span></div><p>Stripe, Paystack, Flutterwave, Square — with signed, idempotent webhooks.</p></div>
+      <div class="int"><div class="h">🚪 Door Locks <span class="n">8</span></div><p>Seam, ASSA ABLOY VingCard, SALTO, TTLock, ZKTeco, Onity, dormakaba, RemoteLock.</p></div>
+      <div class="int"><div class="h">📺 IPTV &amp; VOD <span class="n">6</span></div><p>mwareTV, AlphaOTT, VITEC, Samsung LYNK, LG Pro:Centric, HotelTV/VOD.</p></div>
+      <div class="int"><div class="h">📶 Internet <span class="n">5</span></div><p>UniFi, Meraki, MikroTik, Omada, Ruckus — per-room sessions tied to bookings.</p></div>
+      <div class="int"><div class="h">🏠 Room Automation <span class="n">6</span></div><p>Control4, Crestron, KNX, Lutron, Philips Hue, Sonos — welcome scenes on check-in.</p></div>
+      <div class="int"><div class="h">📡 IoT &amp; Cameras <span class="n">4</span></div><p>Zigbee2MQTT, Hikvision ISAPI, Dahua, generic MQTT/HTTP platforms.</p></div>
+      <div class="int"><div class="h">💬 SMS &amp; Email <span class="n">8</span></div><p>Twilio, Vonage, Africa's Talking, Termii, SendGrid, Mailgun, Resend, AWS SES.</p></div>
+      <div class="int"><div class="h">🌐 Channels &amp; more <span class="n">8</span></div><p>OTA channels, push notifications, cloud storage and analytics.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" style="background:var(--bg2)">
+  <div class="wrap">
+    <div class="center"><span class="kicker">Pricing</span>
+      <h2>Simple plans, no commission</h2>
+      <p class="sub">Every plan includes the booking engine, WhatsApp channel and unlimited staff accounts. 14-day trial on all tiers.</p>
+    </div>
+    <div class="plans">
+      <div class="plan">
+        <h3>Starter</h3><div class="price">$29<small>/mo</small></div>
+        <ul><li>Up to 20 rooms</li><li>AI receptionist on WhatsApp</li><li>Booking engine + tender codes</li><li>Front desk, housekeeping, POS</li><li>Community support</li></ul>
+        <a class="btn btn-o" href="/app">Start free trial</a>
+      </div>
+      <div class="plan hot">
+        <div class="tag">MOST POPULAR</div>
+        <h3>Pro</h3><div class="price">$79<small>/mo</small></div>
+        <ul><li>Up to 100 rooms</li><li>Everything in Starter</li><li>Guest Wi-Fi provisioning</li><li>Door locks, IPTV &amp; IoT integrations</li><li>Double-entry accounting + EOD</li><li>Priority support</li></ul>
+        <a class="btn btn-p" href="/app">Start free trial</a>
+      </div>
+      <div class="plan">
+        <h3>Enterprise</h3><div class="price">$199<small>/mo</small></div>
+        <ul><li>Unlimited rooms &amp; properties</li><li>Everything in Pro</li><li>Multi-property portfolio view</li><li>Custom integrations &amp; SLAs</li><li>Dedicated onboarding</li></ul>
+        <a class="btn btn-o" href="/app">Talk to us</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="center"><span class="kicker">FAQ</span><h2>Questions, answered</h2></div>
+    <div class="faq">
+      <details><summary>Do guests need to pay online to book?</summary><div class="a">No. The booking engine is "reserve now, pay at the hotel" — guests leave a name and phone number and receive a tender code. Your desk confirms the booking, and payment happens at check-in through the normal folio flow. Deposits and online prepayments can be recorded when they arrive.</div></details>
+      <details><summary>How does the tender code work?</summary><div class="a">Every online booking gets a short code like BE-7K2M9QX4 (no confusing characters, readable over the phone). The guest presents it at the desk — or just says it to the AI receptionist on WhatsApp, which looks up the live status instantly. The desk can also print a QR-coded confirmation slip.</div></details>
+      <details><summary>Can two hotels share one installation?</summary><div class="a">Yes — StayChat OS is multi-tenant by design. Tenant isolation is enforced in a single middleware chokepoint, so hotels can never read each other's bookings, guests or credentials. A platform operator (superadmin) manages the portfolio.</div></details>
+      <details><summary>Which door locks and network gear are supported?</summary><div class="a">8 lock vendors (Seam, VingCard, SALTO, TTLock, ZKTeco, Onity, dormakaba, RemoteLock), 5 network controllers (UniFi, Meraki, MikroTik, Omada, Ruckus), 6 IPTV platforms and 4 IoT/camera integrations — plus payments, SMS and email. Adding a vendor is one registry entry.</div></details>
+      <details><summary>Is my data secure?</summary><div class="a">JWT auth with single-use refresh-token rotation, AES-256-GCM encryption for all integration credentials, HMAC-verified payment webhooks that fail closed, rate limiting, and a full audit log of sensitive actions. Integration secrets are never shown in full after saving.</div></details>
+      <details><summary>How do I deploy it?</summary><div class="a">Docker (the image runs migrate → seed → check → start and fails fast on a broken deploy), one click on Render, or pm2 on any VPS behind Nginx with free HTTPS. SQLite by default — zero database ops — with a documented PostgreSQL path for large portfolios.</div></details>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="band">
+      <h2 style="margin-bottom:10px">Ready to see it live?</h2>
+      <p class="sub" style="margin:0 auto 26px">Open the seeded demo hotel — front desk, POS, analytics, the booking engine and this site's assistant are all the real thing.</p>
+      <a class="btn btn-p btn-lg" href="/app">Try the Live Demo</a>
+      <a class="btn btn-o btn-lg" href="/book.html?hotel=hospitally" style="margin-left:10px">Book a Stay →</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <div>© 2026 StayChat OS — hotel management, WhatsApp-first.</div>
+    <div><a href="/app">Sign in</a> · <a href="/book.html?hotel=hospitally">Book</a> · <a href="/confirmation.html?hotel=hospitally">Find my booking</a></div>
+  </div>
+</footer>
+
+<!-- ── Chatbot widget ─────────────────────────────────────────────────────── -->
+<button class="chat-fab" id="chatFab" title="Ask the StayChat assistant">💬</button>
+<div class="chat-box" id="chatBox" role="dialog" aria-label="StayChat assistant">
+  <div class="chat-head">
+    <div class="av">🤖</div>
+    <div><b>StayChat Assistant</b><span>● online — trained on this platform</span></div>
+  </div>
+  <div class="chat-body" id="chatBody"></div>
+  <div class="chips" id="chatChips"></div>
+  <div class="chat-in">
+    <input id="chatInput" placeholder="Ask about features, pricing, integrations…" autocomplete="off">
+    <button id="chatSend" title="Send">➤</button>
+  </div>
+</div>
+
+<script>
+  // ── Chatbot widget ──
+  const fab = document.getElementById('chatFab');
+  const box = document.getElementById('chatBox');
+  const body = document.getElementById('chatBody');
+  const chips = document.getElementById('chatChips');
+  const input = document.getElementById('chatInput');
+  let greeted = false;
+
+  function addMsg(text, who) {
+    const el = document.createElement('div');
+    el.className = 'msg ' + who;
+    el.textContent = text;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+    return el;
+  }
+  function setChips(list) {
+    chips.innerHTML = '';
+    (list || []).forEach(s => {
+      const c = document.createElement('button');
+      c.className = 'chip'; c.textContent = s;
+      c.onclick = () => send(s);
+      chips.appendChild(c);
+    });
+  }
+  function greet() {
+    if (greeted) return;
+    greeted = true;
+    addMsg("Hi! I'm the StayChat assistant — trained on this platform. Ask me about the booking engine, WhatsApp automation, integrations, pricing or security.", 'bot');
+    setChips(['What is StayChat OS?', 'How does the booking engine work?', 'What integrations are supported?', 'How much does it cost?']);
+  }
+  let sending = false;
+  async function send(text) {
+    const msg = (text !== undefined ? text : input.value).trim();
+    if (!msg || sending) return;
+    input.value = '';
+    addMsg(msg, 'user');
+    const typing = addMsg('', 'bot typing');
+    typing.innerHTML = '<span></span><span></span><span></span>';
+    sending = true;
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      const b = await r.json();
+      typing.className = 'msg bot';
+      typing.textContent = b.reply || b.error || 'Something went wrong — please try again.';
+      if (b.suggestions) setChips(b.suggestions);
+    } catch (e) {
+      typing.className = 'msg bot';
+      typing.textContent = 'Connection issue — please try again in a moment.';
+    }
+    sending = false;
+    body.scrollTop = body.scrollHeight;
+  }
+
+  fab.onclick = () => {
+    const open = box.classList.toggle('open');
+    fab.textContent = open ? '×' : '💬';
+    if (open) { greet(); input.focus(); }
+  };
+  document.getElementById('chatSend').onclick = () => send();
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+</script>
+</body>
+</html>

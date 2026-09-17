@@ -147,6 +147,7 @@ app.use('/api/room-setup', require('./routes/room-setup').router);
 app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/wifi', require('./routes/wifi'));
 app.use('/api/booking-engine', require('./routes/booking-engine'));
+app.use('/api/chat', require('./routes/chat'));
 app.use('/api/pool', require('./routes/pool'));
 app.use('/api/halls', require('./routes/halls'));
 app.use('/api/guests', require('./routes/guests'));
@@ -201,6 +202,12 @@ app.get('/api/health/detailed', (req, res) => {
 });
 
 // ── Static Files ────────────────────────────────────────────────────────────
+// Explicit page routes BEFORE static: `/` is the public marketing landing
+// page, `/app` is the dashboard SPA. Every other deep link falls through to
+// the SPA below, so existing bookmarks keep working.
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'landing.html')));
+app.get('/app', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   maxAge: isProduction ? '1d' : 0, // Cache static assets in production
   etag: true,
