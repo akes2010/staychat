@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Booking Confirmation</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+           background:linear-gradient(160deg,#0f1b2d 0%,#1a2f4a 60%,#22405f 100%);
+           min-height:100vh; padding:24px 16px; }
+    .wrap { max-width:560px; margin:0 auto; }
+    .card { background:#fff; border-radius:16px; padding:28px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+    .lookup { display:none; }
+    .lookup.open { display:block; }
+    .lookup label { display:block; font-size:12px; font-weight:600; color:#334155; margin:12px 0 4px; }
+    .lookup input { width:100%; padding:10px 12px; border:1.5px solid #cbd5e1; border-radius:10px; font-size:15px; }
+    .lookup input:focus { outline:none; border-color:#2563eb; }
+    .lookup button { width:100%; margin-top:16px; padding:12px; background:#2563eb; color:#fff; border:none;
+             border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
+    .err { display:none; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;
+           border-radius:10px; padding:10px 12px; font-size:13px; margin-top:14px; }
+    .slip { display:none; }
+    .slip.open { display:block; }
+    .slip-head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #1d4ed8; padding-bottom:12px; }
+    .slip-head h1 { font-size:20px; color:#1d4ed8; }
+    .slip-head .tel { font-size:12px; color:#64748b; margin-top:4px; line-height:1.5; }
+    .badge { display:inline-block; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; }
+    .badge.ok { background:#dcfce7; color:#166534; }
+    .badge.wait { background:#fef9c3; color:#854d0e; }
+    .badge.no { background:#fee2e2; color:#991b1b; }
+    .code { text-align:center; margin:18px 0; }
+    .code .lbl { font-size:11px; letter-spacing:2px; color:#64748b; font-weight:700; }
+    .code .val { font-family:monospace; font-size:32px; font-weight:800; letter-spacing:4px; color:#1d4ed8;
+                 border:2px dashed #2563eb; border-radius:12px; padding:10px; margin-top:6px; user-select:all; }
+    table { width:100%; border-collapse:collapse; margin-top:8px; }
+    td { padding:7px 0; font-size:14px; border-bottom:1px solid #f1f5f9; }
+    td:first-child { color:#64748b; font-size:12px; width:40%; }
+    td:last-child { font-weight:600; text-align:right; }
+    .total td:last-child { font-size:16px; font-weight:800; color:#1d4ed8; }
+    .fineprint { font-size:11px; color:#94a3b8; margin-top:16px; line-height:1.6; border-top:1px dashed #e2e8f0; padding-top:12px; }
+    .actions { display:flex; gap:10px; margin-top:18px; }
+    .actions button { flex:1; margin-top:0; }
+    .btn2 { padding:11px; border-radius:10px; border:1.5px solid #cbd5e1; background:#fff; color:#334155;
+            font-size:14px; font-weight:600; cursor:pointer; }
+    .btn1 { padding:11px; border-radius:10px; border:none; background:#2563eb; color:#fff;
+            font-size:14px; font-weight:700; cursor:pointer; }
+    @media print {
+      body { background:#fff; padding:0; }
+      .card { box-shadow:none; border-radius:0; padding:10mm; }
+      .actions, .lookup { display:none !important; }
+      .slip.open { display:block; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="lookup open" id="lookup">
+        <h1 style="font-size:20px">🔎 Find your booking</h1>
+        <p style="font-size:13px;color:#64748b;margin-top:4px">Enter your tender code from the confirmation message — or your reference and phone number.</p>
+        <label>Tender code</label>
+        <input id="code" placeholder="BE-XXXXXX">
+        <div style="text-align:center;color:#94a3b8;font-size:12px;margin:10px 0">— or —</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div><label>Booking reference</label><input id="ref" placeholder="BK-XXXXXXXX"></div>
+          <div><label>Phone used</label><input id="phone" placeholder="+234…"></div>
+        </div>
+        <button id="btn">Show confirmation</button>
+        <div class="err" id="err"></div>
+      </div>
+
+      <div class="slip" id="slip">
+        <div class="slip-head">
+          <div>
+            <h1 id="h-name"></h1>
+            <div class="tel" id="h-contact"></div>
+          </div>
+          <span class="badge" id="b-status"></span>
+        </div>
+        <div class="code">
+          <div class="lbl">TENDER CODE</div>
+          <div class="val" id="s-code"></div>
+        </div>
+        <table>
+          <tr><td>Reference</td><td id="s-ref"></td></tr>
+          <tr><td>Guest</td><td id="s-guest"></td></tr>
+          <tr><td>Check-in</td><td id="s-cin"></td></tr>
+          <tr><td>Check-out</td><td id="s-cout"></td></tr>
+          <tr><td>Room(s)</td><td id="s-rooms"></td></tr>
+          <tr><td>Guests</td><td id="s-pax"></td></tr>
+          <tr class="total"><td>Total (pay at hotel)</td><td id="s-total"></td></tr>
+        </table>
+        <div class="fineprint">
+          Present this code at the front desk to complete check-in.
+          Check-in from <b id="s-citime"></b> · Check-out by <b id="s-cotime"></b>.
+          This confirmation is not a payment receipt; payment is collected at the hotel.
+        </div>
+        <div class="actions">
+          <button class="btn2" onclick="window.__reset()">Look up another</button>
+          <button class="btn1" onclick="window.print()">🖨 Print / Save PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const SUB = params.get('hotel');
+    const $ = id => document.getElementById(id);
+    function showErr(m){ const e=$('err'); e.textContent=m; e.style.display='block'; }
+
+    async function lookup(q) {
+      if (!SUB) { showErr('Missing hotel — open this page from the hotel\\'s booking link.'); return; }
+      try {
+        const r = await fetch('/api/booking-engine/confirmation?subdomain=' + encodeURIComponent(SUB) + '&' + q);
+        const b = await r.json();
+        if (!r.ok) throw new Error(b.error || 'Not found');
+        render(b);
+      } catch (e) { showErr(e.message); }
+    }
+
+    function render(b) {
+      $('h-name').textContent = b.hotel.name;
+      $('h-contact').innerHTML = [b.hotel.phone, b.hotel.email, b.hotel.address].filter(Boolean).map(escape_).join(' · ');
+      const badge = $('b-status');
+      if (b.status === 'confirmed') { badge.textContent = 'CONFIRMED'; badge.className = 'badge ok'; }
+      else if (b.status === 'pending_payment') { badge.textContent = 'AWAITING DESK CONFIRMATION'; badge.className = 'badge wait'; }
+      else if (b.status === 'checked_in') { badge.textContent = 'CHECKED IN'; badge.className = 'badge ok'; }
+      else { badge.textContent = b.status.replace('_',' ').toUpperCase(); badge.className = 'badge no'; }
+      $('s-code').textContent = b.code;
+      $('s-ref').textContent = b.reference;
+      $('s-guest').textContent = b.guestName;
+      $('s-cin').textContent = b.checkIn + ' (from ' + b.hotel.checkInTime + ')';
+      $('s-cout').textContent = b.checkOut + ' (by ' + b.hotel.checkOutTime + ')';
+      $('s-rooms').textContent = b.rooms.map(r => 'Room ' + r.number).join(', ');
+      $('s-pax').textContent = b.adults + ' adult' + (b.adults===1?'':'s') + (b.children ? ', ' + b.children + ' child' + (b.children===1?'':'ren') : '');
+      $('s-total').textContent = b.hotel.currency + Number(b.total).toFixed(2);
+      $('s-citime').textContent = b.hotel.checkInTime;
+      $('s-cotime').textContent = b.hotel.checkOutTime;
+      $('lookup').classList.remove('open');
+      $('slip').classList.add('open');
+      window.scrollTo(0,0);
+    }
+    function escape_(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+    $('btn').onclick = () => {
+      $('err').style.display = 'none';
+      const code = $('code').value.trim();
+      const ref = $('ref').value.trim(), phone = $('phone').value.trim();
+      if (code) return lookup('code=' + encodeURIComponent(code));
+      if (ref && phone) return lookup('reference=' + encodeURIComponent(ref) + '&phone=' + encodeURIComponent(phone));
+      showErr('Enter your tender code, or both reference and phone number.');
+    };
+    // Deep links: /confirmation.html?hotel=X&code=BE-XXX
+    if (params.get('code')) lookup('code=' + encodeURIComponent(params.get('code')));
+    else if (params.get('reference') && params.get('phone')) lookup('reference=' + encodeURIComponent(params.get('reference')) + '&phone=' + encodeURIComponent(params.get('phone')));
+    window.__reset = () => { $('slip').classList.remove('open'); $('lookup').classList.add('open'); $('err').style.display='none'; };
+  </script>
+</body>
+</html>

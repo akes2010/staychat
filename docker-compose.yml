@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  staychat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: staychat-os
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Server
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - APP_VERSION=1.0.0
+      
+      # Security - REQUIRED: Generate with:
+      # node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - COOKIE_SECRET=${COOKIE_SECRET:-}
+      
+      # Database
+      - DATA_DIR=/app/data
+      
+      # Post-seed verification: set to false to skip demo-user checks on start
+      # (for hardened deployments where demo accounts were removed/rotated)
+      - CHECK_DEMO_USERS=${CHECK_DEMO_USERS:-true}
+      
+      # CORS (optional - comma-separated for multiple origins)
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+      
+    volumes:
+      # Persist SQLite database
+      - staychat_data:/app/data
+      
+      # Optional: Mount custom config
+      # - ./data:/app/data:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    
+    # Security: Read-only root filesystem (if not mounting volumes)
+    # read_only: true
+    # tmpfs:
+    #   - /tmp:size=100M,mode=1777
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  staychat_data:
+    driver: local

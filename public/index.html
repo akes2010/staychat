@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="theme-color" content="#006d2f"/>
+<title>StayChat OS — WhatsApp Hotel Management</title>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/css/app.css"/>
+</head>
+<body>
+
+<div id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">💬</div>
+      <div>
+        <div class="auth-title">StayChat OS</div>
+        <div style="font-size:12px;color:var(--text3);font-weight:500">WhatsApp Hotel Management</div>
+      </div>
+    </div>
+    <div id="auth-error" class="alert error" style="display:none;margin-bottom:16px"></div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
+      <button class="auth-tab" onclick="switchAuthTab('signup')">Sign Up</button>
+    </div>
+    <div id="auth-login">
+      <form id="login-form" onsubmit="return false;">
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">Email</label>
+          <input class="form-input" id="auth-email" type="email" placeholder="admin@hotel.com" autocomplete="username"/>
+        </div>
+        <div class="form-group" style="margin-bottom:20px">
+          <label class="form-label">Password</label>
+          <div class="input-group">
+            <input class="form-input" id="auth-pass" type="password" placeholder="••••••••" style="border:none;border-radius:0" autocomplete="current-password"/>
+            <span class="input-group-prefix" style="cursor:pointer;user-select:none" onclick="togglePass()">👁</span>
+          </div>
+        </div>
+        <button type="button" class="btn primary full lg" id="login-submit-btn" onclick="doLogin()">Sign In →</button>
+      </form>
+    </div>
+    <div id="auth-signup" style="display:none">
+      <form id="signup-form" onsubmit="return false;">
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">Hotel Name</label>
+          <input class="form-input" id="signup-hotel-name" type="text" placeholder="e.g. Sunrise Beach Resort" autocomplete="organization"/>
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">Your Name</label>
+          <input class="form-input" id="signup-name" type="text" placeholder="e.g. Jane Doe" autocomplete="name"/>
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">Email</label>
+          <input class="form-input" id="signup-email" type="email" placeholder="you@yourhotel.com" autocomplete="username"/>
+        </div>
+        <div class="form-group" style="margin-bottom:20px">
+          <label class="form-label">Password</label>
+          <input class="form-input" id="signup-pass" type="password" placeholder="8+ chars, upper, lower, number, symbol" autocomplete="new-password"/>
+        </div>
+        <button type="button" class="btn primary full lg" id="signup-submit-btn" onclick="doSignup()">Create Account →</button>
+      </form>
+    </div>
+    <div style="margin-top:20px;text-align:center;font-size:12px;color:var(--text3)">
+      🔒 Secured with JWT &middot; Data stored in a real database on the server
+    </div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="sb-overlay" id="sb-overlay" onclick="closeSidebar()"></div>
+
+  <nav class="sidebar" id="sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-icon">💬</div>
+      <div class="sb-brand" id="sb-brand-text">StayChat OS<small>Hotel Management</small></div>
+    </div>
+    <div class="sb-user">
+      <div class="sb-user-av" id="sb-user-av">SA</div>
+      <div class="sb-user-info">
+        <div class="sb-user-name" id="sb-user-name">—</div>
+        <div class="sb-user-role" id="sb-user-role">—</div>
+      </div>
+      <div class="sb-status active" id="ws-status" title="Connecting..."></div>
+    </div>
+    <nav class="sb-nav" id="sb-nav"></nav>
+    <div class="sb-footer">
+      <button class="sb-toggle" id="sb-toggle-btn" onclick="toggleSidebar()" title="Collapse sidebar">◀</button>
+    </div>
+  </nav>
+
+  <div class="main-wrap" id="main-wrap">
+    <header class="topbar">
+      <button class="topbar-menu" onclick="openSidebar()">☰</button>
+      <div>
+        <div class="topbar-title" id="topbar-title">Dashboard</div>
+      </div>
+      <div class="topbar-search">
+        <span>🔍</span>
+        <input placeholder="Search rooms, guests, orders…" id="global-search" oninput="globalSearch(this.value)"/>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" onclick="showNotifications()" title="Notifications">
+          🔔<span class="notif-dot" id="notif-dot" style="display:none"></span>
+        </button>
+        <button class="icon-btn" onclick="openUserMenu()" title="Account">👤</button>
+        <button class="icon-btn" onclick="doLogout()" title="Logout">🚪</button>
+      </div>
+    </header>
+    <main class="content" id="content"></main>
+  </div>
+</div>
+
+<div id="toast-area"></div>
+<div id="modal-container"></div>
+
+<script src="/js/countries.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/ws-client.js"></script>
+<script src="/js/ui.js"></script>
+<script src="/js/auth.js"></script>
+<script src="/js/pages/dashboard.js"></script>
+<script src="/js/pages/rooms.js"></script>
+<script src="/js/pages/bookings.js"></script>
+<script src="/js/pages/booking-engine.js"></script>
+<script src="/js/pages/wifi.js"></script>
+<script src="/js/pages/inbox.js"></script>
+<script src="/js/pages/orders.js"></script>
+<script src="/js/pages/pos.js"></script>
+<script src="/js/pages/pool.js"></script>
+<script src="/js/pages/halls.js"></script>
+<script src="/js/pages/misc.js"></script>
+<script src="/js/pages/housekeeping.js"></script>
+<script src="/js/pages/maintenance.js"></script>
+<script src="/js/pages/guests.js"></script>
+<script src="/js/pages/analytics.js"></script>
+<script src="/js/pages/reports.js"></script>
+<script src="/js/pages/staff.js"></script>
+<script src="/js/pages/shifts.js"></script>
+<script src="/js/pages/eod.js"></script>
+<script src="/js/pages/menu.js"></script>
+<script src="/js/pages/payments.js"></script>
+<script src="/js/pages/accounting.js"></script>
+<script src="/js/pages/ai.js"></script>
+<script src="/js/pages/printers.js"></script>
+<script src="/js/pages/users.js"></script>
+<script src="/js/pages/settings.js"></script>
+<script src="/js/pages/integrations.js"></script>
+<script src="/js/pages/superadmin.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

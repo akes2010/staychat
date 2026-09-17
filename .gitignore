@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Runtime data — contains the SQLite DB (password hashes, tenant secrets)
+data/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local tooling
+.claude/
+
+# Logs & temp
+*.log
+npm-debug.log*
+.DS_Store

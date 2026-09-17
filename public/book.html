@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book Your Stay</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+           background:linear-gradient(160deg,#0f1b2d 0%,#1a2f4a 60%,#22405f 100%);
+           min-height:100vh; padding:24px 16px; }
+    .wrap { max-width:960px; margin:0 auto; }
+    .brand { color:#fff; text-align:center; margin-bottom:24px; }
+    .brand h1 { font-size:26px; font-weight:800; }
+    .brand .sub { color:rgba(255,255,255,.75); font-size:14px; margin-top:4px; }
+    .notice { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25);
+              color:#fff; border-radius:12px; padding:10px 14px; font-size:13px; margin-bottom:20px; display:none; }
+    .card { background:#fff; border-radius:16px; padding:24px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    label { display:block; font-size:12px; font-weight:600; color:#334155; margin:12px 0 4px; }
+    input,select { width:100%; padding:10px 12px; border:1.5px solid #cbd5e1; border-radius:10px; font-size:15px; }
+    input:focus,select:focus { outline:none; border-color:#2563eb; }
+    .room { border:1.5px solid #e2e8f0; border-radius:12px; padding:14px; margin-top:10px; cursor:pointer; transition:border-color .15s; }
+    .room:hover { border-color:#94a3b8; }
+    .room.sel { border-color:#2563eb; background:#eff6ff; }
+    .room .top { display:flex; justify-content:space-between; align-items:baseline; }
+    .room .num { font-weight:800; font-size:16px; }
+    .room .price { font-weight:800; color:#2563eb; }
+    .room .meta { font-size:12px; color:#64748b; margin-top:2px; }
+    button { width:100%; margin-top:18px; padding:13px; background:#2563eb; color:#fff; border:none;
+             border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:default; }
+    .err { display:none; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;
+           border-radius:10px; padding:10px 12px; font-size:13px; margin-top:14px; }
+    .ok { display:none; text-align:center; padding:10px 0; }
+    .ok .big { font-size:40px; }
+    .ok h2 { font-size:20px; margin:8px 0 4px; }
+    .ok .code { font-family:monospace; font-size:30px; font-weight:800; letter-spacing:3px;
+                background:#eff6ff; border:2px dashed #2563eb; color:#1d4ed8; border-radius:12px;
+                padding:12px; margin:14px 0; user-select:all; }
+    .ok .detail { color:#475569; font-size:14px; line-height:1.7; }
+    .hint { text-align:center; color:rgba(255,255,255,.6); font-size:12px; margin-top:18px; }
+    @media (max-width:640px){ .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><h1 id="h-name">Book Your Stay</h1><div class="sub" id="h-sub">Loading…</div></div>
+    <div class="notice" id="notice"></div>
+    <div class="card" id="step-form">
+      <div class="grid">
+        <div><label>Check-in</label><input type="date" id="cin"></div>
+        <div><label>Check-out</label><input type="date" id="cout"></div>
+      </div>
+      <button id="search" style="margin-top:14px">Search Available Rooms</button>
+      <div id="rooms"></div>
+      <div class="grid" id="guest-fields" style="display:none">
+        <div><label>Full name</label><input id="g-name" autocomplete="name"></div>
+        <div><label>Phone number</label><input id="g-phone" autocomplete="tel"></div>
+        <div style="grid-column:1/-1"><label>Email (optional)</label><input id="g-email" type="email" autocomplete="email"></div>
+      </div>
+      <button id="submit" style="display:none">Reserve — pay at the hotel</button>
+      <div class="err" id="err"></div>
+    </div>
+    <div class="card ok" id="step-done">
+      <div class="big">✅</div>
+      <h2>Reservation received!</h2>
+      <div class="detail" id="d-summary"></div>
+      <div class="code" id="d-code"></div>
+      <div class="detail">Present this code at the front desk (or mention it on the phone).<br>
+        The hotel will confirm your booking — rooms are held on a first-confirm basis.</div>
+    </div>
+    <div class="hint">Powered by StayChat OS · pay at the hotel — no card needed now</div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    let SUBDOMAIN = params.get('hotel');
+    const $ = id => document.getElementById(id);
+    let selected = new Set();
+    let todayStr = new Date().toISOString().slice(0,10);
+
+    $('cin').min = todayStr; $('cin').value = todayStr;
+    const d2 = new Date(); d2.setDate(d2.getDate()+1);
+    $('cout').min = d2.toISOString().slice(0,10); $('cout').value = d2.toISOString().slice(0,10);
+    if (!SUBDOMAIN) { $('h-sub').textContent = 'Add ?hotel=your-hotel to this link'; }
+
+    async function init() {
+      if (!SUBDOMAIN) return;
+      try {
+        const r = await fetch('/api/booking-engine/config?subdomain=' + encodeURIComponent(SUBDOMAIN));
+        const b = await r.json();
+        if (!r.ok) { $('h-sub').textContent = b.error || 'Booking unavailable'; $('search').disabled = true; return; }
+        $('h-name').textContent = b.hotelName;
+        $('h-sub').textContent = 'Reserve your room in under a minute';
+        if (b.notice) { $('notice').textContent = b.notice; $('notice').style.display = 'block'; }
+      } catch (e) { $('h-sub').textContent = 'Cannot reach the hotel booking service'; }
+    }
+    init();
+
+    function showErr(m){ const e=$('err'); e.textContent=m; e.style.display='block'; }
+    function hideErr(){ $('err').style.display='none'; }
+
+    $('search').onclick = async () => {
+      hideErr();
+      const cin = $('cin').value, cout = $('cout').value;
+      if (!cin || !cout || cout <= cin) { showErr('Pick valid dates (check-out after check-in).'); return; }
+      if (!SUBDOMAIN) { showErr('Missing hotel — open this page from the hotel\\'s booking link.'); return; }
+      $('search').disabled = true; $('search').textContent = 'Searching…';
+      try {
+        const q = 'subdomain=' + encodeURIComponent(SUBDOMAIN) + '&checkIn=' + cin + '&checkOut=' + cout;
+        const r = await fetch('/api/booking-engine/availability?' + q);
+        const b = await r.json();
+        if (!r.ok) throw new Error(b.error || 'Could not load availability');
+        $('rooms').innerHTML = b.rooms.length
+          ? b.rooms.map(rm =>
+              '<div class="room" data-id="' + rm.roomId + '">' +
+                '<div class="top"><span class="num">Room ' + rm.number + '</span><span class="price">' + rm.currency + rm.total + '</span></div>' +
+                '<div class="meta">' + (rm.type||'') + (rm.view?' · '+rm.view:'') + ' · ' + rm.nights + ' night' + (rm.nights===1?'':'s') + ' @ ' + rm.currency + rm.rate + '</div>' +
+              '</div>').join('')
+          : '<p style="color:#64748b;font-size:14px;margin-top:14px">No rooms available for those dates — try different dates or call us.</p>';
+        document.querySelectorAll('.room').forEach(el => {
+          el.onclick = () => {
+            el.classList.toggle('sel');
+            const id = el.getAttribute('data-id');
+            if (selected.has(id)) selected.delete(id); else selected.add(id);
+            $('guest-fields').style.display = selected.size ? 'grid' : 'none';
+            $('submit').style.display = selected.size ? 'block' : 'none';
+          };
+        });
+        $('guest-fields').style.display = 'none'; $('submit').style.display = 'none';
+      } catch (e) { showErr(e.message); }
+      $('search').disabled = false; $('search').textContent = 'Search Available Rooms';
+    };
+
+    $('submit').onclick = async () => {
+      hideErr();
+      const name = $('g-name').value.trim(), phone = $('g-phone').value.trim();
+      if (!name || !phone) { showErr('Name and phone number are required.'); return; }
+      $('submit').disabled = true; $('submit').textContent = 'Sending…';
+      try {
+        const r = await fetch('/api/booking-engine/book', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ subdomain: SUBDOMAIN, guestName:name, guestPhone:phone, guestEmail:$('g-email').value.trim(),
+            checkIn:$('cin').value, checkOut:$('cout').value, roomIds:[...selected], adults:1, children:0 })
+        });
+        const b = await r.json();
+        if (!r.ok) throw new Error(b.error || 'Booking failed');
+        $('d-summary').innerHTML = 'Reference <b>' + b.reference + '</b> · Room' + (b.rooms.length>1?'s':'') + ' ' +
+          b.rooms.map(x=>x.number).join(', ') + ' · ' + b.checkIn + ' → ' + b.checkOut + ' · Total <b>' + b.total + '</b> (pay at hotel)';
+        $('d-code').textContent = b.code;
+        $('step-form').style.display = 'none';
+        $('step-done').style.display = 'block';
+        window.scrollTo(0,0);
+      } catch (e) { showErr(e.message); }
+      $('submit').disabled = false; $('submit').textContent = 'Reserve — pay at the hotel';
+    };
+  </script>
+</body>
+</html>

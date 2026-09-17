@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guest Wi-Fi</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+           min-height:100vh; display:flex; align-items:center; justify-content:center;
+           background:linear-gradient(160deg,#0f1b2d 0%,#1a2f4a 60%,#22405f 100%); padding:20px; }
+    .card { background:#fff; border-radius:16px; padding:36px 32px; width:100%; max-width:420px;
+            box-shadow:0 24px 60px rgba(0,0,0,.35); }
+    h1 { font-size:20px; margin-bottom:4px; }
+    .sub { color:#64748b; font-size:13px; margin-bottom:24px; }
+    label { display:block; font-size:12px; font-weight:600; color:#334155; margin:12px 0 4px; }
+    input { width:100%; padding:11px 12px; border:1.5px solid #cbd5e1; border-radius:10px; font-size:15px; }
+    input:focus { outline:none; border-color:#2563eb; }
+    button { width:100%; margin-top:20px; padding:12px; background:#2563eb; color:#fff; border:none;
+             border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.6; cursor:default; }
+    .err { display:none; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;
+           border-radius:10px; padding:10px 12px; font-size:13px; margin-top:14px; }
+    .result { display:none; margin-top:20px; background:#f1f5f9; border-radius:12px; padding:18px; }
+    .result .row { display:flex; justify-content:space-between; padding:5px 0; font-size:14px; }
+    .result .row b { font-family:monospace; font-size:15px; user-select:all; }
+    .hint { text-align:center; font-size:12px; color:#94a3b8; margin-top:18px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>📶 Guest Wi-Fi</h1>
+    <div class="sub">Enter your room number and booking reference from your key sleeve.</div>
+    <form id="f">
+      <label>Room number</label>
+      <input id="room" placeholder="e.g. 101" autocomplete="off" required>
+      <label>Booking reference</label>
+      <input id="ref" placeholder="e.g. BK-4F7K2Q" autocomplete="off" required>
+      <button type="submit" id="btn">Get my Wi-Fi</button>
+    </form>
+    <div class="err" id="err"></div>
+    <div class="result" id="res">
+      <div class="row"><span>Network</span><b id="r-net"></b></div>
+      <div class="row"><span>Password</span><b id="r-pass"></b></div>
+      <div class="row"><span>Speed</span><b id="r-speed"></b></div>
+      <div class="row"><span>Valid until</span><b id="r-exp"></b></div>
+    </div>
+    <div class="hint">Need help? Call reception from your room phone.</div>
+  </div>
+  <script>
+    document.getElementById('f').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn');
+      const err = document.getElementById('err');
+      const res = document.getElementById('res');
+      err.style.display = 'none'; res.style.display = 'none';
+      btn.disabled = true; btn.textContent = 'Checking…';
+      try {
+        const q = 'room=' + encodeURIComponent(document.getElementById('room').value.trim()) +
+                  '&reference=' + encodeURIComponent(document.getElementById('ref').value.trim());
+        const r = await fetch('/api/wifi/my?' + q);
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.error || 'Could not find your session');
+        document.getElementById('r-net').textContent = body.identity;
+        document.getElementById('r-pass').textContent = body.password || '—';
+        document.getElementById('r-speed').textContent = body.speedDownMbps + '↓ / ' + body.speedUpMbps + '↑ Mbps';
+        document.getElementById('r-exp').textContent = body.expiresAt ? String(body.expiresAt).slice(0, 16) : '—';
+        res.style.display = 'block';
+      } catch (ex) {
+        err.textContent = ex.message; err.style.display = 'block';
+      } finally {
+        btn.disabled = false; btn.textContent = 'Get my Wi-Fi';
+      }
+    });
+  </script>
+</body>
+</html>
