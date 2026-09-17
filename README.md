@@ -183,8 +183,17 @@ uses:
 7. **Printable confirmation**: guests (or the desk) open
    `/confirmation.html?hotel=<subdomain>` and look up a booking by tender code
    or reference + phone — a print-optimized slip with the code, dates, rooms,
-   and total. The desk also gets a 🖨 Slip button on every online booking.
-8. **Analytics → Booking Engine — Direct Channel** (and the dedicated
+   total, and a **QR code** that re-opens the confirmation on any phone.
+   The QR is generated locally (`GET /api/booking-engine/qr`), never through a
+   third-party image service. The desk also gets a 🖨 Slip button on every
+   online booking.
+8. **The AI receptionist knows booking codes**: a guest who messages the
+   hotel's WhatsApp with their tender code (`BE-…`, dash optional) gets their
+   live booking status — awaiting confirmation, confirmed, checked in,
+   completed, or cancelled — with rooms, dates, and total. Lookups are
+   tenant-scoped, so one hotel's guests can never read another hotel's
+   bookings.
+9. **Analytics → Booking Engine — Direct Channel** (and the dedicated
    **Booking Engine** dashboard page) tracks the funnel: submissions,
    confirmations, rejection count, confirmation rate over decided bookings,
    confirmed revenue, average booking value, and a 14-day submission chart.

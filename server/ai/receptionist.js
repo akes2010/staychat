@@ -2,10 +2,43 @@
 // Lightweight keyword-based AI receptionist. This is a deterministic stand-in
 // for a real LLM call (Claude API) so the app works fully offline/standalone.
 //
-// To upgrade to a real model: replace getAIReply() body with a call to
-// POST https://api.anthropic.com/v1/messages using ANTHROPIC_API_KEY from env,
-// passing the tenant's system prompt (built from `tenant` row) + conversation
-// history. Keep the same function signature so nothing else needs to change.
+// To upgrade to a real model: keep this file's shape — the tender-code lookup
+// (getEngineBookingReply) and these RULES become tools/context you pass to the
+// LLM instead of keyword branches. Keep the same function signature so nothing
+// else needs to change.
+
+const db = require('../db/connection');
+
+// Tender codes look like BE-7K2M9QX4 (see services/booking-engine.js).
+const CODE_RE = /\bBE-?[2-9A-Z]{6}\b/i;
+
+// Booking-engine status → guest-facing answer. Tenant-scoped by construction:
+// the caller passes the tenant the message arrived for, and the lookup filters
+// on it — one hotel's guests can never read another hotel's bookings.
+function getEngineBookingReply(tenantId, codeRaw) {
+  const code = String(codeRaw).trim().toUpperCase().replace(/^BE-?/, 'BE-');
+  const b = db.prepare('SELECT * FROM bookings WHERE tenant_id = ? AND engine_code = ?').get(tenantId, code);
+  if (!b) {
+    return `I couldn't find a booking with code ${code}. Please double-check it — or send your booking reference (BK-…) together with the phone number you used to book, and I'll look it up.`;
+  }
+  const rooms = db.prepare('SELECT room_number FROM booking_rooms WHERE booking_id = ?').all(b.id).map(r => r.room_number).join(', ');
+  const stay = `Room${rooms.includes(',') ? 's' : ''} ${rooms} · ${b.check_in} → ${b.check_out}`;
+
+  switch (b.status) {
+    case 'pending_payment':
+      return `I found your booking ${b.reference} (code ${b.engine_code}) — ${stay}, total ${b.total_amount.toFixed(2)}.\n\nIt's awaiting confirmation at our front desk. Present your code at the desk (or call us) and we'll confirm your room right away.`;
+    case 'confirmed':
+      return `✅ Your booking ${b.reference} is CONFIRMED — ${stay}. We look forward to welcoming you! Present your code at the front desk on arrival for a smooth check-in.`;
+    case 'checked_in':
+      return `You're checked in — enjoy your stay! ${stay}. Your guest Wi-Fi credentials are available at the front desk or on your key sleeve.`;
+    case 'checked_out':
+      return `Booking ${b.reference} is completed — thank you for staying with us! We'd love to welcome you back anytime.`;
+    case 'cancelled':
+      return `Booking ${b.reference} was cancelled${b.engine_sync_status === 'rejected' ? ' (we could not hold the room for those dates)' : ''}. If that's unexpected, please contact the front desk and we'll gladly help you rebook.`;
+    default:
+      return `Booking ${b.reference} is currently: ${b.status.replace('_', ' ')}. Contact the front desk for details.`;
+  }
+}
 
 const RULES = [
   { keys: ['book', 'room', 'reserve', 'availability'],
@@ -28,8 +61,31 @@ const RULES = [
     reply: () => `You're very welcome! Is there anything else I can help you with?` },
 ];
 
-function getAIReply(messageText) {
-  const lower = (messageText || '').toLowerCase();
+/**
+ * Build the AI reply for an incoming guest message.
+ * @param {string} messageText  the guest's message
+ * @param {string} [tenantId]   tenant the message arrived for — enables the
+ *                              tender-code booking lookup (WhatsApp webhooks
+ *                              always pass it; other callers may omit it)
+ */
+function getAIReply(messageText, tenantId) {
+  const text = String(messageText || '');
+
+  // Highest priority: a tender code in the message is an explicit booking
+  // status query ("BE-7K2M9QX4", "my code is be 7k2m9q", "what's BE7K2M9QX4?").
+  // A missing tenantId means the caller can't scope the lookup — fall through
+  // to the keyword rules rather than ever answering across tenants.
+  const codeMatch = tenantId ? text.toUpperCase().match(CODE_RE) : null;
+  if (codeMatch) {
+    try {
+      return getEngineBookingReply(tenantId, codeMatch[0]);
+    } catch (e) {
+      console.warn('[ai] engine booking lookup failed:', e.message);
+      // fall through to keyword rules
+    }
+  }
+
+  const lower = text.toLowerCase();
   for (const rule of RULES) {
     if (rule.keys.some(k => lower.includes(k))) return rule.reply();
   }

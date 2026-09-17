@@ -91,6 +91,10 @@
           <tr><td>Guests</td><td id="s-pax"></td></tr>
           <tr class="total"><td>Total (pay at hotel)</td><td id="s-total"></td></tr>
         </table>
+        <div style="display:flex;gap:14px;align-items:center;margin-top:14px">
+          <img id="s-qr" alt="QR code — booking lookup" style="width:110px;height:110px;border:1px solid #e2e8f0;border-radius:8px;flex-shrink:0">
+          <div style="font-size:11px;color:#64748b;line-height:1.6">Scan to re-open this confirmation from any phone — useful if the code is hard to read, and at the desk during check-in.</div>
+        </div>
         <div class="fineprint">
           Present this code at the front desk to complete check-in.
           Check-in from <b id="s-citime"></b> · Check-out by <b id="s-cotime"></b>.
@@ -137,6 +141,9 @@
       $('s-total').textContent = b.hotel.currency + Number(b.total).toFixed(2);
       $('s-citime').textContent = b.hotel.checkInTime;
       $('s-cotime').textContent = b.hotel.checkOutTime;
+      // QR points at this exact booking's confirmation page (absolute URL —
+      // built server-side from the request host; the img just fetches it).
+      $('s-qr').src = '/api/booking-engine/qr?hotel=' + encodeURIComponent(SUB) + '&code=' + encodeURIComponent(b.code);
       $('lookup').classList.remove('open');
       $('slip').classList.add('open');
       window.scrollTo(0,0);

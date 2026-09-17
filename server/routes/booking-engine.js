@@ -14,6 +14,7 @@
 
 const express = require('express');
 const db = require('../db/connection');
+const qrcode = require('qrcode-generator');
 const { requireAuth, resolveTenant, requireTenant } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 const engine = require('../services/booking-engine');
@@ -173,6 +174,33 @@ router.get('/confirmation', (req, res) => {
     paid: booking.paid_amount,
     rooms: rooms.map(r => ({ number: r.room_number, rate: r.rate })),
   });
+});
+
+// GET /api/booking-engine/qr?hotel=&code= — SVG QR code pointing at the
+// confirmation lookup for that hotel (and booking, when a code is given).
+// Generated locally — the booking URL is never sent to a third-party QR image
+// service. The absolute URL is built from the request host (trust proxy is
+// configured in index.js), so it works behind Nginx/Render.
+router.get('/qr', (req, res) => {
+  const sub = String(req.query.hotel || '').trim().toLowerCase();
+  const code = String(req.query.code || '').trim().toUpperCase();
+  if (!sub) return res.status(400).json({ error: 'hotel is required' });
+  const tenant = db.prepare('SELECT id FROM tenants WHERE subdomain = ?').get(sub);
+  if (!tenant) return res.status(404).json({ error: 'Hotel not found' });
+
+  const host = req.get('host') || 'localhost';
+  const proto = req.protocol || 'http';
+  let target = `${proto}://${host}/confirmation.html?hotel=${encodeURIComponent(sub)}`;
+  if (code) target += '&code=' + encodeURIComponent(code);
+
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(target);
+    qr.make();
+    res.type('image/svg+xml').send(qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true }));
+  } catch (e) {
+    res.status(500).json({ error: 'Could not generate QR code' });
+  }
 });
 
 // ── Admin endpoints ─────────────────────────────────────────────────────────

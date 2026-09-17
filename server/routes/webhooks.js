@@ -102,7 +102,7 @@ router.post('/whatsapp/:subdomain', express.json({
     broadcast(tenant.id, 'message.created', { conversationId: conv.id, message: guestMsg });
 
     if (tenant.ai_enabled) {
-      const replyText = getAIReply(text);
+      const replyText = getAIReply(text, tenant.id); // tenantId enables tender-code booking lookup
       const aiMsgId = 'msg_' + nanoid(10);
       db.prepare(`INSERT INTO messages (id, tenant_id, conversation_id, sender, body, ai_generated) VALUES (?,?,?, 'ai', ?, 1)`)
         .run(aiMsgId, tenant.id, conv.id, replyText);
