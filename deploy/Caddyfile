@@ -1,0 +1,25 @@
+# deploy/Caddyfile — reverse proxy with automatic HTTPS (Let's Encrypt).
+# Caddy obtains and renews the certificate for staychat.akmustech.com on its
+# own — no certbot, no manual renewal. Place this file on the VPS at
+# /opt/staychat-os/deploy/Caddyfile and make sure the DNS A record for
+# staychat.akmustech.com points at the server BEFORE first start
+# (Caddy needs the domain to resolve publicly to issue the certificate).
+
+{
+	# Email lets Let's Encrypt send expiry notices (certs auto-renew regardless).
+	email support@akmustech.com
+}
+
+staychat.akmustech.com {
+	encode gzip
+
+	# WebSocket (/ws) and SSE work out of the box — Caddy proxies upgrades.
+	reverse_proxy staychat:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

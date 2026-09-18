@@ -1,0 +1,74 @@
+# deploy/docker-compose.prod.yml — full production stack for the Contabo VPS.
+# Two services: the StayChat OS app (build from the repo) and Caddy (automatic
+# HTTPS reverse proxy for staychat.akmustech.com).
+#
+# Secrets come from /opt/staychat-os/.env (created once during setup —
+# never committed). See deploy/SETUP.md for the full runbook.
+services:
+  staychat:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: staychat
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - APP_URL=https://staychat.akmustech.com
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - COOKIE_SECRET=${COOKIE_SECRET}
+      - CREDENTIALS_ENCRYPTION_KEY=${CREDENTIALS_ENCRYPTION_KEY}
+      - DATA_DIR=/app/data
+      - CHECK_DEMO_USERS=false
+      # Email (support@akmustech.com via your provider) — see SETUP.md
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-StayChat OS <support@akmustech.com>}
+      - EMAIL_FROM=${EMAIL_FROM:-StayChat OS <support@akmustech.com>}
+      # Subscription scheduler (renewal reminders + expiry sweeps), hourly
+      - SCHEDULER_INTERVAL_MINUTES=60
+      # Public booking widget links built in emails
+      - PLATFORM_GATEWAY=${PLATFORM_GATEWAY:-stripe}
+    volumes:
+      - staychat_data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # No ports exposed to the host — Caddy is the only public entrypoint.
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    depends_on:
+      - staychat
+    ports:
+      - "80:80"    # HTTP → HTTPS redirect + ACME challenges
+      - "443:443"  # HTTPS
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  staychat_data:
+  caddy_data:
+  caddy_config:

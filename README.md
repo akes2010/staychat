@@ -145,6 +145,14 @@ npm run dev
 
 ## Deploy it for real
 
+### Option A′ — Ready-made VPS kit (Contabo / any Ubuntu VPS, with a domain)
+
+`deploy/` contains a complete production stack: app + **Caddy (automatic
+HTTPS)** compose file, a one-shot `setup-vps.sh` (installs Docker, generates
+all secrets, opens the firewall, builds, seeds, starts, waits for health) and
+a step-by-step runbook for email, gateway webhooks, WhatsApp, backups and
+demo-data wipe. Start at **`deploy/SETUP.md`**.
+
 ### Option A — Docker (any VPS, DigitalOcean, Hetzner, AWS Lightsail, etc.)
 
 ```bash
