@@ -322,7 +322,27 @@ function tenantBillingSnapshot(tenant) {
   const state = resolveState(tenant);
   const history = db.prepare('SELECT * FROM platform_subscriptions WHERE tenant_id = ? ORDER BY requested_at DESC LIMIT 20').all(tenant.id);
   const pending = history.find(s => s.status === 'pending_approval') || null;
-  return { ...state, history, pending };
+
+  // Renewal info for the in-app banner (mirrors the email reminders): the
+  // active paid subscription's period end, days left, and the reference the
+  // hotel can quote for a manual bank-transfer renewal.
+  const active = history.find(s => s.status === 'active') || null;
+  const DAY_MS = 86400000;
+  const daysLeft = active && active.period_end
+    ? Math.ceil((new Date(active.period_end + 'T00:00:00Z').getTime() - Date.now()) / DAY_MS)
+    : null;
+  const renewal = active && active.period_end ? {
+    planId: active.plan_id,
+    periodEnd: active.period_end,
+    daysLeft,
+    paymentReference: active.payment_reference,
+    amount: active.amount,
+    billingCycle: active.billing_cycle,
+    // expiringSoon: true in the final week — the same window the emails fire.
+    expiringSoon: daysLeft !== null && daysLeft >= 0 && daysLeft <= 7,
+  } : null;
+
+  return { ...state, history, pending, renewal };
 }
 
 module.exports = {

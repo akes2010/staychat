@@ -113,8 +113,9 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build
 docker compose -f deploy/docker-compose.prod.yml logs -f staychat
 docker compose -f deploy/docker-compose.prod.yml logs -f caddy
 
-# Backup the database (do this regularly — it's one file)
-docker exec staychat sh -c 'cat /app/data/staychat.db' > backup-$(date +%F).db
+# Backup the database (installed automatically as a daily 03:17 cron by
+# setup-vps.sh; keeps 14 days in /opt/backups). Manual run:
+deploy/backup-db.sh
 
 # Restore a backup
 docker compose -f deploy/docker-compose.prod.yml stop staychat

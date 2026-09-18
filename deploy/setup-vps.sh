@@ -93,6 +93,19 @@ for i in $(seq 1 30); do
   [ "$i" = 30 ] && { echo "✗ App did not become healthy — check: docker compose -f deploy/docker-compose.prod.yml logs staychat"; exit 1; }
 done
 
+# 6. Daily database backups (cron — 03:17, keeps 14 days)
+if command -v crontab >/dev/null 2>&1; then
+  CRON_LINE="17 3 * * * $APP_DIR/deploy/backup-db.sh >> /var/log/staychat-backup.log 2>&1"
+  if crontab -l 2>/dev/null | grep -qF "backup-db.sh"; then
+    echo "✓ Backup cron already installed"
+  else
+    (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+    echo "✓ Daily DB backup scheduled (03:17, keeps 14 days in /opt/backups)"
+  fi
+else
+  echo "⚠ crontab not found — install cron and add: 17 3 * * * $APP_DIR/deploy/backup-db.sh"
+fi
+
 cat <<EOF
 
 ──────────────────────────────────────────────────────────────
@@ -110,7 +123,8 @@ cat <<EOF
     docker compose -f deploy/docker-compose.prod.yml logs -f staychat   # app logs
     docker compose -f deploy/docker-compose.prod.yml restart staychat   # restart
     docker compose -f deploy/docker-compose.prod.yml up -d --build      # deploy new code
-    cp data/staychat.db backup-$(date +%F).db                           # backup DB (host path)
+    deploy/backup-db.sh                                                 # manual DB backup
+    bash deploy/check-deployment.sh                                     # full health report
 
   Next steps:
     1. Visit https://$DOMAIN — Caddy obtains the TLS certificate automatically.

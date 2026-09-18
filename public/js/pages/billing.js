@@ -57,6 +57,27 @@ async function loadBilling(container) {
       '</div></div>'
   ) : '';
 
+  // In-app renewal reminder — mirrors the 7-day/1-day email reminders so the
+  // hotel also sees it where they work. One-click re-request of the same plan
+  // issues a fresh SC- reference (or opens hosted checkout when automated).
+  const renewal = snap.renewal || null;
+  const renewalCard = renewal && (renewal.expiringSoon || (renewal.daysLeft !== null && renewal.daysLeft < 0)) ? (
+    '<div class="card" style="padding:18px;border-color:' + (renewal.daysLeft < 0 ? 'var(--danger,#e5484d)' : 'var(--warn,#f5a623)') + '">' +
+      '<h3 style="font-size:15px;margin-bottom:6px">' + (renewal.daysLeft < 0 ? '🔴' : '🔔') + ' ' +
+        (renewal.daysLeft < 0
+          ? 'Your ' + renewal.planId + ' plan expired on ' + renewal.periodEnd
+          : 'Your ' + renewal.planId + ' plan renews in ' + renewal.daysLeft + ' day' + (renewal.daysLeft === 1 ? '' : 's')) + '</h3>' +
+      '<p style="font-size:12.5px;color:var(--text3);margin-bottom:10px">' +
+        (renewal.daysLeft < 0
+          ? 'Premium modules lock when the grace period ends. Renew now to keep everything running.'
+          : 'Renew before ' + renewal.periodEnd + ' to keep every feature — booking engine, WhatsApp inbox, accounting, guest Wi-Fi.') + '</p>' +
+      '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
+        '<div style="background:var(--surface2);border-radius:10px;padding:10px 16px;font-size:18px;font-weight:800;letter-spacing:1.5px">' + (renewal.paymentReference || '') + '</div>' +
+        '<div style="font-size:12.5px;color:var(--text3)">' + renewal.billingCycle + ' · $' + renewal.amount + '</div>' +
+        '<button class="btn primary" onclick="requestPlanFromModalShared(\'' + renewal.planId + '\', \'' + renewal.billingCycle + '\')">Renew now</button>' +
+      '</div></div>'
+  ) : '';
+
   const planRows = plans.map(p => {
     const isCurrent = p.id === ent.planId;
     const isPending = snap.pending && snap.pending.plan_id === p.id;
@@ -93,6 +114,8 @@ async function loadBilling(container) {
       '</div>' +
 
       pendingCard +
+
+      renewalCard +
 
       '<div class="card" style="padding:22px"><h3 style="font-size:16px;margin-bottom:14px">Plans</h3>' +
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">' + planRows + '</div>' +

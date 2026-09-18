@@ -256,6 +256,19 @@ document.addEventListener('keydown', (e) => {
 function registerRealtimeHandlers() {
   // Page modules also attach their own WSClient.on(...) listeners when constructed.
   WSClient.on('connected', () => { /* no-op, status dot already updates */ });
+
+  // Platform subscription events — global toasts so hotel admins learn about
+  // billing state changes wherever they are in the app (the Billing page
+  // re-renders itself via its own listeners when open).
+  WSClient.on('renewal.reminder', (p) => {
+    toast('🔔 Your ' + (p.planId || '') + ' plan renews in ' + p.daysLeft + ' day' + (p.daysLeft === 1 ? '' : 's') + ' — open Billing & Plan to renew.', 'warn', 9000);
+  });
+  WSClient.on('subscription.expired', () => {
+    toast('Your subscription expired — premium modules are locked. Renew from Billing & Plan.', 'error', 12000);
+  });
+  WSClient.on('subscription.activated', (p) => {
+    toast('🎉 Payment confirmed — you are now on the ' + (p.planName || p.planId || '') + ' plan!', 'success', 8000);
+  });
 }
 
 window.addEventListener('DOMContentLoaded', () => {
