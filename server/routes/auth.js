@@ -98,7 +98,9 @@ function publicUser(u) {
 
 function tenantFor(u) {
   if (!u.tenant_id) return null;
-  return db.prepare('SELECT id, name, plan, status, currency, timezone FROM tenants WHERE id = ?').get(u.tenant_id) || null;
+  // subdomain rides along so the SPA can show the hotel its public booking
+  // link (/book.html?hotel=<subdomain>) right after signup.
+  return db.prepare('SELECT id, name, subdomain, plan, status, currency, timezone FROM tenants WHERE id = ?').get(u.tenant_id) || null;
 }
 
 // Entitlements ride along on every auth payload so the SPA can badge locked
@@ -210,6 +212,16 @@ router.post('/register', registerLimiter, async (req, res) => {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
     const accessToken = issueSession(res, user);
     audit(req, 'register', 'tenant', tenantId, { hotelName, subdomain, email });
+
+    // Welcome email — fire-and-forget; signup must never wait on (or fail
+    // because of) the email provider. Skipped silently when email isn't
+    // configured.
+    try {
+      const emailSvc = require('../services/email');
+      emailSvc.sendEmail({ to: email, ...emailSvc.signupWelcomeEmail({
+        hotelName, ownerName: name, subdomain, plan: requestedPlan, trialEndsAt,
+      }) }).catch(() => {});
+    } catch (e) { /* never block signup on email */ }
 
     res.status(201).json({ user: publicUser(user), tenant: tenantFor(user), accessToken, entitlements: entitlementsFor(user), trialEndsAt });
   } catch (err) {

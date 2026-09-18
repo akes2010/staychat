@@ -19,6 +19,7 @@ const { requireAuth, resolveTenant, requireTenant } = require('../middleware/aut
 const { requirePermission } = require('../utils/permissions');
 const engine = require('../services/booking-engine');
 const { notifyStaffOfSubmission } = require('../services/engine-notifications');
+const emailSvc = require('../services/email');
 
 const router = express.Router();
 
@@ -38,7 +39,10 @@ function resolveSubdomain(req) {
 }
 
 function publicTenant(res, subdomain) {
-  const tenant = db.prepare('SELECT * FROM tenants WHERE subdomain = ? AND status = \'active\'').get(subdomain);
+  // 'trial' hotels are on a full-feature 14-day trial: their public booking
+  // channel MUST work (it's the core feature they are trying). Only 'suspended'
+  // (expired trial / deactivated) hotels are closed.
+  const tenant = db.prepare(`SELECT * FROM tenants WHERE subdomain = ? AND status IN ('active','trial')`).get(subdomain);
   if (!tenant) {
     res.status(404).json({ error: 'Hotel not found or not accepting online bookings' });
     return null;
@@ -102,8 +106,11 @@ router.get('/availability', (req, res) => {
 router.post('/book', (req, res) => {
   const { subdomain, guestName, guestPhone, guestEmail, checkIn, checkOut, roomIds, adults, children } = req.body || {};
   if (!subdomain) return res.status(400).json({ error: 'subdomain is required' });
-  const tenant = db.prepare('SELECT * FROM tenants WHERE subdomain = ? AND status = \'active\'').get(String(subdomain).toLowerCase());
+  const tenant = db.prepare(`SELECT * FROM tenants WHERE subdomain = ? AND status IN ('active','trial')`).get(String(subdomain).toLowerCase());
   if (!tenant) return res.status(404).json({ error: 'Hotel not found' });
+  // The widget hides itself when the engine is off — enforce it server-side too,
+  // so a disabled hotel can't keep receiving direct POSTs to this endpoint.
+  if (!engineEnabled(tenant.id)) return res.status(503).json({ error: 'Online booking is currently closed for this hotel' });
 
   try {
     const result = engine.submitBooking(tenant.id, { guestName, guestPhone, guestEmail, checkIn, checkOut, roomIds, adults, children });
@@ -117,6 +124,20 @@ router.post('/book', (req, res) => {
       checkOut: result.checkOut,
       total: result.total,
     });
+    // Guest confirmation email when they left one — same fire-and-forget rule.
+    if (guestEmail) {
+      emailSvc.sendEmail({ to: guestEmail, ...emailSvc.bookingSubmittedEmail({
+        hotelName: tenant.name,
+        guestName: result.guestName,
+        reference: result.reference,
+        code: result.code,
+        checkIn: result.checkIn,
+        checkOut: result.checkOut,
+        rooms: result.rooms.map(r => r.number).join(', '),
+        total: result.total,
+        currency: tenant.currency || '$',
+      }) }).catch(() => {});
+    }
     res.status(201).json({
       ...result,
       message: 'Reservation received. Present code ' + result.code + ' at the front desk to confirm your booking.',

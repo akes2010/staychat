@@ -13,6 +13,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { PLAN_CATALOG, resolveState, getSubscription } = require('./entitlements');
 const platformSettings = require('./platform-settings');
+const email = require('./email');
 const { broadcast } = require('../ws');
 
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L — phone-readable
@@ -145,18 +146,44 @@ async function createCheckoutSession(tenant, planId, billingCycle, req) {
     db.prepare('UPDATE platform_subscriptions SET payment_method = ?, gateway_ref = COALESCE(?, gateway_ref) WHERE id = ?')
       .run(checkout.provider, checkout.sessionId, sub.id);
     logEvent(tenant.id, 'checkout.created', plan.name + ' (' + manual.billingCycle + ') hosted checkout opened via ' + checkout.provider, manual.amount, manual.paymentReference);
+
+    // Email the hotel a receipt with the pay link (also their backup if the
+    // redirect is lost).
+    const to = tenantAdminEmail(tenant.id);
+    if (to) {
+      email.sendEmail({ to, ...email.planRequestedEmail({
+        hotelName: tenant.name, planName: plan.name, billingCycle: manual.billingCycle,
+        amount: manual.amount, paymentReference: manual.paymentReference, checkoutUrl: checkout.url,
+      }) }).catch(() => {});
+    }
     return { ...base, checkoutUrl: checkout.url, provider: checkout.provider, autoApprove: true };
   } catch (err) {
     // Gateway outage / misconfiguration → degrade gracefully to the manual
     // reference flow. The subscription + SC- reference already exist.
     console.error('[billing] checkout creation failed, falling back to manual flow:', err.message);
     logEvent(tenant.id, 'checkout.failed', 'Hosted checkout unavailable (' + err.message + ') — manual reference flow continues', manual.amount, manual.paymentReference);
+
+    const to = tenantAdminEmail(tenant.id);
+    if (to) {
+      email.sendEmail({ to, ...email.planRequestedEmail({
+        hotelName: tenant.name, planName: plan.name, billingCycle: manual.billingCycle,
+        amount: manual.amount, paymentReference: manual.paymentReference, checkoutUrl: null,
+      }) }).catch(() => {});
+    }
     return base;
   }
 }
 
 function countPending() {
   return db.prepare(`SELECT COUNT(*) c FROM platform_subscriptions WHERE status = 'pending_approval'`).get().c;
+}
+
+function tenantAdminEmail(tenantId) {
+  const row = db.prepare(
+    `SELECT email FROM users WHERE tenant_id = ? AND role = 'hotel_admin' AND active = 1 AND email IS NOT NULL
+     ORDER BY created_at ASC LIMIT 1`
+  ).get(tenantId);
+  return row ? row.email : null;
 }
 
 // A hotel requests a plan: records a pending subscription with a payment
@@ -228,6 +255,15 @@ function approveSubscription(subId, opts = {}) {
   doApprove();
 
   broadcast(tenant.id, 'subscription.activated', { planId: sub.plan_id, planName: plan.name, periodEnd });
+
+  // Receipt to the hotel — auto (gateway webhook) or manual (operator) alike.
+  const to = tenantAdminEmail(sub.tenant_id);
+  if (to && tenant) {
+    email.sendEmail({ to, ...email.subscriptionActivatedEmail({
+      hotelName: tenant.name, planName: plan.name, periodEnd,
+      auto: String(opts.approvedBy || '').startsWith('auto:'),
+    }) }).catch(() => {});
+  }
   return db.prepare('SELECT * FROM platform_subscriptions WHERE id = ?').get(subId);
 }
 

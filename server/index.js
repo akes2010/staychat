@@ -17,9 +17,14 @@ require('./db/migrate');
 
 // SaaS boot: seed the platform plan catalog (public pricing + superadmin
 // console read from it) and suspend trials that expired while we were down —
-// before the first request can hit a route guard.
+// before the first request can hit a route guard. The subscription scheduler
+// (renewal reminders + expiry sweeps) then runs once now and hourly after —
+// interval configurable via SCHEDULER_INTERVAL_MINUTES (default 60).
 require('./services/entitlements').ensurePlansSeeded();
 require('./services/entitlements').sweepExpiredTrials();
+require('./services/subscription-scheduler').start(
+  (Number(process.env.SCHEDULER_INTERVAL_MINUTES) || 60) * 60 * 1000
+);
 
 const ws = require('./ws');
 
