@@ -60,9 +60,11 @@ function requireTenant(req, res, next) {
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenantId);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
   if (req.user.role !== 'superadmin') {
-    if (tenant.status === 'suspended') return res.status(403).json({ error: 'This hotel account has been suspended' });
-    if (tenant.subscription_status === 'suspended') return res.status(403).json({ error: 'This hotel\'s subscription is suspended — contact your platform provider to reactivate it' });
-    if (tenant.subscription_status === 'terminated') return res.status(403).json({ error: 'This hotel\'s subscription has been terminated' });
+    // Machine-readable `code: 'SUSPENDED'` lets the SPA open the upgrade modal
+    // instead of a dead-end error toast.
+    if (tenant.status === 'suspended') return res.status(403).json({ error: 'This hotel account has been suspended', code: 'SUSPENDED' });
+    if (tenant.subscription_status === 'suspended') return res.status(403).json({ error: 'This hotel\'s subscription is suspended — contact your platform provider to reactivate it', code: 'SUSPENDED' });
+    if (tenant.subscription_status === 'terminated') return res.status(403).json({ error: 'This hotel\'s subscription has been terminated', code: 'SUSPENDED' });
   }
   req.tenant = tenant;
   next();

@@ -7,10 +7,11 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
+const { requireEntitlement } = require('../services/entitlements');
 const { broadcast } = require('../ws');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant, requirePermission('attendance.use'));
+router.use(requireAuth, resolveTenant, requireTenant, requirePermission('attendance.use'), requireEntitlement('staff_shifts'));
 
 // ── Shifts (schedule definitions) ───────────────────────────────────────
 router.get('/', (req, res) => {

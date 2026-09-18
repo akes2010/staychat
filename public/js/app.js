@@ -7,6 +7,7 @@ window.App = {
   tenant: null,
   permissions: [],
   accessToken: null,
+  entitlements: null,
   page: 'dashboard',
   sidebarCollapsed: false,
 };
@@ -22,6 +23,7 @@ function can(capability) {
 const PAGE_TITLES = {
   dashboard: 'Dashboard', rooms: 'Room Management', inbox: 'WhatsApp Inbox', orders: 'Room Service Orders',
   pos: 'Point of Sale',  bookings: 'Bookings & Reservations', pool: 'Pool Bookings', halls: 'Hall & Event Bookings',
+  billing: 'Billing & Plan',
   wifi: 'Guest Wi-Fi', engine: 'Booking Engine',
   housekeeping: 'Housekeeping', maintenance: 'Maintenance', guests: 'Guest Profiles', analytics: 'Analytics & Reports',
   staff: 'Staff Directory', shifts: 'Shifts & Attendance', menu: 'Menu Manager', payments: 'Payments', settings: 'Settings',
@@ -35,6 +37,7 @@ function getNavItems() {
   if (!App.user) return [];
   const all = [
     { page: 'dashboard', ico: '⊞', label: 'Dashboard', cap: 'dashboard.view' },
+    { page: 'billing', ico: '💳', label: 'Billing & Plan', cap: null },
     { page: 'rooms', ico: '🛏', label: 'Rooms', cap: 'rooms.manage' },
     { page: 'bookings', ico: '📅', label: 'Bookings', cap: 'bookings.manage' },
     { page: 'wifi', ico: '📶', label: 'Guest Wi-Fi', cap: 'bookings.manage' },
@@ -62,7 +65,7 @@ function getNavItems() {
     { page: 'integrations', ico: '🔌', label: 'API Integrations', cap: 'settings.manage' },
     { page: 'settings', ico: '⚙️', label: 'Settings', cap: 'settings.manage' },
   ];
-  const visible = all.filter(x => can(x.cap));
+  const visible = all.filter(x => !x.cap || can(x.cap));
   if (App.user.role === 'superadmin') visible.push({ page: 'superadmin', ico: '👑', label: 'Super Admin', section: 'Admin' });
   return visible;
 }
@@ -117,6 +120,11 @@ function navigate(page) {
     toast('You don\'t have permission to access that module', 'error');
     return;
   }
+  // Billing is visible to every signed-in hotel user regardless of capabilities.
+  if (page === 'billing' && App.user && App.user.role === 'superadmin' && !App.tenantId) {
+    toast('Pick a hotel to manage first', 'info');
+    page = 'superadmin';
+  }
   if (PAGE_CAPS[page] && App.user && App.user.role === 'superadmin' && !App.tenantId) {
     toast('Pick a hotel to manage first', 'info');
     page = 'superadmin';
@@ -137,7 +145,63 @@ function globalSearch(q) { if (q.length < 2) return; toast('Search across module
 function showNotifications() { toast('You have no new notifications', 'info'); }
 function openUserMenu() { toast('Signed in as: ' + App.user.name + ' (' + App.user.role + ')', 'info'); }
 
-// ── Shared cross-page modal actions ───────────────────────────────────────
+// ── SaaS: trial countdown banner ────────────────────────────────────────────
+function showTrialBanner() {
+  const ent = App.entitlements;
+  if (!ent || ent.status !== 'trial' || !ent.trial) return;
+  const days = ent.trial.daysLeft;
+  const old = document.getElementById('trial-banner');
+  if (old) old.remove();
+  const div = document.createElement('div');
+  div.id = 'trial-banner';
+  div.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;padding:8px 14px;font-size:12.5px;font-weight:600;background:linear-gradient(90deg,rgba(79,140,255,.15),rgba(34,211,167,.12));border-bottom:1px solid var(--border);color:var(--text)';
+  div.innerHTML = '<span>' + (days <= 3 ? '⏰' : '🎁') + ' Trial: ' + days + ' day' + (days === 1 ? '' : 's') + ' left on the ' + ent.planName + ' plan' +
+    (ent.pendingApproval ? ' · plan activation pending approval' : '') + '</span>' +
+    '<button class="btn primary" style="padding:4px 12px;font-size:11.5px" onclick="openBillingPage()">Manage plan</button>';
+  const mainWrap = document.getElementById('main-wrap');
+  mainWrap.insertBefore(div, mainWrap.firstChild);
+}
+
+function openBillingPage() {
+  if (App.user && App.user.role === 'superadmin') { toast('Billing is managed per hotel — pick one in Super Admin first', 'info'); return; }
+  navigate('billing');
+}
+
+// ── SaaS: 402 upgrade modal — opened by api.js on UPGRADE_REQUIRED ─────────
+window.openUpgradeModal = async function (payload) {
+  let plans = [];
+  try { plans = (await API.get('/api/billing/pricing')).plans; } catch (e) { plans = []; }
+  const current = (payload && payload.currentPlan) || (App.entitlements && App.entitlements.planId) || 'starter';
+  const message = (payload && payload.error) || 'This feature is not part of your current plan.';
+  openModal('Upgrade Plan',
+    '<div class="alert error" style="margin-bottom:16px">' + message + '</div>' +
+    '<div style="display:grid;gap:12px">' + plans.map(p =>
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border:1px solid ' + (p.id === current ? 'var(--primary)' : 'var(--border)') + ';border-radius:12px">' +
+        '<div><b>' + p.name + '</b> <span style="color:var(--text3);font-size:12px">— ' + p.featureLabels.slice(0, 3).join(' · ') + '…</span></div>' +
+        '<div style="text-align:right;white-space:nowrap"><b>$' + p.priceMonthly + '</b><span style="font-size:11px;color:var(--text3)">/mo</span><br>' +
+        '<button class="btn primary" style="padding:4px 12px;font-size:11.5px;margin-top:4px" onclick="requestPlanFromModal(\'' + p.id + '\')">' + (p.id === current ? 'Current' : 'Choose') + '</button></div>' +
+      '</div>').join('') + '</div>',
+    '<button class="btn outline" onclick="closeModal()">Close</button>'
+  );
+};
+
+window.requestPlanFromModal = async function (planId) {
+  try {
+    const r = await API.post('/api/billing/request-plan', { planId, billingCycle: 'monthly' });
+    // Keep the Billing page module in sync (it re-loads itself if visible).
+    if (typeof requestPlanFromModalShared === 'function' && App.page === 'billing') { /* already handled by page load */ }
+    closeModal();
+    openModal('Complete Activation',
+      '<div class="alert success" style="margin-bottom:14px">Request recorded. Pay <b>$' + r.amount + '/mo</b> and give the reference below to the platform team (or use it on the transfer receipt).</div>' +
+      '<div style="text-align:center;background:var(--surface2);border-radius:12px;padding:18px;margin-bottom:12px"><div style="font-size:11px;color:var(--text3);letter-spacing:1px">PAYMENT REFERENCE</div>' +
+      '<div style="font-size:26px;font-weight:800;letter-spacing:2px;margin:6px 0">' + r.paymentReference + '</div></div>' +
+      '<p style="font-size:12.5px;color:var(--text3)">Your plan activates the moment payment is confirmed — usually within one business day.</p>',
+      '<button class="btn primary" onclick="closeModal(); navigate(\'billing\')">Open Billing</button>');
+    if (typeof loadBilling === 'function') loadBilling();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+// ── Shared cross-page modal actions ─────────────────────────────────────────
 window.openNewIncident = function () {
   openModal('New Incident',
     '<div class="form-row cols-2" style="margin-bottom:14px">' +

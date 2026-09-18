@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Start your free trial — StayChat OS</title>
+  <meta name="description" content="Create your hotel workspace in 60 seconds. 14-day free trial, full features, no credit card.">
+  <link rel="manifest" href="/manifest.json"/>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
+  <meta name="theme-color" content="#0a1220"/>
+  <style>
+    :root {
+      --bg:#0a1220; --bg2:#0e1930; --surface:#121f36; --border:#1e2f4d;
+      --text:#e8eef8; --muted:#93a5c4; --p:#4f8cff; --p2:#7aa8ff; --accent:#22d3a7;
+      --grad:linear-gradient(135deg,#4f8cff,#22d3a7);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+           background:radial-gradient(800px 400px at 70% -10%, rgba(79,140,255,.12), transparent), var(--bg);
+           color:var(--text); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; line-height:1.55; }
+    .card { width:min(960px,100%); display:grid; grid-template-columns:1.1fr .9fr; background:var(--bg2);
+            border:1px solid var(--border); border-radius:22px; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,.45); }
+    .left { padding:40px; }
+    .right { padding:40px; background:var(--surface); border-left:1px solid var(--border); }
+    .logo { font-weight:800; font-size:19px; display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+    .logo .dot { width:10px; height:10px; border-radius:50%; background:var(--grad); }
+    h1 { font-size:clamp(22px,3vw,28px); font-weight:800; letter-spacing:-.5px; margin-bottom:6px; }
+    .sub { color:var(--muted); font-size:14px; margin-bottom:26px; }
+    label { display:block; font-size:12px; font-weight:700; letter-spacing:.4px; color:var(--muted); margin:14px 0 5px; text-transform:uppercase; }
+    input, select { width:100%; background:var(--bg); border:1.5px solid var(--border); border-radius:11px;
+                    color:var(--text); padding:11px 13px; font-size:14px; outline:none; }
+    input:focus, select:focus { border-color:var(--p); }
+    .plans { display:grid; gap:10px; margin-top:8px; }
+    .plan { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 14px;
+            border:1.5px solid var(--border); border-radius:13px; cursor:pointer; transition:border-color .15s; }
+    .plan:hover { border-color:var(--p); }
+    .plan.sel { border-color:var(--p); background:rgba(79,140,255,.08); }
+    .plan b { font-size:14px; }
+    .plan small { color:var(--muted); display:block; font-size:11.5px; }
+    .plan .pr { font-weight:800; white-space:nowrap; }
+    .cycle { display:flex; gap:8px; margin-top:8px; }
+    .cycle button { flex:1; padding:8px; border-radius:10px; border:1.5px solid var(--border); background:transparent;
+                    color:var(--muted); font-weight:700; font-size:12.5px; cursor:pointer; }
+    .cycle button.sel { border-color:var(--accent); color:var(--text); background:rgba(34,211,167,.08); }
+    .btn { display:block; width:100%; padding:14px; border-radius:12px; border:none; background:var(--grad);
+           color:#06101f; font-weight:800; font-size:15px; cursor:pointer; margin-top:24px; }
+    .btn:disabled { opacity:.55; cursor:wait; }
+    .btn-o { background:transparent; border:1.5px solid var(--border); color:var(--text); font-weight:600; }
+    .err { display:none; background:rgba(229,72,77,.12); border:1px solid rgba(229,72,77,.4); color:#ff8a8e;
+           padding:10px 13px; border-radius:10px; font-size:13px; margin-bottom:14px; }
+    .benefits { list-style:none; margin:18px 0 26px; }
+    .benefits li { font-size:13.5px; color:var(--muted); padding:5px 0 5px 24px; position:relative; }
+    .benefits li::before { content:'✓'; position:absolute; left:2px; color:var(--accent); font-weight:800; }
+    .success { text-align:center; padding:20px 0; }
+    .refbox { background:var(--bg); border:1px dashed var(--p); border-radius:14px; padding:18px; margin:18px 0; }
+    .refbox .ref { font-size:28px; font-weight:800; letter-spacing:3px; margin:6px 0 2px; }
+    .fine { font-size:11.5px; color:var(--muted); margin-top:16px; text-align:center; }
+    @media (max-width:820px) { .card { grid-template-columns:1fr; } .right { border-left:none; border-top:1px solid var(--border); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="left">
+      <div class="logo"><span class="dot"></span>StayChat OS</div>
+      <h1>Create your hotel workspace</h1>
+      <p class="sub">60 seconds to your own booking engine, AI receptionist and front desk.</p>
+      <ul class="benefits">
+        <li>14-day free trial — every feature unlocked</li>
+        <li>No credit card required</li>
+        <li>Your own public booking page with tender codes</li>
+        <li>Installable app (PWA) with offline mode</li>
+        <li>Cancel or switch plans anytime</li>
+      </ul>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Need to see it first?</div>
+        <a href="/app" style="font-size:13.5px;font-weight:700;color:var(--p2)">Open the live demo →</a>
+      </div>
+    </div>
+
+    <div class="right">
+      <div id="formWrap">
+        <div id="err" class="err"></div>
+
+        <label>Plan</label>
+        <div class="plans" id="plans"></div>
+        <div class="cycle">
+          <button id="cMonthly" class="sel" onclick="setCycle('monthly')">Monthly</button>
+          <button id="cYearly" onclick="setCycle('yearly')">Yearly · 2 months free</button>
+        </div>
+
+        <label>Hotel name</label>
+        <input id="fHotel" placeholder="e.g. Sunrise Beach Resort" autocomplete="organization"/>
+        <label>Your name</label>
+        <input id="fName" placeholder="e.g. Jane Doe" autocomplete="name"/>
+        <label>Work email</label>
+        <input id="fEmail" type="email" placeholder="you@yourhotel.com" autocomplete="username"/>
+        <label>Password</label>
+        <input id="fPass" type="password" placeholder="8+ chars, upper, lower, number, symbol" autocomplete="new-password"/>
+
+        <button class="btn" id="goBtn" onclick="signup()">Start my 14-day free trial →</button>
+        <div class="fine">Already have an account? <a href="/app" style="color:var(--p2)">Sign in</a></div>
+      </div>
+
+      <div id="doneWrap" style="display:none" class="success">
+        <div style="font-size:44px">🎉</div>
+        <h1 style="font-size:22px">Your workspace is live</h1>
+        <p class="sub">14 days of every feature — no card, no commitment.</p>
+        <div class="refbox">
+          <div style="font-size:11px;color:var(--muted);letter-spacing:1.5px">PLAN ACTIVATION REFERENCE</div>
+          <div class="ref" id="refCode">—</div>
+          <div style="font-size:12px;color:var(--muted)">Pay after the trial (or now to lock the price) and quote this reference — activation is instant once confirmed.</div>
+        </div>
+        <div id="paidNote" style="font-size:13px;color:var(--muted);margin-bottom:6px"></div>
+        <button class="btn" onclick="location.href='/app'">Open my dashboard →</button>
+        <button class="btn btn-o" onclick="location.href='/landing.html'">Back to site</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  let PRICING = null;
+  let selPlan = new URLSearchParams(location.search).get('plan') || 'pro';
+  if (!['starter','pro','enterprise'].includes(selPlan)) selPlan = 'pro';
+  let cycle = new URLSearchParams(location.search).get('cycle') === 'yearly' ? 'yearly' : 'monthly';
+
+  function money(n) { return '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+
+  async function boot() {
+    try { PRICING = await (await fetch('/api/billing/pricing')).json(); } catch (e) {}
+    renderPlans(); setCycle(cycle);
+  }
+
+  function renderPlans() {
+    const plans = PRICING ? PRICING.plans : [
+      { id:'starter', name:'Starter', tagline:'The essentials', priceMonthly:29, priceYearly:290, maxRooms:20 },
+      { id:'pro', name:'Pro', tagline:'Automation + every revenue center', priceMonthly:79, priceYearly:790, maxRooms:100 },
+      { id:'enterprise', name:'Enterprise', tagline:'Portfolio & custom integrations', priceMonthly:199, priceYearly:1990, maxRooms:null },
+    ];
+    document.getElementById('plans').innerHTML = plans.map(p =>
+      '<div class="plan' + (p.id === selPlan ? ' sel' : '') + '" onclick="pick(\'' + p.id + '\')">' +
+        '<div><b>' + p.name + '</b><small>' + (p.tagline || '') + (p.maxRooms ? ' · up to ' + p.maxRooms + ' rooms' : ' · unlimited rooms') + '</small></div>' +
+        '<div class="pr" data-plan="' + p.id + '">' + money(p.priceMonthly) + '<small style="font-weight:500">/mo</small></div>' +
+      '</div>').join('');
+  }
+
+  function pick(id) { selPlan = id; renderPlans(); }
+
+  function setCycle(c) {
+    cycle = c;
+    document.getElementById('cMonthly').className = c === 'monthly' ? 'sel' : '';
+    document.getElementById('cYearly').className = c === 'yearly' ? 'sel' : '';
+    document.querySelectorAll('.plan .pr').forEach(el => {
+      const p = (PRICING ? PRICING.plans : []).find(x => x.id === el.dataset.plan);
+      if (p) el.innerHTML = money(cycle === 'yearly' ? p.priceYearly : p.priceMonthly) +
+        '<small style="font-weight:500">/' + (cycle === 'yearly' ? 'yr' : 'mo') + '</small>';
+    });
+  }
+
+  function showErr(m) { const e = document.getElementById('err'); e.textContent = m; e.style.display = 'block'; }
+
+  async function signup() {
+    const hotelName = document.getElementById('fHotel').value.trim();
+    const name = document.getElementById('fName').value.trim();
+    const email = document.getElementById('fEmail').value.trim();
+    const password = document.getElementById('fPass').value;
+    if (!hotelName || !name || !email || !password) return showErr('Please fill in every field.');
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+      return showErr('Password must be 8+ characters with uppercase, lowercase, a number and a symbol.');
+    }
+    const btn = document.getElementById('goBtn');
+    btn.disabled = true; btn.textContent = 'Creating your workspace…';
+    try {
+      const reg = await fetch('/api/auth/register', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hotelName, name, email, password, plan: selPlan, source: 'checkout' }),
+      });
+      const regData = await reg.json();
+      if (!reg.ok) throw new Error(regData.error || 'Signup failed');
+
+      // Record the plan request so a payment reference exists from day one —
+      // the trial runs on the chosen plan either way.
+      let ref = null, amount = null;
+      try {
+        const req = await fetch('/api/billing/request-plan', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ planId: selPlan, billingCycle: cycle }),
+        });
+        if (req.ok) { const rd = await req.json(); ref = rd.paymentReference; amount = rd.amount; }
+      } catch (e) { /* non-fatal — trial works without it */ }
+
+      document.getElementById('formWrap').style.display = 'none';
+      document.getElementById('doneWrap').style.display = '';
+      document.getElementById('refCode').textContent = ref || 'SC-TRIAL';
+      document.getElementById('paidNote').textContent = amount ? ('Selected: ' + selPlan + ' (' + cycle + ') — ' + money(amount) + ' due at activation.') : '';
+    } catch (e) {
+      showErr(e.message); btn.disabled = false; btn.textContent = 'Start my 14-day free trial →';
+    }
+  }
+
+  boot();
+</script>
+</body>
+</html>

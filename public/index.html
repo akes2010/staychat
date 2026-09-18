@@ -3,9 +3,15 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-<meta name="theme-color" content="#006d2f"/>
+<meta name="theme-color" content="#0a1220"/>
 <title>StayChat OS — WhatsApp Hotel Management</title>
 <link rel="manifest" href="/manifest.json"/>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="StayChat"/>
+<meta name="mobile-web-app-capable" content="yes"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="/css/app.css"/>
@@ -102,6 +108,7 @@
         <input placeholder="Search rooms, guests, orders…" id="global-search" oninput="globalSearch(this.value)"/>
       </div>
       <div class="topbar-actions">
+        <button class="icon-btn" id="install-btn" style="display:none" onclick="PWA.promptInstall()" title="Install StayChat OS as an app">⬇️</button>
         <button class="icon-btn" onclick="showNotifications()" title="Notifications">
           🔔<span class="notif-dot" id="notif-dot" style="display:none"></span>
         </button>
@@ -120,6 +127,7 @@
 <script src="/js/api.js"></script>
 <script src="/js/ws-client.js"></script>
 <script src="/js/ui.js"></script>
+<script src="/js/pwa.js"></script>
 <script src="/js/auth.js"></script>
 <script src="/js/pages/dashboard.js"></script>
 <script src="/js/pages/rooms.js"></script>
@@ -140,6 +148,7 @@
 <script src="/js/pages/staff.js"></script>
 <script src="/js/pages/shifts.js"></script>
 <script src="/js/pages/eod.js"></script>
+<script src="/js/pages/billing.js"></script>
 <script src="/js/pages/menu.js"></script>
 <script src="/js/pages/payments.js"></script>
 <script src="/js/pages/accounting.js"></script>

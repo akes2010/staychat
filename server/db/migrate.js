@@ -979,6 +979,73 @@ function migrate() {
   }
 
   // ══════════════════════════════════════════════════════════
+  // SAAS BILLING — platform plans, subscription requests, billing events
+  // ══════════════════════════════════════════════════════════
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS platform_plans (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      tagline TEXT,
+      price_monthly REAL NOT NULL DEFAULT 0,
+      price_yearly REAL NOT NULL DEFAULT 0,
+      max_rooms INTEGER,
+      max_users INTEGER,
+      max_properties INTEGER,
+      daily_booking_cap INTEGER,
+      features TEXT DEFAULT '[]',
+      sort INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- One row per plan request/approval cycle. status:
+    --   pending_approval → payment awaited
+    --   active → approved & paid (only one per tenant)
+    --   superseded → replaced by a newer cycle
+    --   cancelled / rejected → withdrawn or declined
+    CREATE TABLE IF NOT EXISTS platform_subscriptions (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      plan_id TEXT NOT NULL,
+      billing_cycle TEXT NOT NULL DEFAULT 'monthly' CHECK(billing_cycle IN ('monthly','yearly')),
+      amount REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending_approval'
+        CHECK(status IN ('pending_approval','active','superseded','cancelled','rejected')),
+      payment_reference TEXT UNIQUE,
+      payment_method TEXT,
+      gateway_ref TEXT,
+      requested_by TEXT,
+      approved_by TEXT,
+      approved_at TEXT,
+      period_start TEXT,
+      period_end TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      requested_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_platsub_tenant ON platform_subscriptions(tenant_id, status);
+    CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status, requested_at);
+
+    -- Append-only billing trail: requests, approvals, expiry sweeps.
+    CREATE TABLE IF NOT EXISTS billing_events (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT REFERENCES tenants(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      note TEXT,
+      amount REAL,
+      payment_reference TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_billevents_tenant ON billing_events(tenant_id, created_at);
+  `);
+
+  // tenants → SaaS trial + signup provenance
+  const tenantCols3 = db.prepare("PRAGMA table_info(tenants)").all().map(c => c.name);
+  [
+    ['trial_started_at', 'TEXT'],
+    ['trial_ends_at', 'TEXT'],
+    ['signup_source', "TEXT NOT NULL DEFAULT 'direct'"], // 'direct' | 'checkout' | 'landing'
+  ].forEach(([col, def]) => { if (!tenantCols3.includes(col)) db.exec(`ALTER TABLE tenants ADD COLUMN ${col} ${def}`); });
+
+  // ══════════════════════════════════════════════════════════
   // ANALYZE — Update query planner statistics
   // ══════════════════════════════════════════════════════════
   try {

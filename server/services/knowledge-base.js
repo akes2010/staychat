@@ -23,9 +23,21 @@ const KB = [
   },
   {
     id: 'pricing',
-    keys: ['price', 'pricing', 'cost', 'how much', 'plan', 'subscription', 'mrr', 'pay'],
-    title: 'Pricing',
-    answer: `StayChat OS ships with three plans:\n\n• Starter — $29/mo — the essentials for a small property\n• Pro — $79/mo — growing hotels that want automation\n• Enterprise — $199/mo — multi-property, full feature set\n\nPlans are set per hotel by the platform operator, and there's a 14-day trial. Because the booking engine and WhatsApp channel are built in, you pay no OTA commission on direct bookings.`,
+    keys: ['price', 'pricing', 'cost', 'how much', 'plan', 'subscription', 'mrr', 'pay', 'trial', 'free'],
+    title: 'Pricing & free trial',
+    answer: `StayChat OS has three plans, every one with a 14-day free trial — no credit card:\n\n• Starter — $29/mo (or $290/yr) — up to 20 rooms, booking engine, AI receptionist, POS\n• Pro — $79/mo (or $790/yr) — up to 100 rooms + Wi-Fi, accounting, EOD, locks/IPTV/IoT\n• Enterprise — $199/mo (or $1990/yr) — unlimited rooms & properties, custom integrations\n\nYearly billing saves 2 months. The trial runs on the full requested plan — you can switch plans any time from Billing & Plan in the app. Direct bookings through your own engine pay 0% commission.`,
+  },
+  {
+    id: 'pwa',
+    keys: ['pwa', 'install', 'app', 'phone', 'tablet', 'offline', 'home screen', 'mobile app', 'android', 'iphone', 'ipad'],
+    title: 'Installable app & offline mode',
+    answer: `StayChat OS is a true PWA — install it and it runs like a native app:\n\n• "Install app" button on the site, or your browser menu → Install / Add to Home Screen\n• Works on phones, tablets and desktops — full-screen, no app store\n• Offline mode: the dashboard opens instantly and your last-seen rooms, bookings and rates stay readable when the internet drops\n• Reads are cached; money-moving actions (payments, check-ins) require connectivity so nothing is silently lost\n• Staff can log out on shared tablets and the local cache is wiped with them\n\nOn iPhone/iPad: Safari → Share → "Add to Home Screen".`,
+  },
+  {
+    id: 'billing-flow',
+    keys: ['activate', 'activation', 'upgrade', 'downgrade', 'bank transfer', 'invoice', 'billing', 'reference', 'sc-', 'cancel subscription', 'downgrade plan', 'switch plan'],
+    title: 'Activating & switching plans',
+    answer: `Plan changes are self-service:\n\n• Pick a plan on the signup page or in the app under Billing & Plan\n• You get a payment reference (like SC-7K2M9QX4) — pay by bank transfer, POS or any gateway the platform supports\n• The platform team confirms payment against your reference and your plan activates instantly\n• During the trial your requested plan's features are live immediately\n• Switch, upgrade or cancel any time from Billing & Plan; yearly billing saves 2 months`,
   },
   {
     id: 'booking-engine',
@@ -99,10 +111,10 @@ function search(query) {
   return {
     id: 'fallback',
     title: null,
-    answer: `I can help with questions about StayChat OS — try asking about:\n\n• The booking engine and tender codes\n• WhatsApp & the AI receptionist\n• Integrations (locks, IPTV, Wi-Fi, IoT, payments)\n• Pricing and plans\n• Security & multi-tenancy\n• Deployment (Docker, Render, VPS)\n\nOr click "Try the Live Demo" to explore the real system.`,
+    answer: `I can help with questions about StayChat OS — try asking about:\n\n• The booking engine and tender codes\n• WhatsApp & the AI receptionist\n• Pricing, the 14-day free trial and plan activation\n• Installing the app on your phone (PWA) and offline mode\n• Integrations (locks, IPTV, Wi-Fi, IoT, payments)\n• Security & multi-tenancy\n• Deployment (Docker, Render, VPS)\n\nOr click "Start your 14-day free trial" to see it live.`,
   };
 }
 
-const SUGGESTIONS = ['What is StayChat OS?', 'How does the booking engine work?', 'What integrations are supported?', 'How much does it cost?', 'Is my data isolated and secure?', 'How do I deploy it?'];
+const SUGGESTIONS = ['What is StayChat OS?', 'How does the booking engine work?', 'How much does it cost?', 'Can I install it on my phone?', 'What integrations are supported?', 'Is my data isolated and secure?'];
 
 module.exports = { search, KB, SUGGESTIONS };

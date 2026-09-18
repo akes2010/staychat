@@ -6,6 +6,7 @@ const { requireAuth, resolveTenant, requireTenant, audit } = require('../middlew
 const { requirePermission, hasPermission } = require('../utils/permissions');
 const { broadcast } = require('../ws');
 const { resolveOutstanding } = require('../utils/balance');
+const { assertLimit } = require('../services/entitlements');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
@@ -27,6 +28,11 @@ router.post('/', requirePermission('pricing.manage'), (req, res) => {
 
   const existing = db.prepare('SELECT id FROM rooms WHERE tenant_id = ? AND number = ?').get(req.tenantId, number);
   if (existing) return res.status(409).json({ error: 'A room with this number already exists' });
+
+  // SaaS plan limit — Starter caps at 20 rooms, Pro at 100 (402 on breach).
+  const roomCount = db.prepare('SELECT COUNT(*) c FROM rooms WHERE tenant_id = ?').get(req.tenantId).c;
+  try { assertLimit(req.tenant, 'maxRooms', roomCount); }
+  catch (e) { return res.status(e.status || 402).json({ error: e.message, code: e.code, limitKey: e.limitKey, limit: e.limit, upgradeTo: e.upgradeTo }); }
 
   let resolvedFloor = floor || 1, resolvedType = type || 'Standard', resolvedRate = rate || 0, resolvedCapacity = capacity || 2;
   if (floorId) {

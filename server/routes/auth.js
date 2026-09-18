@@ -7,6 +7,9 @@ const db = require('../db/connection');
 const { signAccessToken, makeRefreshToken, hashToken } = require('../utils/tokens');
 const { requireAuth, audit } = require('../middleware/auth');
 const { effectivePermissions } = require('../utils/permissions');
+const { startTrial, resolveState, ensurePlansSeeded, PLAN_CATALOG } = require('../services/entitlements');
+const billing = require('../services/billing');
+const PLAN_IDS = Object.keys(PLAN_CATALOG);
 
 const router = express.Router();
 
@@ -98,6 +101,14 @@ function tenantFor(u) {
   return db.prepare('SELECT id, name, plan, status, currency, timezone FROM tenants WHERE id = ?').get(u.tenant_id) || null;
 }
 
+// Entitlements ride along on every auth payload so the SPA can badge locked
+// modules and show the trial countdown without an extra round-trip.
+function entitlementsFor(u) {
+  if (!u.tenant_id) return null;
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(u.tenant_id);
+  return tenant ? resolveState(tenant) : null;
+}
+
 // ── Session Management ──────────────────────────────────────────────────────
 function issueSession(res, user) {
   const accessToken = signAccessToken(user);
@@ -176,9 +187,9 @@ router.post('/register', registerLimiter, async (req, res) => {
     const passwordHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
 
     const doRegister = db.transaction(() => {
-      db.prepare(`INSERT INTO tenants (id, name, subdomain, plan, status, email)
-                  VALUES (?, ?, ?, 'starter', 'trial', ?)`)
-        .run(tenantId, hotelName, subdomain, email);
+      db.prepare(`INSERT INTO tenants (id, name, subdomain, plan, status, email, signup_source)
+                  VALUES (?, ?, ?, 'starter', 'trial', ?, ?)`)
+        .run(tenantId, hotelName, subdomain, email, sanitizeString(req.body.source) || 'direct');
 
       db.prepare(`INSERT INTO users (id, tenant_id, name, email, password_hash, role)
                   VALUES (?, ?, ?, ?, ?, 'hotel_admin')`)
@@ -186,11 +197,21 @@ router.post('/register', registerLimiter, async (req, res) => {
     });
     doRegister();
 
+    // Self-service SaaS onboarding: the new hotel lands on a 14-day full-feature
+    // trial of the requested plan (default Starter). The booking engine is
+    // enabled so a trial hotel can exercise the whole funnel end-to-end.
+    const requestedPlan = PLAN_IDS.includes(req.body.plan) ? req.body.plan : 'starter';
+    const trialEndsAt = startTrial(tenantId, requestedPlan);
+    ensurePlansSeeded();
+    db.prepare(`INSERT INTO booking_engine_config (tenant_id, enabled) VALUES (?, 1)
+                ON CONFLICT(tenant_id) DO UPDATE SET enabled = 1`).run(tenantId);
+    billing.logEvent(tenantId, 'trial.started', '14-day trial of the ' + requestedPlan + ' plan started (ends ' + trialEndsAt + ')');
+
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
     const accessToken = issueSession(res, user);
     audit(req, 'register', 'tenant', tenantId, { hotelName, subdomain, email });
 
-    res.status(201).json({ user: publicUser(user), tenant: tenantFor(user), accessToken });
+    res.status(201).json({ user: publicUser(user), tenant: tenantFor(user), accessToken, entitlements: entitlementsFor(user), trialEndsAt });
   } catch (err) {
     console.error('Registration error:', err);
     res.status(500).json({ error: 'Could not create your account. Please try again.' });
@@ -230,7 +251,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const accessToken = issueSession(res, user);
     audit(req, 'login', 'user', user.id, { method: 'password' });
 
-    res.json({ user: publicUser(user), tenant: tenantFor(user), accessToken });
+    res.json({ user: publicUser(user), tenant: tenantFor(user), accessToken, entitlements: entitlementsFor(user) });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'An error occurred during login' });
@@ -295,7 +316,7 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Refresh token already used — all sessions revoked for safety. Please log in again.' });
     }
     const accessToken = issueSession(res, user);
-    res.json({ user: publicUser(user), tenant: tenantFor(user), accessToken });
+    res.json({ user: publicUser(user), tenant: tenantFor(user), accessToken, entitlements: entitlementsFor(user) });
   } catch (err) {
     console.error('Refresh error:', err);
     res.status(500).json({ error: 'An error occurred during token refresh' });
@@ -320,7 +341,7 @@ router.get('/me', requireAuth, (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
   let tenant = null;
   if (user.tenant_id) tenant = db.prepare('SELECT id, name, plan, status, currency, timezone FROM tenants WHERE id = ?').get(user.tenant_id);
-  res.json({ user: publicUser(user), tenant });
+  res.json({ user: publicUser(user), tenant, entitlements: entitlementsFor(user) });
 });
 
 // POST /api/auth/change-password

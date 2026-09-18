@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>StayChat OS — Run your hotel on WhatsApp</title>
-  <meta name="description" content="The all-in-one hotel management platform: AI WhatsApp receptionist, your own commission-free booking engine, guest Wi-Fi per booking, and 40+ integrations.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>StayChat OS — Run your hotel on WhatsApp</title>
+    <meta name="description" content="The all-in-one hotel management platform: AI WhatsApp receptionist, your own commission-free booking engine, guest Wi-Fi per booking, and 40+ integrations. Installable PWA, 14-day free trial.">
+    <link rel="manifest" href="/manifest.json"/>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
+    <meta name="theme-color" content="#0a1220"/>
   <style>
     :root {
       --bg:#0a1220; --bg2:#0e1930; --surface:#121f36; --border:#1e2f4d;
@@ -179,8 +182,9 @@
       <a href="#faq">FAQ</a>
     </div>
     <div class="nav-cta">
+      <button class="btn btn-o" id="installBtn" style="display:none" onclick="installApp()">📲 Install app</button>
       <a class="btn btn-o" href="/app">Sign in</a>
-      <a class="btn btn-p" href="/book.html?hotel=hospitally">Book a Stay</a>
+      <a class="btn btn-p" href="/signup.html">Start free trial</a>
     </div>
   </div>
 </nav>
@@ -192,15 +196,15 @@
     <p class="lead">AI receptionist answering guests 24/7, your own commission-free booking engine, front desk,
       housekeeping, POS, accounting and guest Wi-Fi — with 40+ integrations from door locks to IPTV.</p>
     <div class="hero-ctas">
-      <a class="btn btn-p btn-lg" href="/app">Try the Live Demo</a>
-      <a class="btn btn-o btn-lg" href="/book.html?hotel=hospitally">Book a Stay →</a>
+      <a class="btn btn-p btn-lg" href="/signup.html">Start your 14-day free trial →</a>
+      <a class="btn btn-o btn-lg" href="/app">Try the Live Demo</a>
     </div>
-    <div class="hero-note">No card needed for the demo · 14-day trial on all plans · ask the assistant bottom-right anything</div>
+    <div class="hero-note">Full features · No credit card · Install it on your phone as an app · ask the assistant bottom-right anything</div>
     <div class="stats">
       <div class="stat"><b>24/7</b><span>AI receptionist on WhatsApp</span></div>
       <div class="stat"><b>0%</b><span>OTA commission on direct bookings</span></div>
       <div class="stat"><b>49</b><span>pre-built integrations, 12 categories</span></div>
-      <div class="stat"><b>100%</b><span>tenant-isolated data, AES-256-GCM</span></div>
+      <div class="stat"><b>14 days</b><span>free trial — full features, no card</span></div>
     </div>
   </div>
 </header>
@@ -271,24 +275,49 @@
   <div class="wrap">
     <div class="center"><span class="kicker">Pricing</span>
       <h2>Simple plans, no commission</h2>
-      <p class="sub">Every plan includes the booking engine, WhatsApp channel and unlimited staff accounts. 14-day trial on all tiers.</p>
+      <p class="sub">Every plan includes the booking engine, WhatsApp channel and the installable app. 14-day trial on all tiers — no card required.</p>
+      <div style="display:inline-flex;align-items:center;gap:10px;margin-top:18px;background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:6px 8px">
+        <button id="cycleMonthly" class="btn btn-p" style="padding:7px 18px" onclick="setCycle('monthly')">Monthly</button>
+        <button id="cycleYearly" class="btn btn-o" style="padding:7px 18px;border:none" onclick="setCycle('yearly')">Yearly <span style="color:var(--accent)">· 2 months free</span></button>
+      </div>
     </div>
-    <div class="plans">
+    <div class="plans" id="plansGrid">
       <div class="plan">
         <h3>Starter</h3><div class="price">$29<small>/mo</small></div>
-        <ul><li>Up to 20 rooms</li><li>AI receptionist on WhatsApp</li><li>Booking engine + tender codes</li><li>Front desk, housekeeping, POS</li><li>Community support</li></ul>
-        <a class="btn btn-o" href="/app">Start free trial</a>
+        <ul><li>Up to 20 rooms</li><li>AI receptionist on WhatsApp</li><li>Booking engine + tender codes</li><li>Front desk, housekeeping, POS</li><li>Installable PWA + offline mode</li></ul>
+        <a class="btn btn-o" href="/signup.html?plan=starter">Start free trial</a>
       </div>
       <div class="plan hot">
         <div class="tag">MOST POPULAR</div>
         <h3>Pro</h3><div class="price">$79<small>/mo</small></div>
-        <ul><li>Up to 100 rooms</li><li>Everything in Starter</li><li>Guest Wi-Fi provisioning</li><li>Door locks, IPTV &amp; IoT integrations</li><li>Double-entry accounting + EOD</li><li>Priority support</li></ul>
-        <a class="btn btn-p" href="/app">Start free trial</a>
+        <ul><li>Up to 100 rooms</li><li>Everything in Starter</li><li>Guest Wi-Fi provisioning</li><li>Door locks, IPTV &amp; IoT integrations</li><li>Double-entry accounting + EOD</li><li>Pool, halls &amp; staff shifts</li></ul>
+        <a class="btn btn-p" href="/signup.html?plan=pro">Start free trial</a>
       </div>
       <div class="plan">
         <h3>Enterprise</h3><div class="price">$199<small>/mo</small></div>
         <ul><li>Unlimited rooms &amp; properties</li><li>Everything in Pro</li><li>Multi-property portfolio view</li><li>Custom integrations &amp; SLAs</li><li>Dedicated onboarding</li></ul>
-        <a class="btn btn-o" href="/app">Talk to us</a>
+        <a class="btn btn-o" href="/signup.html?plan=enterprise">Start free trial</a>
+      </div>
+    </div>
+    <div class="card" style="margin-top:26px;padding:26px">
+      <h3 style="font-size:16px;margin-bottom:6px">🧮 What are you paying your OTA today?</h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Drag the sliders — direct bookings through your own StayChat engine cost 0% commission.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px" id="calcWrap">
+        <div>
+          <label style="font-size:12.5px;color:var(--muted)">Monthly direct bookings: <b id="bkLabel" style="color:var(--text)">40</b></label>
+          <input type="range" min="5" max="300" value="40" id="bkInput" oninput="updateCalc()" style="width:100%;accent-color:#4f8cff">
+          <label style="font-size:12.5px;color:var(--muted);display:block;margin-top:12px">Average booking value: <b id="avLabel" style="color:var(--text)">$180</b></label>
+          <input type="range" min="40" max="1000" step="10" value="180" id="avInput" oninput="updateCalc()" style="width:100%;accent-color:#4f8cff">
+          <label style="font-size:12.5px;color:var(--muted);display:block;margin-top:12px">OTA commission: <b id="cmLabel" style="color:var(--text)">15%</b></label>
+          <input type="range" min="5" max="25" value="15" id="cmInput" oninput="updateCalc()" style="width:100%;accent-color:#4f8cff">
+        </div>
+        <div style="background:rgba(34,211,167,.07);border:1px solid rgba(34,211,167,.25);border-radius:14px;padding:20px;text-align:center">
+          <div style="font-size:12px;color:var(--muted);letter-spacing:1.5px">OTA COMMISSION YOU LOSE / YEAR</div>
+          <div id="calcLoss" style="font-size:34px;font-weight:800;color:var(--accent);margin:8px 0">$12,960</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:16px">vs. StayChat Pro at <b id="calcPlan" style="color:var(--text)">$79/mo ($948/yr)</b></div>
+          <div style="font-size:20px;font-weight:800">You keep <span id="calcSave" style="color:var(--accent)">$12,012</span></div>
+          <a class="btn btn-p btn-lg" href="/signup.html?plan=pro" style="margin-top:16px">Start keeping it →</a>
+        </div>
       </div>
     </div>
   </div>
@@ -322,9 +351,103 @@
 <footer>
   <div class="wrap foot-in">
     <div>© 2026 StayChat OS — hotel management, WhatsApp-first.</div>
-    <div><a href="/app">Sign in</a> · <a href="/book.html?hotel=hospitally">Book</a> · <a href="/confirmation.html?hotel=hospitally">Find my booking</a></div>
+    <div><a href="/signup.html">Start free trial</a> · <a href="/app">Sign in</a> · <a href="/book.html?hotel=hospitally">Book</a> · <a href="/confirmation.html?hotel=hospitally">Find my booking</a></div>
   </div>
 </footer>
+
+<!-- ── Pricing + PWA scripts ─────────────────────────────────────── -->
+<script>
+  // Live pricing: real catalog with a monthly/yearly toggle.
+  let PRICING = null;
+  let cycle = 'monthly';
+
+  function money(n) { return '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+
+  async function loadPricing() {
+    try {
+      const r = await fetch('/api/billing/pricing');
+      PRICING = await r.json();
+      renderPlans();
+    } catch (e) { /* static fallback stays visible */ }
+  }
+
+  function renderPlans() {
+    if (!PRICING) return;
+    const grid = document.getElementById('plansGrid');
+    if (!grid) return;
+    grid.innerHTML = PRICING.plans.map(p => {
+      const price = cycle === 'yearly' ? p.priceYearly : p.priceMonthly;
+      const per = cycle === 'yearly' ? '/yr' : '/mo';
+      const hot = p.id === 'pro';
+      const feats = p.featureLabels.slice(0, 6).map(f => '<li>' + f + '</li>').join('');
+      return '<div class="plan' + (hot ? ' hot' : '') + '">' +
+        (hot ? '<div class="tag">MOST POPULAR</div>' : '') +
+        '<h3>' + p.name + '</h3>' +
+        '<div class="price">' + money(price) + '<small>' + per + '</small></div>' +
+        (p.maxRooms ? '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">Up to ' + p.maxRooms + ' rooms</div>' : '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">Unlimited rooms & properties</div>') +
+        '<ul>' + feats + '</ul>' +
+        '<a class="btn ' + (hot ? 'btn-p' : 'btn-o') + '" href="/signup.html?plan=' + p.id + (cycle === 'yearly' ? '&cycle=yearly' : '') + '">Start free trial</a>' +
+      '</div>';
+    }).join('');
+  }
+
+  function setCycle(c) {
+    cycle = c;
+    const m = document.getElementById('cycleMonthly'), y = document.getElementById('cycleYearly');
+    m.className = 'btn ' + (c === 'monthly' ? 'btn-p' : 'btn-o');
+    m.style.border = c === 'monthly' ? '' : 'none';
+    y.className = 'btn ' + (c === 'yearly' ? 'btn-p' : 'btn-o');
+    y.style.border = c === 'yearly' ? '' : 'none';
+    renderPlans();
+    updateCalc();
+  }
+
+  // OTA-commission savings calculator.
+  function updateCalc() {
+    const bkEl = document.getElementById('bkInput');
+    if (!bkEl) return; // calculator section not present
+    const bk = +bkEl.value;
+    const av = +document.getElementById('avInput').value;
+    const cm = +document.getElementById('cmInput').value;
+    document.getElementById('bkLabel').textContent = bk;
+    document.getElementById('avLabel').textContent = money(av);
+    document.getElementById('cmLabel').textContent = cm + '%';
+    const yearlyLoss = bk * av * (cm / 100) * 12;
+    const pro = (PRICING ? PRICING.plans.find(p => p.id === 'pro') : null) || { priceMonthly: 79, priceYearly: 790 };
+    const planCost = cycle === 'yearly' ? pro.priceYearly : pro.priceMonthly * 12;
+    document.getElementById('calcLoss').textContent = money(yearlyLoss);
+    document.getElementById('calcPlan').textContent = money(cycle === 'yearly' ? pro.priceYearly : pro.priceMonthly) + (cycle === 'yearly' ? '/yr' : '/mo') + ' (' + money(planCost) + '/yr)';
+    document.getElementById('calcSave').textContent = money(Math.max(0, yearlyLoss - planCost));
+  }
+
+  // PWA install button (desktop Chrome/Edge; iOS gets instructions).
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const b = document.getElementById('installBtn');
+    if (b) b.style.display = '';
+  });
+  async function installApp() {
+    if (!deferredPrompt) {
+      if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+        alert('To install StayChat OS on iPhone/iPad:\n\n1. Tap the Share button (□↑)\n2. "Add to Home Screen"\n3. Tap Add — it runs full-screen like an app.');
+      } else {
+        alert('Use your browser menu → "Install StayChat OS" (or "Add to Home screen").');
+      }
+      return;
+    }
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+  }
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  }
+
+  loadPricing();
+  updateCalc();
+</script>
 
 <!-- ── Chatbot widget ─────────────────────────────────────────────────────── -->
 <button class="chat-fab" id="chatFab" title="Ask the StayChat assistant">💬</button>

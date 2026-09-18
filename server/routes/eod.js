@@ -8,9 +8,10 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
+const { requireEntitlement } = require('../services/entitlements');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant, requirePermission('eod.use'));
+router.use(requireAuth, resolveTenant, requireTenant, requirePermission('eod.use'), requireEntitlement('eod'));
 
 const DEPARTMENTS = ['front_desk', 'restaurant', 'bar', 'pool', 'hall', 'misc_services'];
 

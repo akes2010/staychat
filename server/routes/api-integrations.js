@@ -8,12 +8,13 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
+const { requireEntitlement } = require('../services/entitlements');
 const { SERVICE_DEFINITIONS, getAvailableServices, getServiceDefinition, getCategories } = require('../config/api-services');
 const { encryptJSON, decryptJSON } = require('../utils/crypto-store');
 const { testConnection } = require('../utils/service-tests');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant);
+router.use(requireAuth, resolveTenant, requireTenant, requireEntitlement('integrations_full'));
 
 // ── GET /api/api-integrations — list all configured services for this tenant
 router.get('/', requirePermission('settings.manage'), (req, res) => {

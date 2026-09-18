@@ -14,6 +14,13 @@ const rateLimit = require('express-rate-limit');
 const { nanoid } = require('nanoid');
 
 require('./db/migrate');
+
+// SaaS boot: seed the platform plan catalog (public pricing + superadmin
+// console read from it) and suspend trials that expired while we were down —
+// before the first request can hit a route guard.
+require('./services/entitlements').ensurePlansSeeded();
+require('./services/entitlements').sweepExpiredTrials();
+
 const ws = require('./ws');
 
 // ── App Setup ───────────────────────────────────────────────────────────────
@@ -159,6 +166,7 @@ app.use('/api/misc-services', require('./routes/misc-services'));
 app.use('/api/ai-config', require('./routes/ai-config'));
 app.use('/api/printers', require('./routes/printers'));
 app.use('/api/plans', require('./routes/plans'));
+app.use('/api/billing', require('./routes/billing'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/staff', require('./routes/staff'));
 app.use('/api/shifts', require('./routes/shifts'));
@@ -207,6 +215,8 @@ app.get('/api/health/detailed', (req, res) => {
 // the SPA below, so existing bookmarks keep working.
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'landing.html')));
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+app.get('/signup', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'signup.html')));
+app.get('/pay', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'pay.html')));
 
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   maxAge: isProduction ? '1d' : 0, // Cache static assets in production

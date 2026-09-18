@@ -9,6 +9,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 const { CAPABILITIES, ROLE_DEFAULTS, effectivePermissions } = require('../utils/permissions');
+const { assertLimit } = require('../services/entitlements');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requireRole('hotel_admin', 'superadmin'));
@@ -139,6 +140,14 @@ router.post('/', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const avatar = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
     const customized = Array.isArray(permissions);
+
+    // SaaS seat limit — plans cap active staff logins (402 on breach).
+    // Superadmins manage the platform itself and never count against a hotel's seats.
+    if (req.user.role !== 'superadmin' && role !== 'superadmin') {
+      const seatCount = db.prepare('SELECT COUNT(*) c FROM users WHERE tenant_id = ? AND active = 1').get(req.tenantId).c;
+      try { assertLimit(req.tenant, 'maxUsers', seatCount); }
+      catch (e) { return res.status(e.status || 402).json({ error: e.message, code: e.code, limitKey: e.limitKey, limit: e.limit, upgradeTo: e.upgradeTo }); }
+    }
 
     // The SELECT-then-INSERT above can race: two concurrent creates with the same
     // email both pass the check, and the UNIQUE constraint rejects the second

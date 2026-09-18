@@ -1,8 +1,55 @@
 # StayChat OS — WhatsApp-Native Hotel Management SaaS
 
-A real, deployable, multi-tenant hotel management platform. Express + SQLite backend,
+A real, deployable, multi-tenant hotel management **SaaS**. Express + SQLite backend,
 JWT auth with httpOnly cookies, WebSocket real-time updates, and a vanilla-JS frontend
 (no build step). WhatsApp Business Cloud API webhook included and ready to connect.
+
+## It sells itself
+
+The platform is a complete SaaS + PWA out of the box:
+
+- **Self-service signup & trials** — `/signup.html` creates the hotel workspace, starts a
+  14-day full-feature trial of the chosen plan and (non-blockingly) records a plan request
+  with a payment reference (`SC-XXXXXXXX`).
+- **Real entitlement gating** — every plan has a feature list and usage limits
+  (`server/services/entitlements.js`). Guarded routes answer `402 UPGRADE_REQUIRED` with a
+  machine-readable body; the SPA opens an upgrade modal automatically. Rooms and staff
+  seats are hard-capped per plan (402 `PLAN_LIMIT_REACHED`).
+- **Billing that closes the loop** — hotels pick a plan in-app (Billing & Plan), get a
+  payment reference, the platform operator approves payment in Super Admin → the tenant
+  goes live instantly (plan, period, MRR and legacy columns all synced). Expired trials
+  are swept to `suspended` at boot and on demand.
+- **The site is the salesperson** — the landing page renders live pricing from the same
+  catalog (monthly/yearly toggle), an OTA-commission savings calculator, and a chat
+  assistant trained on the platform's real feature set (including PWA and billing topics).
+- **Installable PWA** — manifest with maskable icons + app shortcuts, offline-first
+  service worker (stale-while-revalidate shell, network-first API with cached fallback),
+  install prompts with iOS fallback instructions, and logout cache-wipe for shared
+  front-desk tablets. Icons are generated, not binary: `node scripts/generate-icons.js`.
+
+### Plans
+
+| | Starter $29/mo | Pro $79/mo | Enterprise $199/mo |
+|---|---|---|---|
+| Rooms | 20 | 100 | Unlimited |
+| Staff logins | 5 | 25 | Unlimited |
+| Booking engine, AI receptionist, POS, front desk | ✓ | ✓ | ✓ |
+| Guest Wi-Fi, accounting, EOD, pool/halls, shifts, integrations | — | ✓ | ✓ |
+| Multi-property, custom integrations, dedicated onboarding | — | — | ✓ |
+
+Yearly billing saves 2 months. Trial runs on the full requested plan.
+
+### Payment & approval flow
+
+1. Hotel requests a plan (checkout page or Billing & Plan) → unique `SC-` reference issued.
+2. Hotel pays by bank transfer/POS/gateway and quotes the reference (`/pay?ref=SC-…`).
+3. Operator opens Super Admin → subscriptions, sees the pending request (WS live ping),
+   approves with the gateway ref → tenant is active on the plan for the period.
+4. Everything is audit-logged in `billing_events`.
+
+Card processors (Stripe/Paystack) can be wired by generating a hosted checkout URL in
+`server/services/billing.js` and calling `approveSubscription()` from their webhook —
+the plumbing points are marked inline.
 
 ## What's real here
 

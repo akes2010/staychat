@@ -6,10 +6,11 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
+const { requireEntitlement } = require('../services/entitlements');
 const { broadcast } = require('../ws');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant, requirePermission('halls.use'));
+router.use(requireAuth, resolveTenant, requireTenant, requirePermission('halls.use'), requireEntitlement('hall_events'));
 
 function serializeHall(h) { return { ...h, amenities: JSON.parse(h.amenities || '[]'), active: !!h.active }; }
 function serializeBooking(b) { return { ...b, catering: !!b.catering }; }

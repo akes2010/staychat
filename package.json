@@ -8,6 +8,7 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "seed": "node server/db/seed.js",
+    "icons": "node scripts/generate-icons.js",
     "check": "node server/db/check.js",
     "migrate": "node server/db/migrate.js",
     "rebuild": "npm rebuild better-sqlite3",

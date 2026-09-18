@@ -32,7 +32,7 @@ async function doLogin() {
     if (!data || !data.user) {
       throw new Error('Invalid response from server');
     }
-    startApp(data.user, data.accessToken, data.tenant);
+    startApp(data.user, data.accessToken, data.tenant, data.entitlements);
   } catch (err) {
     console.error('Login error:', err);
     showAuthError(err.message || 'Invalid email or password.');
@@ -59,8 +59,8 @@ async function doSignup() {
   try {
     const data = await API.post('/api/auth/register', { hotelName, name, email, password });
     if (!data || !data.user) throw new Error('Invalid response from server');
-    startApp(data.user, data.accessToken, data.tenant);
-    toast('Welcome to StayChat OS! Your hotel account has been created.', 'success');
+    startApp(data.user, data.accessToken, data.tenant, data.entitlements);
+    toast('Welcome to StayChat OS! Your 14-day trial has started — full features, no card required.', 'success', 6000);
   } catch (err) {
     console.error('Signup error:', err);
     showAuthError(err.message || 'Could not create your account.');
@@ -69,12 +69,13 @@ async function doSignup() {
   }
 }
 
-function startApp(user, accessToken, tenant) {
+function startApp(user, accessToken, tenant, entitlements) {
   window.App.user = user;
   window.App.tenantId = user.tenantId || null;
   window.App.tenant = tenant || null;
   window.App.accessToken = accessToken;
   window.App.permissions = user.permissions || [];
+  window.App.entitlements = entitlements || null;
 
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').classList.add('visible');
@@ -83,6 +84,8 @@ function startApp(user, accessToken, tenant) {
   WSClient.setTokenGetter(() => window.App.accessToken);
   WSClient.connect();
   registerRealtimeHandlers();
+  if (typeof showTrialBanner === 'function') showTrialBanner();
+  showInstallButtonIfAvailable();
 
   const landingPage = user.role === 'superadmin' && !App.tenantId ? 'superadmin'
     : (user.role === 'cashier' || user.role === 'barman') ? 'pos'
@@ -98,9 +101,24 @@ async function doLogout() {
   window.App.tenant = null;
   window.App.permissions = [];
   window.App.accessToken = null;
+  window.App.entitlements = null;
   document.getElementById('app').classList.remove('visible');
   document.getElementById('auth-screen').style.display = '';
+  // Shared-device hygiene: drop every cached shell/API copy so the next shift
+  // starts clean. The service worker re-registers fresh on next load.
+  if (window.PWA) await PWA.wipeCaches();
+  if (navigator.serviceWorker) {
+    try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r => r.unregister())); } catch (e) {}
+  }
   toast('Logged out successfully', 'info');
+}
+
+// Surface the install button once the browser says the app is installable.
+function showInstallButtonIfAvailable() {
+  const btn = document.getElementById('install-btn');
+  if (!btn || !window.PWA) return;
+  const show = () => { btn.style.display = ''; };
+  if (PWA.canInstall()) show(); else PWA.on('installable', show);
 }
 
 // Attempt silent session restore on page load (refresh-token cookie may still be valid)
@@ -110,7 +128,7 @@ async function tryRestoreSession() {
     // separate /me call beforehand is redundant — this also fixes session
     // restore silently failing if /me succeeded but refresh then failed.
     const refreshed = await API.post('/api/auth/refresh', {});
-    startApp(refreshed.user, refreshed.accessToken, refreshed.tenant);
+    startApp(refreshed.user, refreshed.accessToken, refreshed.tenant, refreshed.entitlements);
   } catch (e) {
     // No valid session — show login screen (already visible by default).
   }

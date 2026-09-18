@@ -4,11 +4,15 @@ const bcrypt = require('bcryptjs');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, requireRole, audit } = require('../middleware/auth');
+const { PLAN_CATALOG, sweepExpiredTrials } = require('../services/entitlements');
+const billing = require('../services/billing');
 
 const router = express.Router();
 router.use(requireAuth, requireRole('superadmin'));
 
-const PLAN_MRR = { starter: 29, pro: 79, enterprise: 199 };
+// Prices are derived from the entitlements catalog so the console can never
+// disagree with what the checkout page charged.
+const PLAN_MRR = Object.fromEntries(Object.entries(PLAN_CATALOG).map(([k, p]) => [k, p.priceMonthly]));
 
 function publicTenant(t) {
   const roomCount = db.prepare('SELECT COUNT(*) as c FROM rooms WHERE tenant_id = ?').get(t.id).c;
@@ -26,7 +30,67 @@ router.get('/overview', (req, res) => {
   const totalMrr = tenants.reduce((s, t) => s + (t.mrr || 0), 0);
   const totalRooms = db.prepare('SELECT COUNT(*) as c FROM rooms').get().c;
   const activeCount = tenants.filter(t => t.status === 'active').length;
-  res.json({ totalHotels: tenants.length, activeHotels: activeCount, totalMrr, totalRooms });
+  const trialCount = tenants.filter(t => t.status === 'trial').length;
+  const suspendedCount = tenants.filter(t => t.status === 'suspended').length;
+  const revenueAllTime = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM platform_subscriptions WHERE status IN ('active','superseded')").get().s;
+  res.json({
+    totalHotels: tenants.length, activeHotels: activeCount, totalMrr, totalRooms,
+    trialHotels: trialCount, suspendedHotels: suspendedCount,
+    pendingApprovals: billing.countPending(), revenueAllTime,
+  });
+});
+
+// ── Subscription approvals — the revenue control surface ────────────────────
+// GET /api/superadmin/subscriptions?status=pending_approval
+router.get('/subscriptions', (req, res) => {
+  const { status } = req.query;
+  const rows = status
+    ? db.prepare('SELECT * FROM platform_subscriptions WHERE status = ? ORDER BY requested_at DESC LIMIT 200').all(status)
+    : db.prepare('SELECT * FROM platform_subscriptions ORDER BY requested_at DESC LIMIT 200').all();
+  const tenantName = db.prepare('SELECT id, name FROM tenants WHERE id = ?');
+  res.json(rows.map(s => {
+    const t = tenantName.get(s.tenant_id);
+    return { ...s, hotelName: t ? t.name : s.tenant_id };
+  }));
+});
+
+// POST /api/superadmin/subscriptions/:id/approve  { gatewayRef? }
+// Marks payment received → tenant goes live on the requested plan immediately.
+router.post('/subscriptions/:id/approve', (req, res) => {
+  try {
+    const sub = billing.approveSubscription(req.params.id, {
+      approvedBy: req.user.name || 'superadmin',
+      gatewayRef: req.body.gatewayRef || null,
+    });
+    audit(req, 'billing.subscription_approved', 'platform_subscription', sub.id, { planId: sub.plan_id, tenantId: sub.tenant_id });
+    res.json(sub);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// POST /api/superadmin/subscriptions/:id/reject  { reason? }
+router.post('/subscriptions/:id/reject', (req, res) => {
+  try {
+    const sub = billing.rejectSubscription(req.params.id, req.body.reason);
+    audit(req, 'billing.subscription_rejected', 'platform_subscription', sub.id, { reason: req.body.reason || null });
+    res.json(sub);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// GET /api/superadmin/billing-events — platform-wide billing trail
+router.get('/billing-events', (req, res) => {
+  res.json(db.prepare('SELECT * FROM billing_events ORDER BY created_at DESC LIMIT 300').all());
+});
+
+// POST /api/superadmin/sweep-trials — flip expired trials to suspended
+// (also runs automatically once per server boot).
+router.post('/sweep-trials', (req, res) => {
+  const swept = sweepExpiredTrials();
+  audit(req, 'billing.trial_sweep', 'system', null, { swept });
+  res.json({ swept });
 });
 
 router.post('/tenants', (req, res) => {

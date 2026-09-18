@@ -9,6 +9,7 @@ const express = require('express');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { hasPermission, requirePermission } = require('../utils/permissions');
+const { requireEntitlement } = require('../services/entitlements');
 const { decrypt } = require('../utils/crypto-store');
 const wifi = require('../services/wifi');
 const { broadcast } = require('../ws');
@@ -61,7 +62,7 @@ router.get('/', requireAuth, resolveTenant, requireTenant, requirePermission('bo
 });
 
 // POST /api/wifi — provision for a booking (auto on check-in; manual here)
-router.post('/', requireAuth, resolveTenant, requireTenant, requirePermission('bookings.manage'), async (req, res) => {
+router.post('/', requireAuth, resolveTenant, requireTenant, requirePermission('bookings.manage'), requireEntitlement('guest_wifi'), async (req, res) => {
   const { bookingId, mac, speedDown, speedUp, quotaGb } = req.body || {};
   if (!bookingId) return res.status(400).json({ error: 'bookingId is required' });
 

@@ -9,9 +9,10 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
+const { requireEntitlement } = require('../services/entitlements');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant, requirePermission('accounting.view'));
+router.use(requireAuth, resolveTenant, requireTenant, requirePermission('accounting.view'), requireEntitlement('accounting'));
 
 const DEFAULT_ACCOUNTS = [
   ['1000', 'Cash on Hand', 'asset', 'debit', 'cash'],

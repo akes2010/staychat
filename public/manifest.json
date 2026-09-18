@@ -1,14 +1,24 @@
 {
-  "name": "StayChat OS - Hotel Management",
-  "short_name": "StayChat OS",
-  "description": "WhatsApp-Native Hotel Operating System",
-  "start_url": "/",
+  "name": "StayChat OS — Hotel Management",
+  "short_name": "StayChat",
+  "description": "WhatsApp-native hotel operating system: AI receptionist, booking engine, front desk, POS and accounting — installable and offline-capable.",
+  "id": "/app",
+  "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f0f4f8",
-  "theme_color": "#006d2f",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
+  "background_color": "#0a1220",
+  "theme_color": "#0a1220",
+  "categories": ["business", "productivity", "travel"],
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Dashboard", "url": "/app", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Bookings", "url": "/app?page=bookings", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Point of Sale", "url": "/app?page=pos", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
   ]
 }

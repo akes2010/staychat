@@ -8,9 +8,10 @@ const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { broadcast } = require('../ws');
 const { requirePermission, hasPermission } = require('../utils/permissions');
+const { requireEntitlement } = require('../services/entitlements');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pool.use'));
+router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pool.use'), requireEntitlement('pool_bookings'));
 
 // GET /api/pool?date=YYYY-MM-DD
 router.get('/', (req, res) => {

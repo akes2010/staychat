@@ -29,6 +29,15 @@ const API = (() => {
       const err = new Error((data && data.error) || `Request failed (${res.status})`);
       err.status = res.status;
       err.data = data;
+      // SaaS entitlement gating: surface the platform's upgrade UI instead of a
+      // dead-end error whenever the server answers 402 — or 403 with the
+      // machine-readable SUSPENDED code (expired trial / cancelled sub).
+      if (data && ['UPGRADE_REQUIRED', 'PLAN_LIMIT_REACHED', 'SUSPENDED'].includes(data.code) &&
+          [402, 403].includes(res.status) && typeof window !== 'undefined') {
+        if (typeof window.openUpgradeModal === 'function') {
+          setTimeout(() => window.openUpgradeModal(data), 0);
+        }
+      }
       throw err;
     }
     return data;

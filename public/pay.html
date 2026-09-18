@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment — StayChat OS</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+  <meta name="theme-color" content="#0a1220"/>
+  <style>
+    :root { --bg:#0a1220; --surface:#121f36; --border:#1e2f4d; --text:#e8eef8; --muted:#93a5c4; --p:#4f8cff; --accent:#22d3a7; --grad:linear-gradient(135deg,#4f8cff,#22d3a7); }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text);
+           min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; line-height:1.6; }
+    .card { width:min(520px,100%); background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:36px; text-align:center; }
+    .logo { font-weight:800; font-size:17px; display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:22px; }
+    .logo .dot { width:10px; height:10px; border-radius:50%; background:var(--grad); }
+    h1 { font-size:20px; margin-bottom:6px; }
+    .sub { color:var(--muted); font-size:13.5px; margin-bottom:24px; }
+    .ref { background:var(--bg); border:1.5px dashed var(--p); border-radius:14px; padding:20px; margin-bottom:22px; }
+    .ref .code { font-size:30px; font-weight:800; letter-spacing:3px; margin:4px 0 2px; }
+    .ref small { color:var(--muted); font-size:11px; letter-spacing:1.5px; }
+    .copy { background:var(--grad); color:#06101f; border:none; border-radius:10px; padding:9px 22px; font-weight:800; cursor:pointer; margin-top:10px; }
+    ol { text-align:left; color:var(--muted); font-size:13.5px; padding-left:20px; margin-bottom:24px; }
+    ol li { margin-bottom:8px; }
+    ol b { color:var(--text); }
+    a.back { color:var(--p); font-size:13px; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo"><span class="dot"></span>StayChat OS</div>
+    <h1>Complete your payment</h1>
+    <p class="sub">Quote this reference with your transfer — activation is confirmed against it.</p>
+    <div class="ref">
+      <small>PAYMENT REFERENCE</small>
+      <div class="code" id="ref">—</div>
+      <button class="copy" onclick="copyRef()">Copy reference</button>
+    </div>
+    <ol>
+      <li>Pay the amount shown in your plan request by <b>bank transfer</b>, <b>POS</b> or any gateway the platform team shared with you.</li>
+      <li>Use the reference above as the <b>narration/description</b> so payment is matched instantly.</li>
+      <li>Your plan activates as soon as payment is confirmed — usually <b>within one business day</b>.</li>
+    </ol>
+    <a class="back" href="/app">← Back to dashboard</a>
+  </div>
+  <script>
+    const ref = new URLSearchParams(location.search).get('ref') || 'UNKNOWN';
+    document.getElementById('ref').textContent = ref;
+    function copyRef() {
+      navigator.clipboard.writeText(ref).then(() => {
+        const b = document.querySelector('.copy'); b.textContent = 'Copied ✓';
+        setTimeout(() => { b.textContent = 'Copy reference'; }, 1600);
+      }).catch(() => {});
+    }
+  </script>
+</body>
+</html>
