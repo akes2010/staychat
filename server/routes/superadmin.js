@@ -10,6 +10,40 @@ const billing = require('../services/billing');
 const router = express.Router();
 router.use(requireAuth, requireRole('superadmin'));
 
+// ── Platform Billing (automated subscription payments) ───────────────────
+// The platform operator's own gateway credentials — NOT a hotel's. When at
+// least one is configured, hotel plan requests return a hosted checkout URL
+// and the gateway webhook activates subscriptions automatically.
+// Secrets are stored encrypted at rest and only ever returned masked.
+const platformSettings = require('../services/platform-settings');
+
+router.get('/platform-billing', (req, res) => {
+  const settings = platformSettings.visibleSettings();
+  const base = billing.resolvePlatformBaseUrl(req);
+  res.json({
+    settings,
+    autoPaymentsEnabled: billing.isAutoPaymentsEnabled(),
+    webhookUrls: {
+      stripe: base + '/api/webhooks/platform/stripe',
+      paystack: base + '/api/webhooks/platform/paystack',
+    },
+  });
+});
+
+router.put('/platform-billing', (req, res) => {
+  const allowed = ['stripe_secret_key', 'paystack_secret_key', 'stripe_webhook_secret', 'platform_base_url'];
+  const updated = [];
+  for (const [key, value] of Object.entries(req.body || {})) {
+    if (!allowed.includes(key)) return res.status(400).json({ error: 'Unknown setting: ' + key });
+    // Empty string = clear the stored value (explicit operator action).
+    platformSettings.set(key, value === '' ? null : value);
+    updated.push(key);
+  }
+  if (updated.length === 0) return res.status(400).json({ error: 'No settings provided' });
+  audit(req, 'platform.billing_settings_updated', 'platform_settings', null, { keys: updated });
+  res.json({ ok: true, updated, settings: platformSettings.visibleSettings(), autoPaymentsEnabled: billing.isAutoPaymentsEnabled() });
+});
+
 // Prices are derived from the entitlements catalog so the console can never
 // disagree with what the checkout page charged.
 const PLAN_MRR = Object.fromEntries(Object.entries(PLAN_CATALOG).map(([k, p]) => [k, p.priceMonthly]));

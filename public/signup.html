@@ -112,7 +112,8 @@
           <div style="font-size:12px;color:var(--muted)">Pay after the trial (or now to lock the price) and quote this reference — activation is instant once confirmed.</div>
         </div>
         <div id="paidNote" style="font-size:13px;color:var(--muted);margin-bottom:6px"></div>
-        <button class="btn" onclick="location.href='/app'">Open my dashboard →</button>
+        <button class="btn" id="payNowBtn" style="display:none" onclick="gotoCheckout()">Pay now — secure checkout →</button>
+        <button class="btn" id="openAppBtn" onclick="location.href='/app'">Open my dashboard →</button>
         <button class="btn btn-o" onclick="location.href='/landing.html'">Back to site</button>
       </div>
     </div>
@@ -145,6 +146,8 @@
   }
 
   function pick(id) { selPlan = id; renderPlans(); }
+
+  function gotoCheckout() { if (window.__checkoutUrl) location.href = window.__checkoutUrl; }
 
   function setCycle(c) {
     cycle = c;
@@ -179,21 +182,28 @@
       if (!reg.ok) throw new Error(regData.error || 'Signup failed');
 
       // Record the plan request so a payment reference exists from day one —
-      // the trial runs on the chosen plan either way.
-      let ref = null, amount = null;
+      // the trial runs on the chosen plan either way. When the platform has
+      // automated payments, we also get a hosted checkout URL to offer.
+      let ref = null, amount = null, checkoutUrl = null;
       try {
         const req = await fetch('/api/billing/request-plan', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ planId: selPlan, billingCycle: cycle }),
         });
-        if (req.ok) { const rd = await req.json(); ref = rd.paymentReference; amount = rd.amount; }
+        if (req.ok) { const rd = await req.json(); ref = rd.paymentReference; amount = rd.amount; checkoutUrl = rd.checkoutUrl || null; }
       } catch (e) { /* non-fatal — trial works without it */ }
 
       document.getElementById('formWrap').style.display = 'none';
       document.getElementById('doneWrap').style.display = '';
       document.getElementById('refCode').textContent = ref || 'SC-TRIAL';
       document.getElementById('paidNote').textContent = amount ? ('Selected: ' + selPlan + ' (' + cycle + ') — ' + money(amount) + ' due at activation.') : '';
+      if (checkoutUrl) {
+        window.__checkoutUrl = checkoutUrl;
+        document.getElementById('payNowBtn').style.display = '';
+        document.getElementById('payNowBtn').className = 'btn';
+        document.getElementById('openAppBtn').className = 'btn btn-o';
+      }
     } catch (e) {
       showErr(e.message); btn.disabled = false; btn.textContent = 'Start my 14-day free trial →';
     }

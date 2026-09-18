@@ -7,7 +7,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
-const { getAIReply } = require('../ai/receptionist');
+const { getAIReplyAsync } = require('../ai/receptionist');
 const { broadcast } = require('../ws');
 const { sendWhatsAppMessage } = require('../utils/whatsapp');
 
@@ -41,7 +41,7 @@ router.get('/whatsapp/:subdomain', (req, res) => {
 // ── POST /api/webhooks/whatsapp/:subdomain — incoming message events ──────
 router.post('/whatsapp/:subdomain', express.json({
   verify: (req, res, buf) => { req.rawBody = buf; } // captured for signature verification below
-}), (req, res) => {
+}), async (req, res) => {
   const tenant = db.prepare('SELECT * FROM tenants WHERE subdomain = ?').get(req.params.subdomain);
   if (!tenant) return res.status(404).json({ error: 'Unknown hotel' });
 
@@ -102,7 +102,9 @@ router.post('/whatsapp/:subdomain', express.json({
     broadcast(tenant.id, 'message.created', { conversationId: conv.id, message: guestMsg });
 
     if (tenant.ai_enabled) {
-      const replyText = getAIReply(text, tenant.id); // tenantId enables tender-code booking lookup
+      // Async path: tenant-configured LLM (or platform key) with graceful
+      // fallback to the offline rules — plus the tender-code booking lookup.
+      const { text: replyText } = await getAIReplyAsync(text, tenant.id);
       const aiMsgId = 'msg_' + nanoid(10);
       db.prepare(`INSERT INTO messages (id, tenant_id, conversation_id, sender, body, ai_generated) VALUES (?,?,?, 'ai', ?, 1)`)
         .run(aiMsgId, tenant.id, conv.id, replyText);
@@ -178,6 +180,90 @@ router.post('/paystack/:subdomain', express.json({
     } catch (err) {
       console.error('Paystack webhook processing error:', err);
     }
+  }
+});
+
+// ── PLATFORM payment webhooks (subscription auto-activation) ──────────────
+// These endpoints are for the PLATFORM's own gateway account (configured by
+// the superadmin in Super Admin → Platform Billing). A successful charge here
+// activates a hotel's subscription AUTOMATICALLY — no operator approval step.
+// URLs to register with the gateway (one per platform, not per hotel):
+//   Stripe:    https://yourdomain.com/api/webhooks/platform/stripe
+//   Paystack:  https://yourdomain.com/api/webhooks/platform/paystack
+
+const platformSettings = require('../services/platform-settings');
+const { approveSubscriptionByGatewayRef } = require('../services/billing');
+
+// Stripe: verify the Stripe-Signature header (t=timestamp,v1=hmac_sha256(rawBody))
+// against the platform's signing secret. Fail closed when unconfigured.
+router.post('/platform/stripe', express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}), (req, res) => {
+  const signingSecret = platformSettings.get('stripe_webhook_secret');
+  if (!signingSecret) {
+    return res.status(503).json({ error: 'Platform Stripe webhook secret is not configured' });
+  }
+  const header = String(req.headers['stripe-signature'] || '');
+  const parts = Object.fromEntries(header.split(',').map(p => p.split('=').map(s => s.trim())).filter(p => p.length === 2));
+  const timestamp = parts.t;
+  const signature = parts.v1;
+  if (!timestamp || !signature) return res.status(400).json({ error: 'Malformed Stripe signature header' });
+
+  // Replay window: reject events older than 5 minutes (Stripe's own guidance).
+  const age = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!Number.isFinite(age) || age > 300) return res.status(400).json({ error: 'Stripe signature timestamp outside tolerance' });
+
+  const expected = crypto.createHmac('sha256', signingSecret).update(timestamp + '.' + (req.rawBody || Buffer.alloc(0))).digest('hex');
+  if (!timingSafeEqualStr(signature, expected)) return res.status(400).json({ error: 'Invalid Stripe signature' });
+
+  res.status(200).json({ received: true });
+
+  try {
+    const event = req.body;
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data?.object || {};
+      // client_reference_id is the platform_subscriptions.id we set at
+      // checkout creation; metadata.subscription_id is the fallback.
+      const subId = session.client_reference_id || session.metadata?.subscription_id;
+      if (subId && session.payment_status === 'paid') {
+        approveSubscriptionByGatewayRef('stripe', subId, {
+          amount: (session.amount_total || 0) / 100,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Platform Stripe webhook processing error:', err);
+  }
+});
+
+// Paystack: verify X-Paystack-Signature (HMAC-SHA512 of the raw body) against
+// the platform secret key, exactly like the per-tenant handler above.
+router.post('/platform/paystack', express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}), (req, res) => {
+  const secretKey = platformSettings.get('paystack_secret_key');
+  if (!secretKey) {
+    return res.status(503).json({ error: 'Platform Paystack secret key is not configured' });
+  }
+  const signature = req.headers['x-paystack-signature'];
+  const expected = crypto.createHmac('sha512', secretKey).update(req.rawBody || Buffer.alloc(0)).digest('hex');
+  if (!signature || !timingSafeEqualStr(signature, expected)) {
+    return res.status(403).json({ error: 'Invalid Paystack signature' });
+  }
+
+  res.status(200).json({ received: true });
+
+  try {
+    if (req.body.event === 'charge.success') {
+      const data = req.body.data || {};
+      if (data.reference) {
+        approveSubscriptionByGatewayRef('paystack', data.reference, {
+          amount: (data.amount || 0) / 100,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Platform Paystack webhook processing error:', err);
   }
 });
 

@@ -1021,8 +1021,21 @@ function migrate() {
       created_at TEXT DEFAULT (datetime('now')),
       requested_at TEXT DEFAULT (datetime('now'))
     );
-    CREATE INDEX IF NOT EXISTS idx_platsub_tenant ON platform_subscriptions(tenant_id, status);
-    CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status, requested_at);
+-- ══════════════════════════════════════════════════════════
+    -- PLATFORM SETTINGS — key/value store for platform-operator (superadmin)
+    -- configuration: payment gateway credentials for automated subscription
+    -- checkout (Stripe secret key, Paystack secret key), platform-wide
+    -- defaults. Values that look like secrets are encrypted at rest with
+    -- AES-256-GCM (crypto-store). Only superadmin routes ever read them.
+    -- ══════════════════════════════════════════════════════════
+    CREATE TABLE IF NOT EXISTS platform_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+CREATE INDEX IF NOT EXISTS idx_platsub_tenant ON platform_subscriptions(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status, requested_at);
 
     -- Append-only billing trail: requests, approvals, expiry sweeps.
     CREATE TABLE IF NOT EXISTS billing_events (

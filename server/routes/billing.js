@@ -66,12 +66,19 @@ router.get('/summary', requireAuth, resolveTenant, (req, res) => {
 // operator to reconcile. During an active trial the requested tier's features
 // are unlocked immediately; activation after payment is the operator's approval.
 // Works while suspended — that's the self-service reactivation path.
-router.post('/request-plan', requireAuth, resolveTenant, (req, res) => {
+//
+// If the PLATFORM operator has configured a card gateway (Super Admin →
+// Platform Billing), the response also carries a hosted `checkoutUrl` and
+// `autoApprove: true` — the gateway webhook then activates the subscription
+// with no manual step. Either way the SC- reference is issued, so the manual
+// flow keeps working when no gateway is configured (or the gateway is down).
+router.post('/request-plan', requireAuth, resolveTenant, async (req, res) => {
   const { planId, billingCycle, paymentMethod } = req.body || {};
   if (!PLAN_CATALOG[planId]) return res.status(400).json({ error: 'Unknown plan' });
   try {
-    const result = billing.requestPlan(loadTenant(req), planId, billingCycle, paymentMethod);
-    audit(req, 'billing.plan_requested', 'platform_subscription', result.subscription.id, { planId, billingCycle, paymentMethod });
+    const result = await billing.createCheckoutSession(loadTenant(req), planId, billingCycle, req);
+    audit(req, 'billing.plan_requested', 'platform_subscription', result.subscription.id,
+      { planId, billingCycle, paymentMethod, provider: result.provider, autoApprove: result.autoApprove });
     res.status(201).json(result);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });

@@ -123,9 +123,17 @@ async function cancelPlanRequest(btn) {
 }
 
 // Shared with app.js upgrade modal (which posts without asking cycle).
+// When the platform operator has automated payments (gateway configured), the
+// response carries a hosted checkoutUrl — send the hotel straight there so the
+// subscription activates via webhook with no manual approval step.
 async function requestPlanFromModalShared(planId, cycle) {
   try {
     const r = await API.post('/api/billing/request-plan', { planId, billingCycle: cycle || 'monthly' });
+    if (r.checkoutUrl) {
+      toast('Redirecting to secure checkout…', 'success', 4000);
+      setTimeout(() => { window.location.href = r.checkoutUrl; }, 800);
+      return;
+    }
     toast('Request recorded — reference ' + r.paymentReference, 'success', 6000);
     loadBilling();
   } catch (e) { toast(e.message, 'error'); }

@@ -1,19 +1,18 @@
 // server/services/billing.js
 // Subscription lifecycle: hotels pick a plan on the public checkout page (or in
 // the in-app Billing page), the system records the request with a unique
-// payment reference, and a platform operator (superadmin) approves it once
-// payment lands — by bank transfer, POS, crypto or any gateway configured in
-// the platform's payment_gateways catalog. The approval is what flips the
-// tenant from trial/suspended to active with the new plan's entitlements.
-//
-// This is deliberately gateway-agnostic: card processors (Stripe/Paystack) can
-// be wired by generating their hosted checkout URL here and matching their
-// webhook to approveSubscription() — the plumbing points are marked inline.
+// payment reference, and the subscription activates when payment lands —
+// either AUTOMATICALLY via a gateway webhook (Stripe/Paystack hosted checkout,
+// configured by the platform operator in Super Admin → Platform Billing) or
+// MANUALLY when an operator approves it against a bank-transfer/POS reference.
+// The approval is what flips the tenant from trial/suspended to active with
+// the new plan's entitlements.
 'use strict';
 
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { PLAN_CATALOG, resolveState, getSubscription } = require('./entitlements');
+const platformSettings = require('./platform-settings');
 const { broadcast } = require('../ws');
 
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L — phone-readable
@@ -34,6 +33,126 @@ function logEvent(tenantId, type, note, amount, ref) {
 
 function notifySuperadmins() {
   broadcast(null, 'billing.pending_request', { count: countPending() });
+}
+
+// ── Platform base URL ────────────────────────────────────────────────────────
+// Used to build gateway callback/redirect URLs. Priority: APP_URL env (set it
+// in production so proxies can't skew it) → the request's forwarded headers →
+// localhost fallback (dev).
+function resolvePlatformBaseUrl(req) {
+  if (process.env.APP_URL) return String(process.env.APP_URL).replace(/\/+$/, '');
+  if (req) {
+    const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    if (host) return proto + '://' + host;
+  }
+  return 'http://localhost:' + (process.env.PORT || 3000);
+}
+
+// ── Automated checkout (platform gateways) ─────────────────────────────────
+// The PLATFORM operator configures Stripe/Paystack secret keys once, in
+// Super Admin → Platform Billing. From then on every hotel's plan request
+// returns a hosted-checkout URL; the gateway webhook (see routes/webhooks.js)
+// calls approveSubscriptionByGatewayRef() — no manual approval needed.
+
+function isAutoPaymentsEnabled() {
+  return platformSettings.has('stripe_secret_key') || platformSettings.has('paystack_secret_key');
+}
+
+async function createStripeCheckout(sub, plan, baseUrl) {
+  const secret = platformSettings.get('stripe_secret_key');
+  const cycleLabel = sub.billing_cycle === 'yearly' ? ' — yearly' : ' — monthly';
+  const body = new URLSearchParams({
+    mode: 'payment',
+    'payment_method_types[0]': 'card',
+    client_reference_id: sub.id,
+    customer_email: sub.tenant_email || '',
+    success_url: baseUrl + '/pay?ref=' + sub.payment_reference + '&session_id={CHECKOUT_SESSION_ID}',
+    cancel_url: baseUrl + '/app',
+    'line_items[0][quantity]': '1',
+    'line_items[0][price_data][currency]': 'usd',
+    'line_items[0][price_data][unit_amount]': String(Math.round(sub.amount * 100)),
+    'line_items[0][price_data][product_data][name]': 'StayChat OS — ' + plan.name + ' plan' + cycleLabel,
+    'metadata[subscription_id]': sub.id,
+  });
+  if (!sub.tenant_email) body.delete('customer_email');
+
+  const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+    signal: AbortSignal.timeout(15000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.url) {
+    throw Object.assign(new Error('Stripe checkout failed: ' + (data.error?.message || res.status)), { status: 502 });
+  }
+  return { url: data.url, sessionId: data.id, provider: 'stripe' };
+}
+
+async function createPaystackCheckout(sub, plan, baseUrl) {
+  const secret = platformSettings.get('paystack_secret_key');
+  const res = await fetch('https://api.paystack.co/transaction/initialize', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      amount: Math.round(sub.amount * 100), // kobo
+      email: sub.tenant_email || 'billing@staychat.io',
+      reference: sub.payment_reference, // unique SC- reference — doubles as gateway ref
+      callback_url: baseUrl + '/pay?ref=' + sub.payment_reference,
+      metadata: { subscription_id: sub.id, plan: plan.name, hotel: sub.tenant_name || '' },
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.data?.authorization_url) {
+    throw Object.assign(new Error('Paystack checkout failed: ' + (data.message || res.status)), { status: 502 });
+  }
+  return { url: data.data.authorization_url, sessionId: data.data.access_code, provider: 'paystack' };
+}
+
+/**
+ * Create (or reuse) a pending subscription for this tenant and — if the
+ * platform has a gateway configured — return a hosted checkout URL for it.
+ * Falls back to the manual SC- reference flow when no gateway is configured
+ * or the gateway call fails (network/API errors must never block a hotel from
+ * being able to request a plan).
+ */
+async function createCheckoutSession(tenant, planId, billingCycle, req) {
+  const manual = requestPlan(tenant, planId, billingCycle, 'card');
+  const base = {
+    ...manual,
+    checkoutUrl: null,
+    provider: null,
+    autoApprove: false,
+  };
+
+  if (!isAutoPaymentsEnabled()) return base;
+
+  const plan = PLAN_CATALOG[planId];
+  const sub = manual.subscription;
+  // Tenant contact email for pre-filled guest details on the gateway form.
+  sub.tenant_email = tenant.email || null;
+  sub.tenant_name = tenant.name || null;
+
+  try {
+    const checkout = process.env.PLATFORM_GATEWAY === 'paystack' && platformSettings.has('paystack_secret_key')
+      ? await createPaystackCheckout(sub, plan, resolvePlatformBaseUrl(req))
+      : platformSettings.has('stripe_secret_key')
+        ? await createStripeCheckout(sub, plan, resolvePlatformBaseUrl(req))
+        : await createPaystackCheckout(sub, plan, resolvePlatformBaseUrl(req));
+
+    db.prepare('UPDATE platform_subscriptions SET payment_method = ?, gateway_ref = COALESCE(?, gateway_ref) WHERE id = ?')
+      .run(checkout.provider, checkout.sessionId, sub.id);
+    logEvent(tenant.id, 'checkout.created', plan.name + ' (' + manual.billingCycle + ') hosted checkout opened via ' + checkout.provider, manual.amount, manual.paymentReference);
+    return { ...base, checkoutUrl: checkout.url, provider: checkout.provider, autoApprove: true };
+  } catch (err) {
+    // Gateway outage / misconfiguration → degrade gracefully to the manual
+    // reference flow. The subscription + SC- reference already exist.
+    console.error('[billing] checkout creation failed, falling back to manual flow:', err.message);
+    logEvent(tenant.id, 'checkout.failed', 'Hosted checkout unavailable (' + err.message + ') — manual reference flow continues', manual.amount, manual.paymentReference);
+    return base;
+  }
 }
 
 function countPending() {
@@ -122,6 +241,46 @@ function rejectSubscription(subId, reason) {
   return db.prepare('SELECT * FROM platform_subscriptions WHERE id = ?').get(subId);
 }
 
+// ── Gateway-webhook auto-approval ───────────────────────────────────────────
+// Called from routes/webhooks.js once a gateway event has been signature-
+// verified. Idempotent: a duplicate/replayed webhook finds an already-processed
+// reference and no-ops. When the webhook carries an amount, it must match the
+// subscription total — a partial payment activates nothing and is logged for
+// the operator to reconcile manually.
+function approveSubscriptionByGatewayRef(provider, gatewayRef, opts = {}) {
+  if (!gatewayRef) return null;
+  // Matches, in order of specificity: the subscription's own id (Stripe's
+  // client_reference_id / metadata.subscription_id), the gateway ref we stored
+  // at checkout creation (Stripe session id, Paystack access code), or the
+  // human SC- reference (Paystack uses it directly as the charge reference).
+  const sub = db.prepare(
+    `SELECT * FROM platform_subscriptions
+     WHERE id = ? OR gateway_ref = ? OR payment_reference = ?
+     ORDER BY (id = ?) DESC, requested_at DESC LIMIT 1`
+  ).get(String(gatewayRef), String(gatewayRef), String(gatewayRef), String(gatewayRef));
+  if (!sub) {
+    console.warn('[billing] gateway event for unknown reference:', provider, gatewayRef);
+    return null;
+  }
+  if (sub.status === 'active') return sub; // duplicate webhook after success — already live
+
+  if (opts.amount != null && opts.amount > 0) {
+    const paid = Math.round(opts.amount * 100);
+    const due = Math.round(sub.amount * 100);
+    if (paid < due) {
+      logEvent(sub.tenant_id, 'payment.underpaid',
+        provider + ' event amount ' + opts.amount + ' < due ' + sub.amount + ' — NOT activated, operator review needed',
+        opts.amount, sub.payment_reference);
+      return null;
+    }
+  }
+
+  return approveSubscription(sub.id, {
+    approvedBy: 'auto:' + provider,
+    gatewayRef: String(gatewayRef),
+  });
+}
+
 // Full picture for the in-app Billing page and the superadmin console.
 function tenantBillingSnapshot(tenant) {
   const state = resolveState(tenant);
@@ -134,6 +293,10 @@ module.exports = {
   makePaymentReference,
   requestPlan,
   approveSubscription,
+  approveSubscriptionByGatewayRef,
+  createCheckoutSession,
+  resolvePlatformBaseUrl,
+  isAutoPaymentsEnabled,
   rejectSubscription,
   tenantBillingSnapshot,
   countPending,

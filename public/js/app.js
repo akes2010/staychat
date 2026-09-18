@@ -188,6 +188,14 @@ window.openUpgradeModal = async function (payload) {
 window.requestPlanFromModal = async function (planId) {
   try {
     const r = await API.post('/api/billing/request-plan', { planId, billingCycle: 'monthly' });
+    // Platform payments automated: the gateway's hosted checkout activates the
+    // plan via webhook — send the hotel straight there.
+    if (r.checkoutUrl) {
+      closeModal();
+      toast('Redirecting to secure checkout…', 'success', 4000);
+      setTimeout(() => { window.location.href = r.checkoutUrl; }, 800);
+      return;
+    }
     // Keep the Billing page module in sync (it re-loads itself if visible).
     if (typeof requestPlanFromModalShared === 'function' && App.page === 'billing') { /* already handled by page load */ }
     closeModal();

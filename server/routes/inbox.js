@@ -4,7 +4,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { broadcast } = require('../ws');
-const { getAIReply } = require('../ai/receptionist');
+const { getAIReplyAsync } = require('../ai/receptionist');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
@@ -64,7 +64,7 @@ router.post('/conversations/:id/messages', (req, res) => {
 
 // POST /api/inbox/simulate-incoming  — for demo/testing: simulate a guest message + trigger AI
 // (In production this logic lives in the WhatsApp webhook handler — see server/routes/webhooks.js)
-router.post('/conversations/:id/simulate-guest-message', (req, res) => {
+router.post('/conversations/:id/simulate-guest-message', async (req, res) => {
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
   const { body } = req.body;
@@ -77,7 +77,7 @@ router.post('/conversations/:id/simulate-guest-message', (req, res) => {
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenantId);
   let aiMsg = null;
   if (tenant.ai_enabled) {
-    const replyText = getAIReply(body);
+    const { text: replyText } = await getAIReplyAsync(body, req.tenantId);
     const aiMsgId = 'msg_' + nanoid(10);
     db.prepare(`INSERT INTO messages (id, tenant_id, conversation_id, sender, body, ai_generated) VALUES (?,?,?, 'ai', ?, 1)`)
       .run(aiMsgId, req.tenantId, conv.id, replyText);

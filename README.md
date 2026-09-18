@@ -41,15 +41,42 @@ Yearly billing saves 2 months. Trial runs on the full requested plan.
 
 ### Payment & approval flow
 
-1. Hotel requests a plan (checkout page or Billing & Plan) → unique `SC-` reference issued.
-2. Hotel pays by bank transfer/POS/gateway and quotes the reference (`/pay?ref=SC-…`).
-3. Operator opens Super Admin → subscriptions, sees the pending request (WS live ping),
-   approves with the gateway ref → tenant is active on the plan for the period.
-4. Everything is audit-logged in `billing_events`.
+**Automated (recommended):** configure the platform's own card gateway once, under
+Super Admin → *Billing & Approvals*. Keys are stored encrypted at rest and never
+returned in full by the API. From then on:
 
-Card processors (Stripe/Paystack) can be wired by generating a hosted checkout URL in
-`server/services/billing.js` and calling `approveSubscription()` from their webhook —
-the plumbing points are marked inline.
+1. Hotel requests a plan (signup, Billing & Plan, or the upgrade modal) → the API
+   creates a hosted-checkout session and the UI redirects straight to Stripe/Paystack.
+2. The guest pays on the gateway's page; the gateway calls the platform webhook:
+   - Stripe: `POST /api/webhooks/platform/stripe` (signature-verified,
+     `checkout.session.completed`, 5-minute replay window)
+   - Paystack: `POST /api/webhooks/platform/paystack` (HMAC-SHA512 signature-verified)
+3. The webhook auto-activates the subscription — tenant goes live on the plan for the
+   period with **no manual step**. Replayed webhooks are no-ops (idempotent), and an
+   event whose amount is below the subscription total is logged for operator review
+   instead of activating anything.
+4. Everything is audit-logged in `billing_events` (approved by `auto:stripe` / `auto:paystack`).
+
+**Manual (bank transfer / POS, always available as fallback):**
+
+1. Hotel requests a plan → unique `SC-` reference issued (also shown at `/pay?ref=SC-…`).
+2. Hotel pays by bank transfer/POS and quotes the reference.
+3. Operator opens Super Admin → *Billing & Approvals*, sees the pending request,
+   approves with the gateway ref → tenant is active on the plan for the period.
+
+If no gateway is configured — or the gateway is down — checkout creation degrades
+gracefully to the manual `SC-` reference flow, so a gateway outage can never prevent
+a hotel from requesting a plan.
+
+### Platform billing credentials (superadmin-only)
+
+- `GET /api/superadmin/platform-billing` — masked view + webhook URLs
+- `PUT /api/superadmin/platform-billing` — set/clear `stripe_secret_key`,
+  `stripe_webhook_secret`, `paystack_secret_key` (encrypted at rest, AES-256-GCM)
+
+Every plan/tenant management surface (`/api/plans`, `/api/superadmin/*`) requires the
+`superadmin` role; hotel admins cannot read gateway state, approve payments, or change
+plans/status/MRR from tenant settings (strict column whitelist).
 
 ## What's real here
 
@@ -61,9 +88,25 @@ the plumbing points are marked inline.
 - **Real payment webhook** — Paystack webhook handler with HMAC signature verification included; Stripe/Flutterwave follow the same pattern.
 - **Audit log** — every write action is recorded with user, tenant, IP, and a JSON diff.
 
+## What's real here (AI)
+
+- The **AI Receptionist** (`server/ai/receptionist.js`) now makes **real LLM calls**:
+  1. A hotel can plug in its own provider under Settings → AI (OpenAI, Anthropic,
+     Qwen, DeepSeek, OpenRouter, Kimi, Z.ai — key stored per-tenant, used only for
+     that tenant's guests).
+  2. Otherwise platform keys from the environment are used (`ANTHROPIC_API_KEY`,
+     `OPENAI_API_KEY`, or `OPENROUTER_API_KEY`).
+  3. With no keys at all (or on any API error/network failure), it falls back to the
+     built-in offline keyword replies — the product never breaks without credentials.
+- The LLM is hotel-branded and constrained to hospitality topics; booking-code
+  (`BE-…`) lookups stay deterministic (they read the DB, not the model) and remain
+  strictly tenant-scoped.
+- Outbound LLM calls are hardened: IPv4-pinned `node:https` (avoids the Happy-Eyeballs
+  ETIMEDOUT failure mode on some hosts), 10s connect / 30s total timeout, and the
+  WhatsApp webhook always 200s first so a slow model can never delay Meta's retries.
+
 ## What's still a stand-in (by design, clearly marked in code)
 
-- The **AI Receptionist** (`server/ai/receptionist.js`) is a deterministic keyword-matcher, not a live LLM call — so the whole app works offline with zero API keys. Swap in a real Claude API call in that one file (the function signature is designed so nothing else needs to change) and you have a genuine AI receptionist.
 - **Email** isn't wired up (no transactional email provider configured) — `tempPassword` values are currently returned directly in API responses/toasts for demo convenience. Wire up an email provider before going live so passwords aren't shown in the UI.
 
 ---
