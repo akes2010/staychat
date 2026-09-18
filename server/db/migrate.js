@@ -75,6 +75,23 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
 
     -- ══════════════════════════════════════════════════════════
+    -- PASSWORD RESETS — self-service "forgot password" flow
+    -- Only the SHA-256 hash of the token is stored; the raw token lives in
+    -- the email link alone. One unused reset per user at a time; consumed
+    -- tokens stay as an audit trail (used_at).
+    -- ══════════════════════════════════════════════════════════
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_pwresets_user ON password_resets(user_id);
+    CREATE INDEX IF NOT EXISTS idx_pwresets_hash ON password_resets(token_hash);
+
+    -- ══════════════════════════════════════════════════════════
     -- ROOMS
     -- ══════════════════════════════════════════════════════════
     CREATE TABLE IF NOT EXISTS rooms (
@@ -439,6 +456,7 @@ function migrate() {
       department TEXT NOT NULL, -- 'front_desk' | 'restaurant' | 'bar' | 'pool' | 'hall' | 'misc_services'
       date TEXT NOT NULL,
       closed_by TEXT,
+      closed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       totals TEXT DEFAULT '{}', -- JSON snapshot: { cash, card, room_charge, customer_bill, group_account, count }
       notes TEXT,
       status TEXT NOT NULL DEFAULT 'closed' CHECK(status IN ('closed','reopened')),
@@ -834,6 +852,11 @@ function migrate() {
   [['description', 'TEXT'], ['category', "TEXT NOT NULL DEFAULT 'Standard'"]].forEach(([col, def]) => { if (!hallCols.includes(col)) db.exec(`ALTER TABLE halls ADD COLUMN ${col} ${def}`); });
   const poolBookingCols = db.prepare("PRAGMA table_info(pool_bookings)").all().map(c => c.name);
   if (!poolBookingCols.includes('pool_id')) db.exec("ALTER TABLE pool_bookings ADD COLUMN pool_id TEXT REFERENCES pools(id) ON DELETE SET NULL");
+
+  // eod_closings → attribute each closing to the exact staff account that made
+  // it ("each user sees their own EOD; the owner/admin sees and manages all")
+  const eodCols = db.prepare("PRAGMA table_info(eod_closings)").all().map(c => c.name);
+  if (!eodCols.includes('closed_by_user_id')) db.exec("ALTER TABLE eod_closings ADD COLUMN closed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL");
 
   // bookings → full guest bio-data + group-account billing
   const bookingCols2 = db.prepare("PRAGMA table_info(bookings)").all().map(c => c.name);

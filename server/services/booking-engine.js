@@ -19,6 +19,7 @@
 const db = require('../db/connection');
 const { effectiveRate } = require('../routes/room-setup');
 const { sendWhatsAppMessage } = require('../utils/whatsapp');
+const emailSvc = require('./email');
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // no 0/O/1/I/L
 
@@ -44,8 +45,37 @@ function notify(tenantId, phone, text) {
 }
 
 function hotelHeader(tenantId) {
-  const t = db.prepare('SELECT name, currency, phone, email FROM tenants WHERE id = ?').get(tenantId) || {};
+  const t = db.prepare('SELECT name, currency, phone, email, check_in_time, check_out_time, subdomain FROM tenants WHERE id = ?').get(tenantId) || {};
   return t;
+}
+
+// Guest lifecycle emails (fire-and-forget, like WhatsApp). No-ops when the
+// guest didn't leave an email — submission is the only step that collects it.
+function guestHotel(hotel) {
+  return { name: hotel.name, phone: hotel.phone, email: hotel.email,
+           checkInTime: hotel.check_in_time, checkOutTime: hotel.check_out_time };
+}
+
+function emailGuestOnConfirm(hotel, booking) {
+  if (!booking.guest_email) return;
+  const rooms = db.prepare('SELECT room_number FROM booking_rooms WHERE booking_id = ?').all(booking.id).map(r => r.room_number).join(', ');
+  const base = (process.env.APP_URL || '').replace(/\/+$/, '');
+  const url = base ? base + '/confirmation.html?hotel=' + encodeURIComponent(hotel.subdomain) + '&code=' + encodeURIComponent(booking.engine_code) : null;
+  emailSvc.sendEmail({ to: booking.guest_email, ...emailSvc.bookingConfirmedEmail({
+    hotel: guestHotel(hotel), guestName: booking.guest_name, reference: booking.reference,
+    code: booking.engine_code, checkIn: booking.check_in, checkOut: booking.check_out,
+    rooms, confirmationUrl: url,
+  }) }).catch(() => {});
+}
+
+function emailGuestOnReject(hotel, booking, reason) {
+  if (!booking.guest_email) return;
+  const base = (process.env.APP_URL || '').replace(/\/+$/, '');
+  const url = base ? base + '/book.html?hotel=' + encodeURIComponent(hotel.subdomain) : null;
+  emailSvc.sendEmail({ to: booking.guest_email, ...emailSvc.bookingRejectedEmail({
+    hotel: guestHotel(hotel), guestName: booking.guest_name, reference: booking.reference,
+    reason: reason || null, rebookUrl: url,
+  }) }).catch(() => {});
 }
 
 function submissionText(tenantId, b) {
@@ -233,6 +263,7 @@ function confirmByCode(tenantId, code, deskUserId) {
   tx();
   const updated = db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);
   notify(tenantId, booking.guest_phone, confirmedText(tenantId, updated));
+  emailGuestOnConfirm(hotelHeader(tenantId), updated);
   return updated;
 }
 
@@ -252,6 +283,7 @@ function rejectByCode(tenantId, code, reason, deskUserId) {
   tx();
   const updated = db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);
   notify(tenantId, booking.guest_phone, rejectedText(tenantId, updated));
+  emailGuestOnReject(hotelHeader(tenantId), updated, reason);
   return updated;
 }
 

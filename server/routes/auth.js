@@ -395,4 +395,88 @@ router.post('/change-password', requireAuth, async (req, res) => {
   }
 });
 
+// ── Self-service password reset ("forgot password") ───────────────────────
+// POST /api/auth/forgot-password { email }
+// Always answers { ok: true } — never reveals whether an account exists.
+// Rate limited to 3/hour/IP; a user can only have one unused reset at a time
+// (an older unused token is superseded).
+const forgotLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many password-reset requests. Please try again later or contact support.' },
+});
+
+router.post('/forgot-password', forgotLimiter, async (req, res) => {
+  try {
+    const email = String((req.body || {}).email || '').trim().toLowerCase();
+    if (!email || !EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ error: 'A valid email is required' });
+    }
+    const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(email);
+
+    if (user) {
+      // Supersede any previous unused reset for this user.
+      db.prepare('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL').run(user.id);
+
+      const rawToken = nanoid(48);            // sent in the link only
+      const tokenHash = hashToken(rawToken);  // what we store (sha256)
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+      db.prepare('INSERT INTO password_resets (id, user_id, token_hash, expires_at) VALUES (?,?,?,?)')
+        .run('pwr_' + nanoid(10), user.id, tokenHash, expiresAt);
+
+      const base = (process.env.APP_URL || billing.resolvePlatformBaseUrl(req)).replace(/\/+$/, '');
+      const resetUrl = base + '/reset-password.html?token=' + rawToken;
+      const emailSvc = require('../services/email');
+      emailSvc.sendEmail({ to: email, ...emailSvc.passwordResetEmail({
+        name: user.name, resetUrl, expiresInMinutes: 60,
+      }) }).catch(() => {});
+      audit(req, 'password.reset_requested', 'user', user.id);
+    }
+
+    // Same response either way — no account enumeration.
+    res.json({ ok: true, message: 'If that email belongs to an account, a reset link is on its way. Check your inbox (and spam).' });
+  } catch (err) {
+    console.error('Forgot-password error:', err);
+    res.status(500).json({ error: 'Could not process the request. Please try again.' });
+  }
+});
+
+// POST /api/auth/reset-password { token, newPassword }
+router.post('/reset-password', forgotLimiter, async (req, res) => {
+  try {
+    const { token, newPassword } = req.body || {};
+    if (!token) return res.status(400).json({ error: 'Reset token is required' });
+    const passwordCheck = isStrongPassword(newPassword);
+    if (!passwordCheck.valid) return res.status(400).json({ error: passwordCheck.reason });
+
+    const tokenHash = hashToken(String(token));
+    const reset = db.prepare(
+      `SELECT r.*, u.email, u.name AS user_name FROM password_resets r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.token_hash = ? AND r.used_at IS NULL`
+    ).get(tokenHash);
+    if (!reset) return res.status(400).json({ error: 'This reset link is invalid or was already used. Request a new one.' });
+    if (new Date(reset.expires_at).getTime() < Date.now()) {
+      return res.status(400).json({ error: 'This reset link has expired. Request a new one — links are valid for one hour.' });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    const doReset = db.transaction(() => {
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, reset.user_id);
+      db.prepare('UPDATE password_resets SET used_at = datetime(\'now\') WHERE id = ?').run(reset.id);
+      // Kill every existing session — the password just changed.
+      db.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?').run(reset.user_id);
+    });
+    doReset();
+
+    audit({ user: { id: reset.user_id }, tenantId: null, ip: req.ip }, 'password.reset_completed', 'user', reset.user_id);
+    res.json({ ok: true, message: 'Password updated. You can now log in with your new password.' });
+  } catch (err) {
+    console.error('Reset-password error:', err);
+    res.status(500).json({ error: 'Could not reset the password. Please try again.' });
+  }
+});
+
 module.exports = router;

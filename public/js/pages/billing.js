@@ -29,9 +29,12 @@ async function loadBilling(container) {
   const ent = snap;
 
   // ── Usage meters ──
+  // /api/billing/usage is open to every signed-in hotel user (unlike
+  // /api/rooms + /api/users, which are capability-gated), so the plan meters
+  // and plan comparison render for the whole team, not just the owner/admin.
   const [rooms, users] = await Promise.all([
-    API.get('/api/rooms').then(r => r.length).catch(() => null),
-    API.get('/api/users').then(r => r.filter(u => u.active).length).catch(() => null),
+    API.get('/api/billing/usage').then(u => u.rooms).catch(() => null),
+    API.get('/api/billing/usage').then(u => u.users).catch(() => null),
   ]);
 
   const meter = (label, used, max) => {
@@ -74,7 +77,9 @@ async function loadBilling(container) {
       '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
         '<div style="background:var(--surface2);border-radius:10px;padding:10px 16px;font-size:18px;font-weight:800;letter-spacing:1.5px">' + (renewal.paymentReference || '') + '</div>' +
         '<div style="font-size:12.5px;color:var(--text3)">' + renewal.billingCycle + ' · $' + renewal.amount + '</div>' +
-        '<button class="btn primary" onclick="requestPlanFromModalShared(\'' + renewal.planId + '\', \'' + renewal.billingCycle + '\')">Renew now</button>' +
+        (canManageBilling()
+          ? '<button class="btn primary" onclick="requestPlanFromModalShared(\'' + renewal.planId + '\', \'' + renewal.billingCycle + '\')">Renew now</button>'
+          : '<span style="font-size:12px;color:var(--text3)">The hotel admin handles renewal</span>') +
       '</div></div>'
   ) : '';
 
@@ -90,7 +95,9 @@ async function loadBilling(container) {
       '<div style="font-size:12px;color:var(--text3);margin:6px 0 10px">' + p.featureLabels.slice(0, 5).join(' · ') + '…</div>' +
       (isCurrent || isPending
         ? '<button class="btn outline full" disabled style="opacity:.6">' + (isCurrent ? 'Current plan' : 'Requested') + '</button>'
-        : '<button class="btn ' + (p.id === 'pro' ? 'primary' : 'outline') + ' full" onclick="requestPlanFromPage(\'' + p.id + '\')">Switch to ' + p.name + '</button>') +
+        : canManageBilling()
+          ? '<button class="btn ' + (p.id === 'pro' ? 'primary' : 'outline') + ' full" onclick="requestPlanFromPage(\'' + p.id + '\')">Switch to ' + p.name + '</button>'
+          : '<div style="font-size:11.5px;color:var(--text3);text-align:center;padding:8px 0">Plan changes are handled by the hotel admin</div>') +
       '</div>';
   }).join('');
 
@@ -130,6 +137,13 @@ async function loadBilling(container) {
     '</div>';
 }
 
+// Only hotel admins (and the platform superadmin) may request plan changes —
+// mirrors the server-side gate on POST /api/billing/request-plan.
+function canManageBilling() {
+  const r = App.user && App.user.role;
+  return r === 'hotel_admin' || r === 'superadmin';
+}
+
 async function requestPlanFromPage(planId) {
   const cycle = prompt('Billing cycle — type "monthly" or "yearly":', 'monthly');
   if (cycle === null) return;
@@ -150,6 +164,7 @@ async function cancelPlanRequest(btn) {
 // response carries a hosted checkoutUrl — send the hotel straight there so the
 // subscription activates via webhook with no manual approval step.
 async function requestPlanFromModalShared(planId, cycle) {
+  if (!canManageBilling()) { toast('Only the hotel admin can change plans', 'error'); return; }
   try {
     const r = await API.post('/api/billing/request-plan', { planId, billingCycle: cycle || 'monthly' });
     if (r.checkoutUrl) {

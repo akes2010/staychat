@@ -17,7 +17,7 @@
 
 const express = require('express');
 const db = require('../db/connection');
-const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
+const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 const { PLAN_CATALOG, FEATURE_LABELS, resolveState, ensurePlansSeeded } = require('../services/entitlements');
 const billing = require('../services/billing');
 
@@ -62,6 +62,16 @@ router.get('/summary', requireAuth, resolveTenant, (req, res) => {
   }
 });
 
+// GET /api/billing/usage — rooms/staff usage for the plan meters. Deliberately
+// light and open to EVERY signed-in hotel user: the whole team sees which plan
+// the hotel is on and how full it is (transparency), while plan REQUESTS stay
+// an owner/admin action enforced at request time.
+router.get('/usage', requireAuth, resolveTenant, requireTenant, (req, res) => {
+  const rooms = db.prepare('SELECT COUNT(*) c FROM rooms WHERE tenant_id = ?').get(req.tenantId).c;
+  const users = db.prepare('SELECT COUNT(*) c FROM users WHERE tenant_id = ? AND active = 1').get(req.tenantId).c;
+  res.json({ rooms, users });
+});
+
 // Pick a plan and receive a payment reference (SC-XXXXXXXX) for the platform
 // operator to reconcile. During an active trial the requested tier's features
 // are unlocked immediately; activation after payment is the operator's approval.
@@ -72,7 +82,9 @@ router.get('/summary', requireAuth, resolveTenant, (req, res) => {
 // `autoApprove: true` — the gateway webhook then activates the subscription
 // with no manual step. Either way the SC- reference is issued, so the manual
 // flow keeps working when no gateway is configured (or the gateway is down).
-router.post('/request-plan', requireAuth, resolveTenant, async (req, res) => {
+// Plan requests change the hotel's commercial commitments — owner/admin only.
+// Staff can VIEW the plans (Billing page) but a request from anyone else 403s.
+router.post('/request-plan', requireAuth, resolveTenant, requireRole('hotel_admin', 'superadmin'), async (req, res) => {
   const { planId, billingCycle, paymentMethod } = req.body || {};
   if (!PLAN_CATALOG[planId]) return res.status(400).json({ error: 'Unknown plan' });
   try {
@@ -85,8 +97,8 @@ router.post('/request-plan', requireAuth, resolveTenant, async (req, res) => {
   }
 });
 
-// Withdraw a pending activation request.
-router.post('/cancel-request', requireAuth, resolveTenant, (req, res) => {
+// Withdraw a pending activation request (owner/admin, like the request itself).
+router.post('/cancel-request', requireAuth, resolveTenant, requireRole('hotel_admin', 'superadmin'), (req, res) => {
   const sub = db.prepare(`SELECT * FROM platform_subscriptions WHERE tenant_id = ? AND status = 'pending_approval' ORDER BY requested_at DESC`)
     .get(req.tenantId);
   if (!sub) return res.status(404).json({ error: 'No pending plan request to cancel' });

@@ -3,6 +3,14 @@
 // bar, pool, hall, other services) closes out its own day, aggregating real
 // transaction data so totals always tie back to what was actually recorded
 // elsewhere in the system (nothing here is manually typed in from memory).
+//
+// Visibility model (who sees whose EOD):
+//   - Users WITHOUT 'eod.manage' (cashiers, barmen, receptionists, …) see ONLY
+//     their own closings — the closings they personally submitted — and can
+//     only close a department that is actually theirs (see deptForUser).
+//     They never see other staff's numbers.
+//   - Users WITH 'eod.manage' (owner/hotel_admin/superadmin by default) see
+//     and manage EVERY user's closings: full-day overview, reopen, corrections.
 const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
@@ -49,30 +57,91 @@ function computeDeptSummary(tenantId, department, date) {
   return { count: 0, grossTotal: 0, byMethod: {} };
 }
 
+// ── Visibility helpers ──────────────────────────────────────────────────────
+const { hasPermission } = require('../utils/permissions');
+
+function canManageEod(req) {
+  return hasPermission(req.user, 'eod.manage');
+}
+
+// The department a non-manager works in — from their staff record when one
+// exists, else the department set on their user account (the Users page lets
+// admins assign it directly). Falls back to front_desk when neither exists.
+function deptForUser(req) {
+  const user = db.prepare('SELECT email, department FROM users WHERE id = ?').get(req.user.id) || {};
+  const staff = db.prepare('SELECT department FROM staff WHERE tenant_id = ? AND (user_id = ? OR email = ?) LIMIT 1')
+    .get(req.tenantId, req.user.id, (user.email || '').toLowerCase());
+  const dept = (staff?.department || user.department || '').toLowerCase();
+  if (dept.includes('bar')) return 'bar';
+  if (dept.includes('rest') || dept.includes('kit')) return 'restaurant';
+  if (dept.includes('pool')) return 'pool';
+  if (dept.includes('hall') || dept.includes('event')) return 'hall';
+  if (dept.includes('laundry') || dept.includes('service')) return 'misc_services';
+  return 'front_desk';
+}
+
+function serializeClosing(r) {
+  return { ...r, totals: JSON.parse(r.totals || '{}') };
+}
+
 // GET /api/eod/preview?department=&date= — live totals before closing
 router.get('/preview', (req, res) => {
   const { department, date } = req.query;
   if (!department || !DEPARTMENTS.includes(department)) return res.status(400).json({ error: 'Valid department is required' });
+  if (!canManageEod(req) && department !== deptForUser(req)) {
+    return res.status(403).json({ error: 'You can only close out your own department' });
+  }
   const d = date || new Date().toISOString().slice(0, 10);
   res.json({ department, date: d, ...computeDeptSummary(req.tenantId, department, d) });
 });
 
-// GET /api/eod?date= — all closings for a date (management overview)
+// GET /api/eod?date= — closings for a date.
+//   Managers: every department/user (management overview).
+//   Everyone else: only their own closings for that date.
 router.get('/', (req, res) => {
   const date = req.query.date || new Date().toISOString().slice(0, 10);
-  const rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ?').all(req.tenantId, date)
-    .map(r => ({ ...r, totals: JSON.parse(r.totals || '{}') }));
-  res.json(rows);
+  let rows;
+  if (canManageEod(req)) {
+    rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ?').all(req.tenantId, date);
+  } else {
+    rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ? AND closed_by_user_id = ?')
+      .all(req.tenantId, date, req.user.id);
+  }
+  res.json(rows.map(serializeClosing));
 });
 
-// POST /api/eod/close — submit today's close for one department
+// GET /api/eod/mine?date= — "my closings" cards for the closing user's UI.
+// Returns the user's own closings plus their assigned department (so the page
+// knows which department's Close button to offer them).
+router.get('/mine', (req, res) => {
+  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  const myDept = deptForUser(req);
+  const rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ? AND closed_by_user_id = ?')
+    .all(req.tenantId, date, req.user.id)
+    .map(serializeClosing);
+  res.json({ department: myDept, closings: rows, canManageAll: canManageEod(req) });
+});
+
+// POST /api/eod/close — submit a close for one department.
+// Managers may close any department; staff may only close their own.
+// The closing is attributed to the submitting user (closed_by_user_id), so it
+// appears in their personal EOD view and in the owner/admin's overview.
 router.post('/close', (req, res) => {
-  const { department, date, notes } = req.body;
+  const { date, notes } = req.body;
+  // Managers may omit department (a quick "close my day" button) — front desk
+  // is the natural default. Non-managers always resolve their own department.
+  const department = req.body.department || (canManageEod(req) ? 'front_desk' : deptForUser(req));
   if (!department || !DEPARTMENTS.includes(department)) return res.status(400).json({ error: 'Valid department is required' });
+  if (!canManageEod(req) && department !== deptForUser(req)) {
+    return res.status(403).json({ error: 'You can only close out your own department' });
+  }
   const d = date || new Date().toISOString().slice(0, 10);
 
   const existing = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND department = ? AND date = ?').get(req.tenantId, department, d);
-  if (existing && existing.status === 'closed') return res.status(409).json({ error: 'This department has already closed out ' + d });
+  if (existing && existing.status === 'closed' && !canManageEod(req)) {
+    // Already closed: staff simply see the fact; only managers can redo it.
+    return res.status(409).json({ error: 'This department has already closed out ' + d });
+  }
 
   const summary = computeDeptSummary(req.tenantId, department, d);
   const id = existing ? existing.id : 'eod_' + nanoid(10);
@@ -81,11 +150,11 @@ router.post('/close', (req, res) => {
   // constraint. Map that to 409 instead of an unhandled 500.
   try {
     if (existing) {
-      db.prepare(`UPDATE eod_closings SET closed_by = ?, totals = ?, notes = ?, status = 'closed' WHERE id = ?`)
-        .run(req.user.name, JSON.stringify(summary), notes || null, id);
+      db.prepare(`UPDATE eod_closings SET closed_by = ?, closed_by_user_id = ?, totals = ?, notes = ?, status = 'closed' WHERE id = ?`)
+        .run(req.user.name, req.user.id, JSON.stringify(summary), notes || null, id);
     } else {
-      db.prepare(`INSERT INTO eod_closings (id, tenant_id, department, date, closed_by, totals, notes) VALUES (?,?,?,?,?,?,?)`)
-        .run(id, req.tenantId, department, d, req.user.name, JSON.stringify(summary), notes || null);
+      db.prepare(`INSERT INTO eod_closings (id, tenant_id, department, date, closed_by, closed_by_user_id, totals, notes) VALUES (?,?,?,?,?,?,?,?)`)
+        .run(id, req.tenantId, department, d, req.user.name, req.user.id, JSON.stringify(summary), notes || null);
     }
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) {
@@ -95,16 +164,49 @@ router.post('/close', (req, res) => {
   }
   const record = db.prepare('SELECT * FROM eod_closings WHERE id = ?').get(id);
   audit(req, 'eod.close', 'eod_closing', id, { department, date: d, grossTotal: summary.grossTotal });
-  res.status(201).json({ ...record, totals: JSON.parse(record.totals) });
+  res.status(201).json(serializeClosing(record));
 });
 
-// POST /api/eod/:id/reopen — admin-only correction path
+// POST /api/eod/:id/reopen — manager-only correction path. Reopening rolls the
+// closing back so the department's user can (and must) close again; the
+// record keeps its original closer until resubmitted.
 router.post('/:id/reopen', requirePermission('eod.manage'), (req, res) => {
   const record = db.prepare('SELECT * FROM eod_closings WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!record) return res.status(404).json({ error: 'Closing not found' });
   db.prepare(`UPDATE eod_closings SET status = 'reopened' WHERE id = ?`).run(record.id);
   audit(req, 'eod.reopen', 'eod_closing', record.id);
   res.json({ ok: true });
+});
+
+// GET /api/eod/overview?date= — manager-only: every user's closings grouped by
+// user, with per-user and grand totals. This is the owner's reconciliation
+// view ("general users' EOD seen and managed by the owner/admin").
+router.get('/overview', requirePermission('eod.manage'), (req, res) => {
+  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  const rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ?').all(req.tenantId, date)
+    .map(serializeClosing);
+
+  const byUser = {};
+  rows.forEach(r => {
+    const key = r.closed_by_user_id || r.closed_by || 'unknown';
+    if (!byUser[key]) {
+      let name = r.closed_by || 'Unknown';
+      let role = null;
+      if (r.closed_by_user_id) {
+        const u = db.prepare('SELECT name, role FROM users WHERE id = ?').get(r.closed_by_user_id);
+        if (u) { name = u.name; role = u.role; }
+      }
+      byUser[key] = { userId: r.closed_by_user_id || null, name, role, closings: [], total: 0 };
+    }
+    byUser[key].closings.push(r);
+    byUser[key].total += r.totals.grossTotal || 0;
+  });
+
+  res.json({
+    date,
+    grandTotal: rows.reduce((s, r) => s + (r.totals.grossTotal || 0), 0),
+    users: Object.values(byUser).sort((a, b) => b.total - a.total),
+  });
 });
 
 module.exports = router;

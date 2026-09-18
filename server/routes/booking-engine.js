@@ -20,6 +20,7 @@ const { requirePermission } = require('../utils/permissions');
 const engine = require('../services/booking-engine');
 const { notifyStaffOfSubmission } = require('../services/engine-notifications');
 const emailSvc = require('../services/email');
+const billing = require('../services/billing');
 
 const router = express.Router();
 
@@ -127,7 +128,8 @@ router.post('/book', (req, res) => {
     // Guest confirmation email when they left one — same fire-and-forget rule.
     if (guestEmail) {
       emailSvc.sendEmail({ to: guestEmail, ...emailSvc.bookingSubmittedEmail({
-        hotelName: tenant.name,
+        hotel: { name: tenant.name, phone: tenant.phone, email: tenant.email,
+                 checkInTime: tenant.check_in_time, checkOutTime: tenant.check_out_time },
         guestName: result.guestName,
         reference: result.reference,
         code: result.code,
@@ -136,6 +138,7 @@ router.post('/book', (req, res) => {
         rooms: result.rooms.map(r => r.number).join(', '),
         total: result.total,
         currency: tenant.currency || '$',
+        confirmationUrl: billing.resolvePlatformBaseUrl(req) + '/confirmation.html?hotel=' + encodeURIComponent(tenant.subdomain) + '&code=' + encodeURIComponent(result.code),
       }) }).catch(() => {});
     }
     res.status(201).json({

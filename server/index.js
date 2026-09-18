@@ -222,6 +222,7 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'la
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 app.get('/signup', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'signup.html')));
 app.get('/pay', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'pay.html')));
+app.get('/reset-password', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'reset-password.html')));
 
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   maxAge: isProduction ? '1d' : 0, // Cache static assets in production

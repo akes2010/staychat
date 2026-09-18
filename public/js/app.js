@@ -145,19 +145,33 @@ function globalSearch(q) { if (q.length < 2) return; toast('Search across module
 function showNotifications() { toast('You have no new notifications', 'info'); }
 function openUserMenu() { toast('Signed in as: ' + App.user.name + ' (' + App.user.role + ')', 'info'); }
 
-// ── SaaS: trial countdown banner ────────────────────────────────────────────
+// ── SaaS: plan banner, visible to EVERY user ────────────────────────────
+// Whole-team transparency: staff see the hotel's plan/trial state too —
+// "View plan" opens the Billing & Plan page for them (plan requests and
+// checkout still require owner/admin, enforced server-side).
 function showTrialBanner() {
   const ent = App.entitlements;
-  if (!ent || ent.status !== 'trial' || !ent.trial) return;
-  const days = ent.trial.daysLeft;
+  if (!ent) return;
   const old = document.getElementById('trial-banner');
   if (old) old.remove();
+
+  let text = null;
+  if (ent.status === 'trial' && ent.trial) {
+    const days = ent.trial.daysLeft;
+    text = (days <= 3 ? '⏰' : '🎁') + ' Trial: ' + days + ' day' + (days === 1 ? '' : 's') + ' left on the ' + ent.planName + ' plan' +
+      (ent.pendingApproval ? ' · plan activation pending approval' : '');
+  } else if (ent.status === 'active') {
+    text = '💳 ' + ent.planName + ' plan';
+  } else if (ent.status === 'suspended') {
+    text = '⚠️ Subscription suspended — some features are locked';
+  }
+  if (!text) return;
+
   const div = document.createElement('div');
   div.id = 'trial-banner';
   div.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;padding:8px 14px;font-size:12.5px;font-weight:600;background:linear-gradient(90deg,rgba(79,140,255,.15),rgba(34,211,167,.12));border-bottom:1px solid var(--border);color:var(--text)';
-  div.innerHTML = '<span>' + (days <= 3 ? '⏰' : '🎁') + ' Trial: ' + days + ' day' + (days === 1 ? '' : 's') + ' left on the ' + ent.planName + ' plan' +
-    (ent.pendingApproval ? ' · plan activation pending approval' : '') + '</span>' +
-    '<button class="btn primary" style="padding:4px 12px;font-size:11.5px" onclick="openBillingPage()">Manage plan</button>';
+  div.innerHTML = '<span>' + text + '</span>' +
+    '<button class="btn primary" style="padding:4px 12px;font-size:11.5px" onclick="openBillingPage()">View plan</button>';
   const mainWrap = document.getElementById('main-wrap');
   mainWrap.insertBefore(div, mainWrap.firstChild);
 }

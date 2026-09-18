@@ -113,7 +113,29 @@ async function sendEmail({ to, subject, html, text }) {
   }
 }
 
-// ── Branded template ────────────────────────────────────────────────────────
+// ── Branded templates ───────────────────────────────────────────────────────
+// Hotel branding (GUEST-facing emails). The guest's brand is the HOTEL they
+// booked with — StayChat OS is just the technology, credited discreetly in
+// the footer so the email reads as coming from the hotel, not a third party.
+function wrapHotel(hotel, title, bodyHtml) {
+  const h = hotel || {};
+  const contacts = [h.phone, h.email].filter(Boolean).join(' · ');
+  return '<!DOCTYPE html><html><body style="margin:0;padding:0;background:#10233a;font-family:-apple-system,Segoe UI,Roboto,sans-serif">' +
+    '<div style="max-width:560px;margin:0 auto;padding:32px 20px">' +
+    '<div style="text-align:center;color:#fff;font-weight:800;font-size:19px;margin-bottom:20px;letter-spacing:.5px">' +
+    escapeHtml(h.name || 'Your Hotel') + '</div>' +
+    '<div style="background:#fff;border-radius:16px;padding:28px;color:#1e293b">' +
+    '<h1 style="font-size:19px;margin:0 0 14px">' + escapeHtml(title) + '</h1>' +
+    bodyHtml +
+    '</div>' +
+    (contacts
+      ? '<div style="text-align:center;color:rgba(255,255,255,.75);font-size:12px;margin-top:16px">Questions? Call or write: ' + escapeHtml(contacts) + '</div>'
+      : '') +
+    '<div style="text-align:center;color:rgba(255,255,255,.4);font-size:10.5px;margin-top:8px">Booking technology by StayChat OS</div>' +
+    '</div></body></html>';
+}
+
+// Platform branding (hotel-owner / superadmin emails).
 function wrap(title, bodyHtml) {
   return '<!DOCTYPE html><html><body style="margin:0;padding:0;background:#0f1b2d;font-family:-apple-system,Segoe UI,Roboto,sans-serif">' +
     '<div style="max-width:560px;margin:0 auto;padding:32px 20px">' +
@@ -175,16 +197,56 @@ function subscriptionActivatedEmail({ hotelName, planName, periodEnd, auto }) {
   return { subject: 'Your ' + planName + ' plan is active', html, text: hotelName + ' is now on the ' + planName + ' plan' + (periodEnd ? ' until ' + periodEnd : '') + '.' };
 }
 
-function bookingSubmittedEmail({ hotelName, guestName, reference, code, checkIn, checkOut, rooms, total, currency }) {
-  const html = wrap('Reservation received — ' + escapeHtml(hotelName),
-    '<p style="font-size:14px;line-height:1.7">Hi ' + escapeHtml(guestName) + ', we received your reservation request.</p>' +
+function bookingSubmittedEmail({ hotel, guestName, reference, code, checkIn, checkOut, rooms, total, currency, confirmationUrl }) {
+  const html = wrapHotel(hotel, 'Reservation received — we\'re holding your room',
+    '<p style="font-size:14px;line-height:1.7">Dear ' + escapeHtml(guestName) + ', thank you for choosing <b>' + escapeHtml(hotel?.name || 'our hotel') + '</b>. We received your reservation request:</p>' +
     refBox('YOUR TENDER CODE', code) +
-    '<p style="font-size:13.5px;line-height:1.8">Reference: <b>' + escapeHtml(reference) + '</b><br>' +
-    'Rooms: <b>' + escapeHtml(rooms) + '</b><br>' +
-    'Stay: <b>' + escapeHtml(checkIn) + ' → ' + escapeHtml(checkOut) + '</b><br>' +
-    'Total (pay at hotel): <b>' + escapeHtml(currency) + escapeHtml(total) + '</b></p>' +
-    '<p style="font-size:13px;color:#475569">The hotel will confirm your booking shortly — rooms are held on a first-confirm basis. Present your code at the front desk.</p>');
-  return { subject: 'Reservation received — code ' + code, html, text: 'Reservation ' + reference + ' (code ' + code + ') for ' + checkIn + ' → ' + checkOut + '. Total ' + currency + total + ', pay at hotel.' };
+    '<table style="width:100%;font-size:13.5px;line-height:1.9">' +
+      '<tr><td style="color:#64748b;padding-right:10px;white-space:nowrap">Reference</td><td><b>' + escapeHtml(reference) + '</b></td></tr>' +
+      '<tr><td style="color:#64748b">Rooms</td><td><b>' + escapeHtml(rooms) + '</b></td></tr>' +
+      '<tr><td style="color:#64748b">Check-in</td><td><b>' + escapeHtml(checkIn) + '</b>' + (hotel?.checkInTime ? ' from ' + escapeHtml(hotel.checkInTime) : '') + '</td></tr>' +
+      '<tr><td style="color:#64748b">Check-out</td><td><b>' + escapeHtml(checkOut) + '</b>' + (hotel?.checkOutTime ? ' by ' + escapeHtml(hotel.checkOutTime) : '') + '</td></tr>' +
+      '<tr><td style="color:#64748b">Total</td><td><b>' + escapeHtml(String(currency || '') + total) + '</b> <span style="color:#64748b">(pay at the hotel)</span></td></tr>' +
+    '</table>' +
+    '<p style="font-size:13px;color:#475569;line-height:1.7;margin-top:14px"><b>What happens next?</b> The front desk is confirming your reservation — rooms are held on a first-confirm basis. Present your tender code at the desk on arrival (or mention it when you call). You\'ll get another email the moment your booking is confirmed.</p>' +
+    (confirmationUrl ? '<p style="margin:16px 0 0"><a href="' + confirmationUrl + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;padding:11px 22px;font-weight:700;font-size:14px">View your booking →</a></p>' : ''));
+  return {
+    subject: hotel?.name ? hotel.name + ' — reservation received (code ' + code + ')' : 'Reservation received — code ' + code,
+    html,
+    text: 'Dear ' + guestName + ',\n\nReservation received at ' + (hotel?.name || 'our hotel') + '.\nCode: ' + code + '\nReference: ' + reference + '\nRooms: ' + rooms + '\n' + checkIn + ' → ' + checkOut + '\nTotal: ' + (currency || '') + total + ' (pay at the hotel).\n\nPresent this code at the front desk. You will be emailed when your booking is confirmed.' + (confirmationUrl ? '\n\nView your booking: ' + confirmationUrl : ''),
+  };
+}
+
+function bookingConfirmedEmail({ hotel, guestName, reference, code, checkIn, checkOut, rooms, confirmationUrl }) {
+  const html = wrapHotel(hotel, 'Your booking is confirmed ✅',
+    '<p style="font-size:14px;line-height:1.7">Dear ' + escapeHtml(guestName) + ', great news — your stay at <b>' + escapeHtml(hotel?.name || 'our hotel') + '</b> is confirmed:</p>' +
+    '<table style="width:100%;font-size:13.5px;line-height:1.9">' +
+      '<tr><td style="color:#64748b;padding-right:10px;white-space:nowrap">Rooms</td><td><b>' + escapeHtml(rooms) + '</b></td></tr>' +
+      '<tr><td style="color:#64748b">Check-in</td><td><b>' + escapeHtml(checkIn) + '</b>' + (hotel?.checkInTime ? ' from ' + escapeHtml(hotel.checkInTime) : '') + '</td></tr>' +
+      '<tr><td style="color:#64748b">Check-out</td><td><b>' + escapeHtml(checkOut) + '</b>' + (hotel?.checkOutTime ? ' by ' + escapeHtml(hotel.checkOutTime) : '') + '</td></tr>' +
+    '</table>' +
+    '<p style="font-size:13px;color:#475569;line-height:1.7;margin-top:14px">Keep your tender code <b style="letter-spacing:1px">' + escapeHtml(code) + '</b> handy — present it at the front desk for a fast check-in. Payment is settled at the hotel.</p>' +
+    '<p style="font-size:13.5px;line-height:1.7">We look forward to welcoming you!</p>' +
+    (confirmationUrl ? '<p style="margin:16px 0 0"><a href="' + confirmationUrl + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;padding:11px 22px;font-weight:700;font-size:14px">View / print your confirmation →</a></p>' : ''));
+  return {
+    subject: hotel?.name ? hotel.name + ' — your booking is confirmed (' + checkIn + ')' : 'Your booking is confirmed',
+    html,
+    text: 'Dear ' + guestName + ',\n\nYour booking ' + reference + ' at ' + (hotel?.name || 'our hotel') + ' is CONFIRMED.\nRooms: ' + rooms + '\n' + checkIn + ' → ' + checkOut + '\nCode: ' + code + ' — present it at the front desk.\n\nWe look forward to welcoming you!' + (confirmationUrl ? '\n\nView your confirmation: ' + confirmationUrl : ''),
+  };
+}
+
+function bookingRejectedEmail({ hotel, guestName, reference, reason, rebookUrl }) {
+  const html = wrapHotel(hotel, 'About your reservation request',
+    '<p style="font-size:14px;line-height:1.7">Dear ' + escapeHtml(guestName) + ', we\'re sorry — we could not hold the rooms for your reservation <b>' + escapeHtml(reference) + '</b>' +
+    (reason ? ':</p><p style="font-size:13.5px;color:#475569;line-height:1.7">' + escapeHtml(reason) + '</p>' : '.</p>') +
+    '<p style="font-size:13.5px;line-height:1.7">This usually means the dates sold out in the meantime. Please try different dates' +
+    (rebookUrl ? ' — <a href="' + rebookUrl + '" style="color:#2563eb">check availability here</a>' : '') + ', or contact us directly and we\'ll do our best to find you a room.</p>' +
+    '<p style="font-size:13.5px;line-height:1.7">We apologize for the inconvenience and hope to welcome you another time.</p>');
+  return {
+    subject: hotel?.name ? hotel.name + ' — update on your reservation ' + reference : 'Update on your reservation',
+    html,
+    text: 'Dear ' + guestName + ',\n\nWe could not hold the rooms for reservation ' + reference + (reason ? ': ' + reason : '') + '.\nPlease try different dates or contact us directly.\n\nWe hope to welcome you another time.',
+  };
 }
 
 function renewalReminderEmail({ hotelName, planName, periodEnd, daysLeft, paymentReference }) {
@@ -206,6 +268,18 @@ function subscriptionExpiredEmail({ hotelName, planName, periodEnd }) {
   return { subject: 'Your StayChat OS subscription has expired', html, text: hotelName + ': ' + planName + ' plan expired on ' + periodEnd + '. Account suspended — data is safe.' };
 }
 
+function passwordResetEmail({ name, resetUrl, expiresInMinutes }) {
+  const html = wrap('Reset your password',
+    '<p style="font-size:14px;line-height:1.7">Hi ' + escapeHtml(name || 'there') + ', we received a request to reset the password for your StayChat OS account.</p>' +
+    '<p style="margin:18px 0"><a href="' + resetUrl + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;padding:11px 22px;font-weight:700;font-size:14px">Choose a new password →</a></p>' +
+    '<p style="font-size:12.5px;color:#64748b">This link works once and expires in ' + escapeHtml(String(expiresInMinutes || 60)) + ' minutes. If you didn\'t request it, you can safely ignore this email — your current password keeps working.</p>');
+  return {
+    subject: 'Reset your StayChat OS password',
+    html,
+    text: 'Reset your StayChat OS password: ' + resetUrl + '\n\nThe link works once and expires in ' + (expiresInMinutes || 60) + ' minutes. If you didn\'t request this, ignore this email.',
+  };
+}
+
 module.exports = {
   sendEmail,
   providerName,
@@ -213,6 +287,9 @@ module.exports = {
   planRequestedEmail,
   subscriptionActivatedEmail,
   bookingSubmittedEmail,
+  bookingConfirmedEmail,
+  bookingRejectedEmail,
   renewalReminderEmail,
   subscriptionExpiredEmail,
+  passwordResetEmail,
 };
