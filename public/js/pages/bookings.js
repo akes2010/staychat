@@ -5,19 +5,23 @@ window.PAGES = window.PAGES || {};
 
 PAGES.bookings = function () {
   const wrap = el('div', 'fa');
-  const state = { bookings: [], rooms: [], guests: [], filter: 'upcoming', payMethods: ['cash', 'card'] };
+  const state = { bookings: [], rooms: [], guests: [], pendingFacilities: [], filter: 'upcoming', payMethods: ['cash', 'card'] };
 
   async function load() {
     wrap.innerHTML = loaderHTML('Loading reservations…');
     try {
       const [bookings, rooms, guests] = await Promise.all([API.get('/api/bookings'), API.get('/api/rooms'), API.get('/api/guests')]);
       state.bookings = bookings; state.rooms = rooms; state.guests = guests;
+      // Facility (hall/pool) online submissions share the Pending tab.
+      try { state.pendingFacilities = await API.get('/api/bookings/facilities/pending'); }
+      catch (e) { state.pendingFacilities = []; }
       try {
         const settings = await API.get('/api/settings');
         if (settings && Array.isArray(settings.paymentMethods) && settings.paymentMethods.length) state.payMethods = settings.paymentMethods;
       } catch (e) { /* fall back to defaults */ }
       // New engine submissions deserve attention: land the desk on the Pending tab.
-      const hasPending = state.bookings.some(b => b.status === 'pending_payment' && b.engineSyncStatus === 'pending');
+      const hasPending = state.bookings.some(b => b.status === 'pending_payment' && b.engineSyncStatus === 'pending')
+        || (state.pendingFacilities && state.pendingFacilities.length > 0);
       if (hasPending && state.filter !== 'pending') state.filter = 'pending';
       render();
     } catch (err) { wrap.innerHTML = errorStateHTML(err.message, 'navigate(\'bookings\')'); }
@@ -25,6 +29,26 @@ PAGES.bookings = function () {
 
   function statusColor(s) {
     return { confirmed: 'info', checked_in: 'success', checked_out: 'default', cancelled: 'error', pending_payment: 'warning' }[s] || 'default';
+  }
+
+  // ── Pending facility (hall/pool) submissions ─────────────────────────────
+  function pendingFacilityCount() { return (state.pendingFacilities || []).length; }
+
+  // Rendered at the top of the Pending tab: each online hall/pool reservation
+  // shows its tender code with one-click confirm/reject, mirroring rooms.
+  function facilityBannerHTML() {
+    if (state.filter !== 'pending' || !pendingFacilityCount()) return '';
+    return state.pendingFacilities.map(f =>
+      '<div style="background:var(--warn-bg);border:1.5px solid var(--warn-border);border-radius:var(--radius);padding:10px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">' +
+        '<span style="font-size:11px;font-weight:700;color:var(--text3)">ONLINE ' + (f.kind === 'hall' ? '🎪 HALL' : '🏊 POOL') + ' — TENDER CODE</span>' +
+        '<span style="font-family:monospace;font-weight:800;font-size:16px;letter-spacing:2px;color:var(--p)">' + escapeHtml(f.engineCode || '—') + '</span>' +
+        '<span style="font-weight:600;font-size:13px">' + escapeHtml(f.facilityName || '') + '</span>' +
+        '<span style="font-size:12px;color:var(--text3)">' + escapeHtml(f.guestName || '') + ' · ' + escapeHtml(f.date || '') + ' ' + escapeHtml(f.startTime || '') + '–' + escapeHtml(f.endTime || '') + ' · ' + (f.partySize || 1) + ' guest' + ((f.partySize || 1) === 1 ? '' : 's') + ' · ' + formatMoney(f.totalAmount || 0) + '</span>' +
+        '<span style="flex:1"></span>' +
+        '<button class="btn primary sm" onclick="window.__confirmFacility(\'' + f.engineCode + '\')">✓ Confirm</button>' +
+        '<button class="btn danger sm" onclick="window.__rejectFacility(\'' + f.engineCode + '\')">Reject</button>' +
+      '</div>'
+    ).join('');
   }
 
   function render() {
@@ -52,10 +76,11 @@ PAGES.bookings = function () {
     '<div class="filter-pills" style="margin-bottom:16px">' +
       ['pending','upcoming','confirmed','checked_in','checked_out','cancelled','all'].map(f =>
         '<button class="pill ' + (state.filter === f ? 'active' : '') + '" onclick="window.__bookingFilter(\'' + f + '\')">' +
-          f.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()) + (f === 'pending' ? ' (' + state.bookings.filter(b => b.status === 'pending_payment' && b.engineSyncStatus === 'pending').length + ')' : '') + '</button>'
+          f.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()) + (f === 'pending' ? ' (' + (state.bookings.filter(b => b.status === 'pending_payment' && b.engineSyncStatus === 'pending').length + (state.pendingFacilities || []).length) + ')' : '') + '</button>'
       ).join('') +
     '</div>' +
-    (list.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">📅</div><div class="empty-state-title">No reservations here</div><div class="empty-state-desc">Try a different filter or create a new reservation.</div></div>' :
+    facilityBannerHTML() +
+    (list.length === 0 && !pendingFacilityCount() ? '<div class="empty-state"><div class="empty-state-icon">📅</div><div class="empty-state-title">No reservations here</div><div class="empty-state-desc">Try a different filter or create a new reservation.</div></div>' :
     '<div style="display:flex;flex-direction:column;gap:10px">' + list.map(b => {
       const roomsLabel = b.rooms.map(r => r.room_number).join(', ');
       // Online submissions show their tender code prominently with one-click
@@ -345,6 +370,19 @@ PAGES.bookings = function () {
       catch (err) { toast(err.message, 'error'); }
     });
   };
+  // Facility (hall/pool) submissions are confirmed/rejected by tender code.
+  window.__confirmFacility = (code) => {
+    confirmAction('Confirm this online facility reservation? The slot will be held for the guest.', async () => {
+      try { await API.post('/api/bookings/facilities/confirm', { code }); toast('Facility reservation confirmed', 'success'); await load(); }
+      catch (err) { toast(err.message, 'error'); }
+    });
+  };
+  window.__rejectFacility = (code) => {
+    confirmAction('Reject this online facility reservation? The guest will need to contact the hotel to rebook.', async () => {
+      try { await API.post('/api/bookings/facilities/reject', { code, reason: 'rejected at front desk' }); toast('Reservation rejected', 'warn'); await load(); }
+      catch (err) { toast(err.message, 'error'); }
+    });
+  };
 
   window.__checkinBooking = (id) => {
     confirmAction('Check in this reservation? All attached rooms will be marked occupied.', async () => {
@@ -378,7 +416,7 @@ PAGES.bookings = function () {
   // Wi-Fi for an already checked-in booking (provision or fetch credentials).
   // Printable confirmation slip for online bookings (opens guest confirmation page).
   window.__engineSlip = (code) => {
-    window.open('/confirmation.html?hotel=' + encodeURIComponent((window.App && App.tenant && App.tenant.subdomain) || '') + '&code=' + encodeURIComponent(code), '_blank', 'width=620,height=780');
+    window.open('/confirmation.html?hotel=' + encodeURIComponent((window.App && App.tenant && App.tenant.subdomain) || '') + '&v=2&code=' + encodeURIComponent(code), '_blank', 'width=620,height=780');
   };
 
   window.__bookingWifi = async (id) => {

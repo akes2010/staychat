@@ -13,7 +13,7 @@ const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('halls.use'), requireEntitlement('hall_events'));
 
 function serializeHall(h) { return { ...h, amenities: JSON.parse(h.amenities || '[]'), active: !!h.active }; }
-function serializeBooking(b) { return { ...b, catering: !!b.catering }; }
+function serializeBooking(b) { return { ...b, catering: !!b.catering, engineCode: b.engine_code || undefined, engineSyncStatus: b.engine_sync_status || undefined }; }
 
 // ── Halls (inventory) ───────────────────────────────────────────────────
 router.get('/halls', (req, res) => {

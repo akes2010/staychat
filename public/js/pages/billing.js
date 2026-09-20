@@ -8,6 +8,12 @@ window.PAGES = window.PAGES || {};
 
 PAGES.billing = function () {
   const el = document.createElement('div');
+  // Defense in depth: the nav item is already hidden from non-managers and
+  // navigate() enforces the capability — this catches any other entry point.
+  if (typeof can !== 'function' || !can('billing.manage')) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔒</div><div class="empty-state-title">Billing & Plan is available to the hotel owner/admin only</div><div class="empty-state-sub">Ask the owner if you need a plan change.</div></div>';
+    return el;
+  }
   el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">💳</div><div class="empty-state-title">Loading billing…</div></div>';
   loadBilling(el);
   return el;

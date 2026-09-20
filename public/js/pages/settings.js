@@ -82,7 +82,7 @@ PAGES.settings = function () {
           '<div class="form-group"><label class="form-label">Guest-facing notice (optional)</label><input class="form-input" id="set-engine-notice" value="' + escapeHtml(settings.engineNotice || '') + '" placeholder="e.g. Breakfast included · Pool closes 6pm"/></div>' +
           '<div class="form-group"><label class="form-label">Max submissions per day</label><input class="form-input" type="number" min="1" id="set-engine-max" value="' + (settings.engineMaxDaily || 50) + '"/></div></div>' +
         '<div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn outline sm" onclick="window.__saveEngineConfig()">Save Booking Engine</button>' +
-        '<a href="/book.html?hotel=' + escapeHtml(settings.subdomain || '') + '" target="_blank" rel="noopener" class="btn ghost sm">Preview booking page ↗</a></div></div>' +
+        '<a href="/book.html?hotel=' + escapeHtml(settings.subdomain || '') + '&v=2" target="_blank" rel="noopener" class="btn ghost sm">Preview booking page ↗</a></div></div>' +
 
       '<div style="background:var(--error-bg);border:1.5px solid var(--error-border);border-radius:var(--radius-lg);padding:18px">' +
         '<div style="font-weight:700;color:var(--error);margin-bottom:8px">Danger Zone</div>' +

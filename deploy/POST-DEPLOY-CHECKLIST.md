@@ -27,7 +27,7 @@ any time, exit 0 = healthy). The manual steps below complement it.
       Available Rooms shows the rooms → submit a booking → code `BE-…` shown →
       confirmation page opens → booking appears in Bookings → Pending
 - [ ] **Email**: if you haven't yet, add `RESEND_API_KEY` (or SMTP creds) to
-      `.env` and `docker compose -f deploy/docker-compose.prod.yml up -d`
+      `.env` and `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d`
       (SETUP.md §4) — then re-do the signup test to receive the email
 
 ## First day
@@ -42,12 +42,11 @@ any time, exit 0 = healthy). The manual steps below complement it.
 - [ ] **WhatsApp (optional)**: Settings → WhatsApp per hotel + Meta webhook
       `https://staychat.akmustech.com/api/webhooks/whatsapp/<subdomain>`
 - [ ] **Backups**: confirm `/opt/backups/` has a file after the first 03:17
-      run (or run `deploy/backup-db.sh` manually right now)
-- [ ] **Monitoring**: `docker compose -f deploy/docker-compose.prod.yml logs -f`
+      run (or run `deploy/backup-db.sh` manually right now) - [ ] **Monitoring**: `docker compose --env-file .env -f deploy/docker-compose.prod.yml logs -f`
       shows clean logs; `/api/health/detailed` for load-balancer-style checks
 
 ## Ongoing
 
 - Weekly: `bash deploy/check-deployment.sh`; glance at `/opt/backups/`
-- Before OS updates: `deploy/backup-db.sh` first
-- Deploying updates: `git pull && docker compose -f deploy/docker-compose.prod.yml up -d --build`
+- Before OS updates: `deploy/backup-db.sh` first - Deploying updates: `DOMAIN=<your-domain> deploy/deploy.sh` from your laptop
+   (or on the VPS: `git pull && docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build`)

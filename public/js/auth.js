@@ -82,7 +82,7 @@ function startApp(user, accessToken, tenant, entitlements) {
 
   setupSidebar();
   WSClient.setTokenGetter(() => window.App.accessToken);
-  WSClient.connect();
+  WSClient.reconnectWithNewTenant(); // fresh connection with the current token (no-op if already up)
   registerRealtimeHandlers();
   if (typeof showTrialBanner === 'function') showTrialBanner();
   showInstallButtonIfAvailable();
@@ -104,6 +104,9 @@ async function doLogout() {
   window.App.entitlements = null;
   document.getElementById('app').classList.remove('visible');
   document.getElementById('auth-screen').style.display = '';
+  // Close the live socket and stop its reconnect loop — otherwise it keeps
+  // retrying with the now-cleared token after logout.
+  if (typeof WSClient !== 'undefined') WSClient.disconnect();
   // Shared-device hygiene: drop every cached shell/API copy so the next shift
   // starts clean. The service worker re-registers fresh on next load.
   if (window.PWA) await PWA.wipeCaches();

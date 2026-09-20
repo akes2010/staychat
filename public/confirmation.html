@@ -83,7 +83,7 @@
           <div class="val" id="s-code"></div>
         </div>
         <table>
-          <tr><td>Reference</td><td id="s-ref"></td></tr>
+          <tr id="s-ref-row"><td>Reference</td><td id="s-ref"></td></tr>
           <tr><td>Guest</td><td id="s-guest"></td></tr>
           <tr><td>Check-in</td><td id="s-cin"></td></tr>
           <tr><td>Check-out</td><td id="s-cout"></td></tr>
@@ -114,7 +114,7 @@
     function showErr(m){ const e=$('err'); e.textContent=m; e.style.display='block'; }
 
     async function lookup(q) {
-      if (!SUB) { showErr('Missing hotel — open this page from the hotel\\'s booking link.'); return; }
+      if (!SUB) { showErr('Missing hotel — open this page from the hotel\'s booking link.'); return; }
       try {
         const r = await fetch('/api/booking-engine/confirmation?subdomain=' + encodeURIComponent(SUB) + '&' + q);
         const b = await r.json();
@@ -124,6 +124,7 @@
     }
 
     function render(b) {
+      const isFacility = !!b.facility;
       $('h-name').textContent = b.hotel.name;
       $('h-contact').innerHTML = [b.hotel.phone, b.hotel.email, b.hotel.address].filter(Boolean).map(escape_).join(' · ');
       const badge = $('b-status');
@@ -132,18 +133,31 @@
       else if (b.status === 'checked_in') { badge.textContent = 'CHECKED IN'; badge.className = 'badge ok'; }
       else { badge.textContent = b.status.replace('_',' ').toUpperCase(); badge.className = 'badge no'; }
       $('s-code').textContent = b.code;
-      $('s-ref').textContent = b.reference;
-      $('s-guest').textContent = b.guestName;
-      $('s-cin').textContent = b.checkIn + ' (from ' + b.hotel.checkInTime + ')';
-      $('s-cout').textContent = b.checkOut + ' (by ' + b.hotel.checkOutTime + ')';
-      $('s-rooms').textContent = b.rooms.map(r => 'Room ' + r.number).join(', ');
-      $('s-pax').textContent = b.adults + ' adult' + (b.adults===1?'':'s') + (b.children ? ', ' + b.children + ' child' + (b.children===1?'':'ren') : '');
-      $('s-total').textContent = b.hotel.currency + Number(b.total).toFixed(2);
-      $('s-citime').textContent = b.hotel.checkInTime;
-      $('s-cotime').textContent = b.hotel.checkOutTime;
+      $('s-ref').textContent = b.reference || '—';
+      $('s-guest').textContent = b.guestName || '—';
+      if (isFacility) {
+        const f = b.facility;
+        $('s-cin').textContent = f.date + ' · ' + f.startTime;
+        $('s-cout').textContent = 'until ' + f.endTime;
+        $('s-rooms').textContent = (f.kind === 'hall' ? '🎪 ' : '🏊 ') + f.name + (f.eventName ? ' — ' + f.eventName : '');
+        $('s-pax').textContent = f.guestCount + ' guest' + (f.guestCount === 1 ? '' : 's');
+        $('s-total').textContent = Number(f.total) > 0 ? b.hotel.currency + Number(f.total).toFixed(2) : 'Free (pay for extras at the hotel)';
+        $('s-citime').textContent = f.startTime;
+        $('s-cotime').textContent = f.endTime;
+      } else {
+        $('s-cin').textContent = b.checkIn + ' (from ' + b.hotel.checkInTime + ')';
+        $('s-cout').textContent = b.checkOut + ' (by ' + b.hotel.checkOutTime + ')';
+        $('s-rooms').textContent = b.rooms.map(r => 'Room ' + r.number).join(', ');
+        $('s-pax').textContent = b.adults + ' adult' + (b.adults===1?'':'s') + (b.children ? ', ' + b.children + ' child' + (b.children===1?'':'ren') : '');
+        $('s-total').textContent = b.hotel.currency + Number(b.total).toFixed(2);
+        $('s-citime').textContent = b.hotel.checkInTime;
+        $('s-cotime').textContent = b.hotel.checkOutTime;
+      }
       // QR points at this exact booking's confirmation page (absolute URL —
       // built server-side from the request host; the img just fetches it).
       $('s-qr').src = '/api/booking-engine/qr?hotel=' + encodeURIComponent(SUB) + '&code=' + encodeURIComponent(b.code);
+      // Facility slips have no BK- reference — hide that row instead of showing "undefined".
+      $('s-ref-row').style.display = b.reference ? '' : 'none';
       $('lookup').classList.remove('open');
       $('slip').classList.add('open');
       window.scrollTo(0,0);

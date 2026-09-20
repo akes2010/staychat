@@ -1,17 +1,23 @@
-# Deploying StayChat OS to your Contabo VPS
+# Deploying StayChat OS to any VPS
 
-Target: **https://staychat.akmustech.com** · stack: Docker Compose (app + Caddy
-with automatic HTTPS) · email: your `support@akmustech.com` · demo data seeded.
+Target: your own domain (default **https://staychat.akmustech.com**) · stack:
+Docker Compose (app + Caddy with automatic HTTPS) · works on **any provider
+where you get a root VPS**: Contabo, DigitalOcean, GCP, Hetzner, Hostinger KVM,
+AWS Lightsail, Vultr, Linode. Only requirements: root SSH, Ubuntu/Debian,
+ports 80/443 reachable, and an A record pointing your domain at the VPS IP.
 
 ---
 
-## 0. DNS (Contabo panel → DNS, or your domain's registrar)
+## 0. Buy + point DNS (provider panel → DNS, or your domain's registrar)
 
-Create/confirm one record:
+1. Create any root VPS (Ubuntu 24.04, smallest plan is fine to start).
+   - Contabo / DigitalOcean / Hetzner / Hostinger KVM: plain Ubuntu image.
+   - GCP: an `e2-small` VM with Ubuntu 22.04/24.04 and HTTP+HTTPS firewall rules.
+2. Create/confirm one DNS record:
 
 | Type | Name | Value | TTL |
 |---|---|---|---|
-| A | `staychat` | `YOUR_VPS_IPV4` | 3600 |
+| A | `staychat` (or `@`/your subdomain) | `YOUR_VPS_IPV4` | 3600 |
 
 Verify from your machine before continuing:
 
@@ -19,31 +25,33 @@ Verify from your machine before continuing:
 dig +short staychat.akmustech.com   # must return the VPS IP
 ```
 
-## 1. Upload the repo to the VPS
+## 1. Deploy — one command from your laptop
 
-From your local machine (this repo):
+From this repo:
+
+```bash
+REMOTE=root@YOUR_VPS_IP DOMAIN=staychat.akmustech.com deploy/deploy.sh
+```
+
+That single command uploads the code, installs Docker, generates secrets,
+opens the firewall, builds, starts, seeds demo data and waits for health.
+Re-running it later safely redeploys new code (it backs up the DB first).
+
+Prefer doing it manually?
 
 ```bash
 rsync -avz --exclude node_modules --exclude data --exclude .env \
   ~/Downloads/staychat-os/ root@YOUR_VPS_IP:/opt/staychat-os/
+ssh root@YOUR_VPS_IP
+cd /opt/staychat-os && DOMAIN=staychat.akmustech.com bash deploy/setup-vps.sh
 ```
 
 (Or `git clone` your repo into `/opt/staychat-os` if you've pushed it.)
 
-## 2. One-shot setup on the VPS
+## 2. First visit
 
-```bash
-ssh root@YOUR_VPS_IP
-cd /opt/staychat-os
-bash deploy/setup-vps.sh
-```
-
-The script installs Docker, generates all secrets into `/opt/staychat-os/.env`
-(chmod 600), opens ports 80/443, builds the image, seeds the demo database,
-starts the stack and waits for health.
-
-First visit to `https://staychat.akmustech.com` triggers automatic Let's
-Encrypt certificate issuance (takes ~1 minute). Logs: `docker logs -f caddy`.
+Open `https://<your-domain>` — automatic Let's Encrypt certificate issuance
+(takes ~1 minute). Logs: `docker logs -f caddy`.
 
 ## 3. Log in
 
@@ -67,7 +75,7 @@ options are already wired — you only set credentials.
    ```bash
    cd /opt/staychat-os
    sed -i "s|^RESEND_API_KEY=.*|RESEND_API_KEY=re_yourkeyhere|" .env
-   docker compose -f deploy/docker-compose.prod.yml up -d
+   docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d
    ```
 3. Test: sign up a hotel at `https://staychat.akmustech.com/signup` with your
    own email — you should receive the welcome email.
@@ -77,7 +85,7 @@ options are already wired — you only set credentials.
 cd /opt/staychat-os
 # edit .env: SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM
 nano .env
-docker compose -f deploy/docker-compose.prod.yml up -d
+docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d
 ```
 `SMTP_FROM` is already preset to `StayChat OS <support@akmustech.com>`.
 
@@ -107,29 +115,29 @@ then in Meta's console point the webhook at:
 cd /opt/staychat-os
 
 # Deploy new code (after git pull or rsync)
-docker compose -f deploy/docker-compose.prod.yml up -d --build
+docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build
 
 # Logs
-docker compose -f deploy/docker-compose.prod.yml logs -f staychat
-docker compose -f deploy/docker-compose.prod.yml logs -f caddy
+docker compose --env-file .env -f deploy/docker-compose.prod.yml logs -f staychat
+docker compose --env-file .env -f deploy/docker-compose.prod.yml logs -f caddy
 
 # Backup the database (installed automatically as a daily 03:17 cron by
 # setup-vps.sh; keeps 14 days in /opt/backups). Manual run:
 deploy/backup-db.sh
 
 # Restore a backup
-docker compose -f deploy/docker-compose.prod.yml stop staychat
+docker compose --env-file .env -f deploy/docker-compose.prod.yml stop staychat
 docker volume run --rm -i -v staychat-os_staychat_data:/data alpine sh -c \
   'cat > /data/staychat.db' < backup-YYYY-MM-DD.db
-docker compose -f deploy/docker-compose.prod.yml start staychat
+docker compose --env-file .env -f deploy/docker-compose.prod.yml start staychat
 ```
 
 **Wipe demo data before real customers** (careful — irreversible):
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml stop staychat
+docker compose --env-file .env -f deploy/docker-compose.prod.yml stop staychat
 docker volume rm staychat-os_staychat_data
-docker compose -f deploy/docker-compose.prod.yml up -d
+docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d
 # Then sign up fresh at /signup — the superadmin login can also be created
 # by re-seeding: docker exec staychat node server/db/seed.js
 ```

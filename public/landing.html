@@ -177,8 +177,8 @@
     <div class="nav-links">
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
-      <a href="#integrations">Integrations</a>
       <a href="#pricing">Pricing</a>
+      <a href="/help.html">Help Center</a>
       <a href="#faq">FAQ</a>
     </div>
     <div class="nav-cta">
@@ -204,7 +204,7 @@
       <div class="stat"><b>24/7</b><span>AI receptionist on WhatsApp</span></div>
       <div class="stat"><b>0%</b><span>OTA commission on direct bookings</span></div>
       <div class="stat"><b>49</b><span>pre-built integrations, 12 categories</span></div>
-      <div class="stat"><b>14 days</b><span>free trial — full features, no card</span></div>
+      <div class="stat"><b>Rooms · Halls · Pools</b><span>all sellable on your booking page</span></div>
     </div>
   </div>
 </header>
@@ -227,6 +227,8 @@
         <p>Sessions created on check-in, revoked on checkout. Speed tiered by room type — suites get 100 Mbps. Real pushes to UniFi and MikroTik; guests self-serve via a QR-able portal.</p></div>
       <div class="card"><div class="ico">🧾</div><h3>POS &amp; Double-Entry Accounting</h3>
         <p>Restaurant and bar tickets charge to rooms or group accounts. Every payment posts to a ledger whose trial balance always balances. Departmental end-of-day closings.</p></div>
+      <div class="card"><div class="ico">🎪</div><h3>Halls, Events &amp; Pools</h3>
+        <p>Sell event spaces and pool time on the same booking page — day or hourly rates, party size, and live time-slot conflict rejection. Guests get tender codes and printable slips exactly like rooms.</p></div>
       <div class="card"><div class="ico">🔐</div><h3>Fraud-Aware Permissions</h3>
         <p>A capability matrix split into use/manage: front desk can check guests in but only managers can void ledgers, alter prices or cancel paid bookings. Every sensitive action is audit-logged.</p></div>
       <div class="card"><div class="ico">🧹</div><h3>Housekeeping &amp; Maintenance</h3>
@@ -328,11 +330,11 @@
     <div class="center"><span class="kicker">FAQ</span><h2>Questions, answered</h2></div>
     <div class="faq">
       <details><summary>Do guests need to pay online to book?</summary><div class="a">No. The booking engine is "reserve now, pay at the hotel" — guests leave a name and phone number and receive a tender code. Your desk confirms the booking, and payment happens at check-in through the normal folio flow. Deposits and online prepayments can be recorded when they arrive.</div></details>
-      <details><summary>How does the tender code work?</summary><div class="a">Every online booking gets a short code like BE-7K2M9QX4 (no confusing characters, readable over the phone). The guest presents it at the desk — or just says it to the AI receptionist on WhatsApp, which looks up the live status instantly. The desk can also print a QR-coded confirmation slip.</div></details>
+      <details><summary>How does the tender code work?</summary><div class="a">Every online booking gets a short code like BE-7K2M9QX4 (no confusing characters, readable over the phone). The guest presents it at the desk, shows the QR-coded confirmation slip, or just says it to the AI receptionist on WhatsApp, which looks up the live status instantly.</div></details>
+      <details><summary>Who can see the Billing &amp; Plan page?</summary><div class="a">Only the hotel owner/admin. Staff roles never see plan, prices or payment history — enforced in the UI and on the server. The plan banner stays visible to everyone, but owners can grant billing access to a trusted manager via per-user permissions.</div></details>
+      <details><summary>Can I sell event halls and pool time?</summary><div class="a">Yes. Add halls (day or hourly rate) and pools (per person per hour) and a Facilities tab appears on your public booking page automatically. Time-window conflicts are rejected live, and confirmations work exactly like room bookings.</div></details>
       <details><summary>Can two hotels share one installation?</summary><div class="a">Yes — StayChat OS is multi-tenant by design. Tenant isolation is enforced in a single middleware chokepoint, so hotels can never read each other's bookings, guests or credentials. A platform operator (superadmin) manages the portfolio.</div></details>
-      <details><summary>Which door locks and network gear are supported?</summary><div class="a">8 lock vendors (Seam, VingCard, SALTO, TTLock, ZKTeco, Onity, dormakaba, RemoteLock), 5 network controllers (UniFi, Meraki, MikroTik, Omada, Ruckus), 6 IPTV platforms and 4 IoT/camera integrations — plus payments, SMS and email. Adding a vendor is one registry entry.</div></details>
-      <details><summary>Is my data secure?</summary><div class="a">JWT auth with single-use refresh-token rotation, AES-256-GCM encryption for all integration credentials, HMAC-verified payment webhooks that fail closed, rate limiting, and a full audit log of sensitive actions. Integration secrets are never shown in full after saving.</div></details>
-      <details><summary>How do I deploy it?</summary><div class="a">Docker (the image runs migrate → seed → check → start and fails fast on a broken deploy), one click on Render, or pm2 on any VPS behind Nginx with free HTTPS. SQLite by default — zero database ops — with a documented PostgreSQL path for large portfolios.</div></details>
+      <details><summary>Where can I find the full manual?</summary><div class="a">The <a href="/help.html" style="color:var(--p2)">Help Center</a> has the complete user manual (18 sections) and the full FAQ — searchable, and the same knowledge base that powers this page's assistant. Self-hosting guide: deploy/SETUP.md in the repo.</div></details>
     </div>
   </div>
 </section>
@@ -351,7 +353,7 @@
 <footer>
   <div class="wrap foot-in">
     <div>© 2026 StayChat OS — hotel management, WhatsApp-first.</div>
-    <div><a href="/signup.html">Start free trial</a> · <a href="/app">Sign in</a> · <a href="/book.html?hotel=hospitally">Book</a> · <a href="/confirmation.html?hotel=hospitally">Find my booking</a></div>
+    <div><a href="/signup.html">Start free trial</a> · <a href="/help.html">Help Center</a> · <a href="/app">Sign in</a> · <a href="/book.html?hotel=hospitally&v=2">Book</a> · <a href="/confirmation.html?hotel=hospitally&v=2">Find my booking</a></div>
   </div>
 </footer>
 
@@ -493,8 +495,8 @@
   function greet() {
     if (greeted) return;
     greeted = true;
-    addMsg("Hi! I'm the StayChat assistant — trained on this platform. Ask me about the booking engine, WhatsApp automation, integrations, pricing or security.", 'bot');
-    setChips(['What is StayChat OS?', 'How does the booking engine work?', 'What integrations are supported?', 'How much does it cost?']);
+    addMsg("Hi! I'm the StayChat assistant — trained on this platform's full knowledge base (the same one behind the Help Center). Ask me about the booking engine, tender codes, WhatsApp automation, Wi-Fi, integrations, pricing, permissions or self-hosting.", 'bot');
+    setChips(['What is StayChat OS?', 'How does the booking engine work?', 'Who can see the Billing page?', 'How much does it cost?']);
   }
   let sending = false;
   async function send(text) {

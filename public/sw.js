@@ -13,13 +13,13 @@
 //   • Navigations to unknown paths fall back to the SPA shell.
 'use strict';
 
-const VERSION = 'v3';
+const VERSION = 'v8'; // v8: /js/ + /css/ are NETWORK-FIRST — stale-while-revalidate kept serving a cached page module after its fix deployed (staff could not type the amount collected at checkout until the next reload×2)
 const SHELL_CACHE = 'staychat-shell-' + VERSION;
 const ASSET_CACHE = 'staychat-assets-' + VERSION;
 const API_CACHE = 'staychat-api-' + VERSION;
 
 const SHELL = [
-  '/', '/landing.html', '/index.html', '/app', '/signup.html',
+  '/', '/landing.html', '/index.html', '/app', '/signup.html', '/help.html',
   '/manifest.json', '/favicon.svg', '/icon-192.png', '/icon-512.png',
   '/css/app.css',
 ];
@@ -97,22 +97,47 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // ── Navigations: shell first when offline ─────────────────────────────────
+  // ── Navigations: network-first, shell only when truly offline ───────────
+  // v6: the network response wins even when a cached copy exists, so a fixed
+  // page reaches visitors immediately after deploy. The shell cache is only
+  // consulted when the network fails entirely (offline hotel Wi-Fi).
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
-      try {
-        return await fetch(req);
-      } catch (e) {
-        const cache = await caches.open(SHELL_CACHE);
-        return (await cache.match(url.pathname))
+      const network = await fetch(req).catch(() => null);
+      if (network && network.ok) return network;
+      const cache = await caches.open(SHELL_CACHE);
+      return (network && !network.ok && network.status !== 502 && network.status !== 503 && network.status !== 504)
+        ? network // real server answer (e.g. 404) — do not mask it with the shell
+        : (await cache.match(url.pathname))
           || (await cache.match('/index.html'))
+          || network
           || new Response('Offline', { status: 503 });
+    })());
+    return;
+  }
+
+  // ── App code (/js/, /css/): NETWORK-FIRST ─────────────────────────────────
+  // Same lesson as the v6 navigation change: these files ship un-hashed and
+  // are patched in place, so a cached copy can silently diverge from the
+  // server (old modal code = "can't type the amount collected"). Try the
+  // network first, fall back to cache only when offline; on success the copy
+  // is refreshed for next offline use.
+  if (/\.(js|css)$/.test(url.pathname)) {
+    event.respondWith((async () => {
+      const cache = await caches.open(ASSET_CACHE);
+      try {
+        const res = await fetch(req);
+        if (res && res.ok) cache.put(req, res.clone());
+        return res;
+      } catch (e) {
+        const cached = await cache.match(req);
+        return cached || new Response('Offline — app code unavailable', { status: 503 });
       }
     })());
     return;
   }
 
-  // ── Static assets: stale-while-revalidate ─────────────────────────────────
+  // ── Static assets: stale-while-revalidate ─────────────────────────────
   if (isStaticAsset(url)) {
     event.respondWith((async () => {
       const cache = await caches.open(ASSET_CACHE);

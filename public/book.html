@@ -27,6 +27,11 @@
     .room .num { font-weight:800; font-size:16px; }
     .room .price { font-weight:800; color:#2563eb; }
     .room .meta { font-size:12px; color:#64748b; margin-top:2px; }
+    .tabs { display:flex; gap:8px; margin-bottom:6px; }
+    .tab { flex:1; padding:10px; border:1.5px solid #e2e8f0; background:#f8fafc; color:#475569;
+           border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; }
+    .tab.active { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
+    .fac-extra { display:none; }
     button { width:100%; margin-top:18px; padding:13px; background:#2563eb; color:#fff; border:none;
              border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
     button:disabled { opacity:.55; cursor:default; }
@@ -48,16 +53,33 @@
     <div class="brand"><h1 id="h-name">Book Your Stay</h1><div class="sub" id="h-sub">Loading…</div></div>
     <div class="notice" id="notice"></div>
     <div class="card" id="step-form">
+      <div class="tabs">
+        <button type="button" class="tab active" id="tab-rooms">🛏 Rooms</button>
+        <button type="button" class="tab" id="tab-facilities">🎪 Facilities</button>
+      </div>
+      <div id="pane-rooms">
       <div class="grid">
         <div><label>Check-in</label><input type="date" id="cin"></div>
         <div><label>Check-out</label><input type="date" id="cout"></div>
       </div>
       <button id="search" style="margin-top:14px">Search Available Rooms</button>
       <div id="rooms"></div>
+      </div>
+      <div id="pane-facilities" style="display:none">
+        <div class="grid">
+          <div><label>Date</label><input type="date" id="f-date"></div>
+          <div><label>Guests / Party size</label><input type="number" id="f-party" min="1" value="2"></div>
+          <div><label>From</label><input type="time" id="f-start" value="10:00"></div>
+          <div><label>Until</label><input type="time" id="f-end" value="14:00"></div>
+        </div>
+        <button id="f-search" style="margin-top:14px">Search Available Facilities</button>
+        <div id="facilities"></div>
+      </div>
       <div class="grid" id="guest-fields" style="display:none">
         <div><label>Full name</label><input id="g-name" autocomplete="name"></div>
         <div><label>Phone number</label><input id="g-phone" autocomplete="tel"></div>
         <div style="grid-column:1/-1"><label>Email (optional)</label><input id="g-email" type="email" autocomplete="email"></div>
+        <div class="fac-extra" style="grid-column:1/-1"><label>Event name (optional)</label><input id="g-event" placeholder="e.g. Adeyemi Wedding"></div>
       </div>
       <button id="submit" style="display:none">Reserve — pay at the hotel</button>
       <div class="err" id="err"></div>
@@ -78,10 +100,30 @@
     const $ = id => document.getElementById(id);
     let selected = new Set();
     let todayStr = new Date().toISOString().slice(0,10);
+    // mode: 'rooms' | 'facilities'; facility pick: { kind, id, name, price, currency, priceLabel }
+    let mode = 'rooms';
+    let facilityPick = null;
+    let CURRENCY = '$';
+
+    function setMode(m) {
+      mode = m;
+      $('tab-rooms').classList.toggle('active', m === 'rooms');
+      $('tab-facilities').classList.toggle('active', m === 'facilities');
+      $('pane-rooms').style.display = m === 'rooms' ? 'block' : 'none';
+      $('pane-facilities').style.display = m === 'facilities' ? 'block' : 'none';
+      document.querySelectorAll('.fac-extra').forEach(el => el.style.display = m === 'facilities' ? 'block' : 'none');
+      // reset selection state when switching
+      selected.clear(); facilityPick = null;
+      $('guest-fields').style.display = 'none'; $('submit').style.display = 'none';
+      hideErr();
+    }
+    $('tab-rooms').onclick = () => setMode('rooms');
+    $('tab-facilities').onclick = () => setMode('facilities');
 
     $('cin').min = todayStr; $('cin').value = todayStr;
     const d2 = new Date(); d2.setDate(d2.getDate()+1);
     $('cout').min = d2.toISOString().slice(0,10); $('cout').value = d2.toISOString().slice(0,10);
+    $('f-date').min = todayStr; $('f-date').value = todayStr;
     if (!SUBDOMAIN) { $('h-sub').textContent = 'Add ?hotel=your-hotel to this link'; }
 
     async function init() {
@@ -92,7 +134,13 @@
         if (!r.ok) { $('h-sub').textContent = b.error || 'Booking unavailable'; $('search').disabled = true; return; }
         $('h-name').textContent = b.hotelName;
         $('h-sub').textContent = 'Reserve your room in under a minute';
+        CURRENCY = b.currency || '$';
         if (b.notice) { $('notice').textContent = b.notice; $('notice').style.display = 'block'; }
+        // Hide the Facilities tab entirely when the hotel has none to sell.
+        fetch('/api/booking-engine/facilities?subdomain=' + encodeURIComponent(SUBDOMAIN))
+          .then(r => r.ok ? r.json() : null)
+          .then(f => { if (f && !(f.halls.length + f.pools.length)) $('tab-facilities').style.display = 'none'; })
+          .catch(() => {});
       } catch (e) { $('h-sub').textContent = 'Cannot reach the hotel booking service'; }
     }
     init();
@@ -104,7 +152,7 @@
       hideErr();
       const cin = $('cin').value, cout = $('cout').value;
       if (!cin || !cout || cout <= cin) { showErr('Pick valid dates (check-out after check-in).'); return; }
-      if (!SUBDOMAIN) { showErr('Missing hotel — open this page from the hotel\\'s booking link.'); return; }
+      if (!SUBDOMAIN) { showErr('Missing hotel — open this page from the hotel\'s booking link.'); return; }
       $('search').disabled = true; $('search').textContent = 'Searching…';
       try {
         const q = 'subdomain=' + encodeURIComponent(SUBDOMAIN) + '&checkIn=' + cin + '&checkOut=' + cout;
@@ -132,22 +180,92 @@
       $('search').disabled = false; $('search').textContent = 'Search Available Rooms';
     };
 
+    // ── Facilities search ─────────────────────────────────────────────────
+    $('f-search').onclick = async () => {
+      hideErr();
+      const date = $('f-date').value, start = $('f-start').value, end = $('f-end').value;
+      const size = Math.max(1, parseInt($('f-party').value, 10) || 1);
+      if (!date) { showErr('Pick a date.'); return; }
+      if (!start || !end || end <= start) { showErr('Pick a valid time window (end after start).'); return; }
+      if (!SUBDOMAIN) { showErr('Missing hotel — open this page from the hotel\'s booking link.'); return; }
+      $('f-search').disabled = true; $('f-search').textContent = 'Searching…';
+      try {
+        const r = await fetch('/api/booking-engine/facilities?subdomain=' + encodeURIComponent(SUBDOMAIN));
+        const b = await r.json();
+        if (!r.ok) throw new Error(b.error || 'Could not load facilities');
+        const all = b.halls.map(h => Object.assign(h, { _icon: '🎪' })).concat(b.pools.map(p => Object.assign(p, { _icon: '🏊' })));
+        // Check each facility's slot live (sequential — the list is small).
+        const checks = [];
+        for (const f of all) {
+          try {
+            const q = 'subdomain=' + encodeURIComponent(SUBDOMAIN) + '&kind=' + f.kind + '&facilityId=' + encodeURIComponent(f.id) +
+                      '&date=' + date + '&startTime=' + start + '&endTime=' + end + '&partySize=' + size;
+            const c = await (await fetch('/api/booking-engine/facility-availability?' + q)).json();
+            checks.push(Object.assign(f, { available: !!c.available, reason: c.reason || null }));
+          } catch (e) { checks.push(Object.assign(f, { available: false, reason: 'Could not check availability' })); }
+        }
+        const priceLabel = f => f.kind === 'hall'
+          ? (f.dayRate > 0 ? CURRENCY + f.dayRate + ' day' : CURRENCY + f.hourlyRate + '/hour')
+          : (f.pricePerPersonPerHour > 0 ? CURRENCY + f.pricePerPersonPerHour + '/person/hour' : 'Free');
+        $('facilities').innerHTML = all.length
+          ? checks.map(f =>
+              '<div class="room' + (!f.available ? '" style="opacity:.45;cursor:not-allowed' : '') + '" data-kind="' + f.kind + '" data-id="' + f.id + '" data-name="' + escapeA(f.name) + '" data-price="' + (f.kind === 'hall' ? (f.dayRate > 0 ? f.dayRate : f.hourlyRate) : (f.pricePerPersonPerHour || 0)) + '">' +
+                '<div class="top"><span class="num">' + f._icon + ' ' + escapeA(f.name) + '</span><span class="price">' + priceLabel(f) + '</span></div>' +
+                '<div class="meta">' + escapeA(f.category || '') + (f.capacity ? ' · up to ' + f.capacity + ' guests' : '') + (f.available ? '' : ' · ' + escapeA(f.reason || 'Unavailable')) + '</div>' +
+              '</div>').join('')
+          : '<p style="color:#64748b;font-size:14px;margin-top:14px">No facilities are available to book right now — call us instead.</p>';
+        document.querySelectorAll('#facilities .room').forEach(el => {
+          el.onclick = () => {
+            if (el.dataset.kind === undefined || el.dataset.id === undefined) return;
+            const name = el.querySelector('.num').textContent.trim();
+            const already = el.classList.contains('sel');
+            document.querySelectorAll('#facilities .room').forEach(x => x.classList.remove('sel'));
+            if (already) { facilityPick = null; }
+            else { el.classList.add('sel'); facilityPick = { kind: el.dataset.kind, id: el.dataset.id, name: name.replace(/^[^ ]+ /, ''), price: Number(el.dataset.price) || 0 }; }
+            $('guest-fields').style.display = facilityPick ? 'grid' : 'none';
+            $('submit').style.display = facilityPick ? 'block' : 'none';
+            $('submit').textContent = 'Reserve — pay at the hotel';
+          };
+        });
+      } catch (e) { showErr(e.message); }
+      $('f-search').disabled = false; $('f-search').textContent = 'Search Available Facilities';
+    };
+    function escapeA(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+
     $('submit').onclick = async () => {
       hideErr();
       const name = $('g-name').value.trim(), phone = $('g-phone').value.trim();
       if (!name || !phone) { showErr('Name and phone number are required.'); return; }
+      if (mode === 'rooms') {
+        if (!selected.size) { showErr('Select at least one room first.'); return; }
+      } else if (!facilityPick) { showErr('Select a facility first.'); return; }
       $('submit').disabled = true; $('submit').textContent = 'Sending…';
       try {
-        const r = await fetch('/api/booking-engine/book', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ subdomain: SUBDOMAIN, guestName:name, guestPhone:phone, guestEmail:$('g-email').value.trim(),
-            checkIn:$('cin').value, checkOut:$('cout').value, roomIds:[...selected], adults:1, children:0 })
-        });
-        const b = await r.json();
-        if (!r.ok) throw new Error(b.error || 'Booking failed');
-        $('d-summary').innerHTML = 'Reference <b>' + b.reference + '</b> · Room' + (b.rooms.length>1?'s':'') + ' ' +
-          b.rooms.map(x=>x.number).join(', ') + ' · ' + b.checkIn + ' → ' + b.checkOut + ' · Total <b>' + b.total + '</b> (pay at hotel)';
-        $('d-code').textContent = b.code;
+        if (mode === 'rooms') {
+          const r = await fetch('/api/booking-engine/book', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ subdomain: SUBDOMAIN, guestName:name, guestPhone:phone, guestEmail:$('g-email').value.trim(),
+              checkIn:$('cin').value, checkOut:$('cout').value, roomIds:[...selected], adults:1, children:0 })
+          });
+          const b = await r.json();
+          if (!r.ok) throw new Error(b.error || 'Booking failed');
+          $('d-summary').innerHTML = 'Reference <b>' + b.reference + '</b> · Room' + (b.rooms.length>1?'s':'') + ' ' +
+            b.rooms.map(x=>x.number).join(', ') + ' · ' + b.checkIn + ' → ' + b.checkOut + ' · Total <b>' + CURRENCY + b.total + '</b> (pay at hotel)';
+          $('d-code').textContent = b.code;
+        } else {
+          const r = await fetch('/api/booking-engine/facility-book', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ subdomain: SUBDOMAIN, kind: facilityPick.kind, facilityId: facilityPick.id,
+              guestName:name, guestPhone:phone, guestEmail:$('g-email').value.trim(),
+              date:$('f-date').value, startTime:$('f-start').value, endTime:$('f-end').value,
+              partySize: Math.max(1, parseInt($('f-party').value, 10) || 1), eventName: $('g-event').value.trim() })
+          });
+          const b = await r.json();
+          if (!r.ok) throw new Error(b.error || 'Booking failed');
+          $('d-summary').innerHTML = 'Reservation <b>' + escapeA(b.facility) + '</b> · ' + b.date + ' · ' + b.startTime + '–' + b.endTime +
+            ' · ' + b.partySize + ' guest' + (b.partySize===1?'':'s') + (b.total ? ' · Total <b>' + CURRENCY + b.total + '</b> (pay at hotel)' : '');
+          $('d-code').textContent = b.code;
+        }
         $('step-form').style.display = 'none';
         $('step-done').style.display = 'block';
         window.scrollTo(0,0);

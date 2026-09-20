@@ -17,6 +17,7 @@
 
 const CAPABILITIES = [
   'dashboard.view',
+  'billing.manage',        // see + manage Billing & Plan (plan changes, checkout) — owner/admin only
   'rooms.manage',
   'pricing.manage',        // floors, room categories, holidays/festive dates, room rates
   'inbox.use',
@@ -46,8 +47,12 @@ const CAPABILITIES = [
 // Defaults per role. superadmin implicitly has everything (checked separately).
 const ROLE_DEFAULTS = {
   hotel_admin: CAPABILITIES.slice(),
+  // NOTE: no 'billing.manage' for non-admin roles — the Billing & Plan page is
+  // hidden from everyone except the hotel owner/admin (and platform superadmin).
   receptionist: [
-    'dashboard.view', 'rooms.manage', 'inbox.use', 'orders.manage', 'pos.use',
+    'dashboard.view', 'rooms.manage', 'inbox.use', 'orders.manage',
+    // NOTE: no 'pos.use' — the restaurant/bar till is for cashier/barman (and
+    // managers). Front desk handles ROOM bills via Payments, not POS tickets.
     'bookings.manage', 'pool.use', 'halls.use', 'housekeeping.manage',
     'maintenance.manage', 'guests.manage', 'payments.use', 'analytics.view',
     'attendance.use', 'eod.use',

@@ -44,9 +44,14 @@ PAGES.halls = function () {
     (list.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-title">No bookings here</div></div>' :
     '<div style="display:flex;flex-direction:column;gap:10px">' + list.map(b => {
       const hall = state.halls.find(h => h.id === b.hall_id);
+      // Online submissions carry their tender code — show it so the desk can
+      // verify the guest's slip without opening the Bookings page.
+      const engineTag = (b.engine_sync_status === 'pending' && b.engine_code)
+        ? '<span style="font-family:monospace;font-weight:800;font-size:12px;letter-spacing:1px;color:var(--p);background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;padding:2px 8px">ONLINE · ' + escapeHtml(b.engine_code) + '</span>'
+        : '';
       return '<div class="card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 18px">' +
         '<div style="flex:1;min-width:200px">' +
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px"><span style="font-weight:700;font-size:14px">' + escapeHtml(b.event_name) + '</span>' + badge(b.event_type, 'default') + statusBadge2(b.status) + '</div>' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px"><span style="font-weight:700;font-size:14px">' + escapeHtml(b.event_name) + '</span>' + engineTag + badge(b.event_type, 'default') + statusBadge2(b.status) + '</div>' +
           '<div style="font-size:12px;color:var(--text3)">' + escapeHtml(hall ? hall.name : 'Unknown Hall') + ' &middot; ' + escapeHtml(b.organizer_name) + '</div>' +
         '</div>' +
         '<div style="text-align:center;min-width:140px"><div style="font-size:12px;font-weight:600">' + fmtDate(b.event_date) + '</div><div style="font-size:11px;color:var(--text3)">' + b.start_time + ' – ' + b.end_time + ' &middot; ' + b.guest_count + ' guests</div></div>' +

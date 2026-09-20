@@ -1,18 +1,51 @@
 // public/js/ws-client.js
 // Connects to the server's WebSocket endpoint for real-time tenant events.
-// Auto-reconnects with backoff. Exposes WSClient.on(type, handler).
+// Auto-reconnects with backoff, refreshing the access token when it expires
+// (access tokens are short-lived; a WS handshake with a stale one is rejected
+// by the server with 4001 before the connection opens).
+// Exposes WSClient.on(type, handler).
 
 const WSClient = (() => {
   let socket = null;
   let reconnectDelay = 1000;
   const handlers = {};
   let accessTokenGetter = () => null;
+  let backoffTimer = null;
+  let stopped = true; // true when deliberately closed (logout / session gone)
+  let refreshing = null; // in-flight token refresh promise
 
   function setTokenGetter(fn) { accessTokenGetter = fn; }
 
+  // Ask the server for a fresh access token via the httpOnly refresh cookie.
+  // Returns true on success. Concurrent callers share one in-flight refresh.
+  async function refreshAccessToken() {
+    if (refreshing) return refreshing;
+    refreshing = (async () => {
+      try {
+        const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+        if (!res.ok) return false;
+        const data = await res.json().catch(() => null);
+        // Publish the fresh session exactly like login does.
+        if (data && window.App) {
+          if (data.accessToken) window.App.accessToken = data.accessToken;
+          if (data.user) window.App.user = data.user;
+          if (data.tenant) window.App.tenant = data.tenant;
+          if (data.entitlements) window.App.entitlements = data.entitlements;
+        }
+        return !!(data && data.accessToken);
+      } catch (e) {
+        return false;
+      } finally {
+        refreshing = null;
+      }
+    })();
+    return refreshing;
+  }
+
   function connect() {
+    if (stopped) return;
     const token = accessTokenGetter();
-    if (!token) return;
+    if (!token) { scheduleReconnect(); return; }
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const tenantParam = (window.App && window.App.tenantId) ? `&tenantId=${encodeURIComponent(window.App.tenantId)}` : '';
@@ -35,17 +68,43 @@ const WSClient = (() => {
         if (handlers[msg.type]) handlers[msg.type].forEach(fn => fn(msg.payload));
       } catch (e) { /* ignore malformed frames */ }
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
+      socket = null;
       setStatus('error');
+      if (stopped) return;
+      // 4001 = Unauthorized / expired token (server closes before open).
+      // Refresh the token first, then retry — otherwise a long-lived tab just
+      // spams the server with doomed handshakes (the "Access token has expired"
+      // log flood) while never actually recovering.
+      if (event && event.code === 4001) {
+        refreshAccessToken().then((ok) => {
+          if (stopped) return;
+          if (ok) {
+            reconnectDelay = 1000; // auth fixed — reconnect promptly
+            connect();
+          } else {
+            setStatus('error');
+            scheduleReconnect(); // keep trying slowly; cookie may recover
+          }
+        });
+        return;
+      }
       scheduleReconnect();
     };
     socket.onerror = () => { setStatus('error'); };
   }
 
   function scheduleReconnect() {
-    setTimeout(connect, reconnectDelay);
+    if (stopped) return;
+    if (backoffTimer) return; // one timer at a time
+    backoffTimer = setTimeout(() => {
+      backoffTimer = noMoreTimer;
+      connect();
+    }, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
   }
+
+  function noMoreTimer() { backoffTimer = null; }
 
   function setStatus(state) {
     const el = document.getElementById('ws-status');
@@ -61,9 +120,21 @@ const WSClient = (() => {
   }
 
   function reconnectWithNewTenant() {
-    if (socket) socket.close();
+    stopped = false;
+    if (socket) { try { socket.close(); } catch (e) { /* noop */ } socket = null; }
+    if (backoffTimer) { clearTimeout(backoffTimer); backoffTimer = null; }
+    reconnectDelay = 1000;
     connect();
   }
 
-  return { connect, on, setTokenGetter, reconnectWithNewTenant };
+  // Deliberate stop (logout, session teardown): close the socket and make sure
+  // no reconnect timer resurrects it afterwards.
+  function disconnect() {
+    stopped = true;
+    if (backoffTimer) { clearTimeout(backoffTimer); backoffTimer = null; }
+    if (socket) { try { socket.close(); } catch (e) { /* noop */ } socket = null; }
+    setStatus('error');
+  }
+
+  return { connect, on, setTokenGetter, reconnectWithNewTenant, disconnect };
 })();

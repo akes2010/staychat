@@ -344,6 +344,71 @@ router.patch('/:id', requirePermission('bookings.manage'), (req, res) => {
   res.json(serialize(updated));
 });
 
+// ── Facility (hall/pool) engine submissions — desk workflow ─────────────────
+// NOTE: these MUST be registered before the /:id/confirm, /:id/reject, …
+// parameterized routes below — otherwise POST /facilities/confirm is captured
+// by /:id/confirm (with id='facilities') and 404s with "Booking not found".
+// GET /api/bookings/facilities/pending — every unprocessed facility submission,
+// for the desk's Pending view (same page as room submissions).
+router.get('/facilities/pending', requirePermission('bookings.manage'), (req, res) => {
+  const halls = db.prepare(`
+    SELECT hb.id, hb.engine_code AS engineCode, hb.engine_sync_status AS engineSyncStatus,
+           hb.event_name AS title, hb.organizer_name AS guestName, hb.organizer_phone AS guestPhone,
+           hb.event_date AS date, hb.start_time AS startTime, hb.end_time AS endTime,
+           hb.guest_count AS partySize, hb.total_amount AS totalAmount, hb.status,
+           'hall' AS kind, h.name AS facilityName
+    FROM hall_bookings hb JOIN halls h ON h.id = hb.hall_id
+    WHERE hb.tenant_id = ? AND hb.engine_sync_status = 'pending'
+    ORDER BY hb.event_date ASC, hb.start_time ASC
+  `).all(req.tenantId);
+  const pools = db.prepare(`
+    SELECT pb.id, pb.engine_code AS engineCode, pb.engine_sync_status AS engineSyncStatus,
+           NULL AS title, pb.guest_name AS guestName, pb.guest_phone AS guestPhone,
+           pb.date AS date, pb.start_time AS startTime, pb.end_time AS endTime,
+           pb.party_size AS partySize, pb.price * pb.party_size AS totalAmount, pb.status,
+           'pool' AS kind, p.name AS facilityName
+    FROM pool_bookings pb JOIN pools p ON p.id = pb.pool_id
+    WHERE pb.tenant_id = ? AND pb.engine_sync_status = 'pending'
+    ORDER BY pb.date ASC, pb.start_time ASC
+  `).all(req.tenantId);
+  res.json([...halls, ...pools]);
+});
+
+// POST /api/bookings/facilities/confirm — body { code } — confirm a facility
+// submission by the tender code the guest presented. Availability is
+// re-validated inside the service's write transaction.
+router.post('/facilities/confirm', requirePermission('bookings.manage'), (req, res) => {
+  const code = req.body && req.body.code;
+  if (!code) return res.status(400).json({ error: 'A tender code is required' });
+  try {
+    const { kind, booking } = engine.confirmFacilityByCode(req.tenantId, code, req.user.id);
+    audit(req, 'facility.confirm', kind === 'hall' ? 'hall_booking' : 'pool_booking', booking.id, { code, kind, guestName: kind === 'hall' ? booking.organizer_name : booking.guest_name });
+    broadcast(req.tenantId, kind === 'hall' ? 'hallbooking.updated' : 'pool.updated', booking);
+    res.json({ kind, booking });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// POST /api/bookings/facilities/reject — body { code, reason? }
+router.post('/facilities/reject', requirePermission('bookings.manage'), (req, res) => {
+  const code = req.body && req.body.code;
+  if (!code) return res.status(400).json({ error: 'A tender code is required' });
+  const reason = (req.body && req.body.reason) || null;
+  try {
+    const { kind, booking } = engine.rejectFacilityByCode(req.tenantId, code, reason, req.user.id);
+    audit(req, 'facility.reject', kind === 'hall' ? 'hall_booking' : 'pool_booking', booking.id, { code, kind, reason });
+    broadcast(req.tenantId, kind === 'hall' ? 'hallbooking.updated' : 'pool.updated', booking);
+    res.json({ kind, booking });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// ── Room submissions (route order: the /facilities/* routes above must stay
+// ahead of these /:id/* ones, or Express captures /facilities/confirm as
+// /:id/confirm with id='facilities').
+
 // POST /api/bookings/:id/confirm — front desk tenders the guest's online
 // booking code, re-validating availability inside the write transaction and
 // flipping the submission to 'confirmed' (desk does NOT need pricing.manage:

@@ -18,6 +18,7 @@
 const express = require('express');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
+const { requirePermission } = require('../utils/permissions');
 const { PLAN_CATALOG, FEATURE_LABELS, resolveState, ensurePlansSeeded } = require('../services/entitlements');
 const billing = require('../services/billing');
 
@@ -42,8 +43,13 @@ router.get('/pricing', (req, res) => {
   });
 });
 
-// Signed-in users (including trialing hotels) can read their entitlements.
-router.get('/state', requireAuth, resolveTenant, requireTenant, (req, res) => {
+// Plan state / billing snapshot are owner/admin surfaces. Non-admin staff get
+// their limits enforced through entitlements on every request; they don't need
+// (and shouldn't see) plan, price, and payment history. Requires the
+// 'billing.manage' capability (owner/admin by default, customizable per user).
+// NOTE: suspended hotels keep their self-service reactivation path — the
+// request-plan/cancel-request handlers below re-resolve the tenant directly.
+router.get('/state', requireAuth, resolveTenant, requireTenant, requirePermission('billing.manage'), (req, res) => {
   res.json(resolveState(req.tenant));
 });
 
@@ -54,7 +60,8 @@ function loadTenant(req) {
   return tenant;
 }
 
-router.get('/summary', requireAuth, resolveTenant, (req, res) => {
+// Owner/admin only (billing.manage) — plan + payment history.
+router.get('/summary', requireAuth, resolveTenant, requirePermission('billing.manage'), (req, res) => {
   try {
     res.json(billing.tenantBillingSnapshot(loadTenant(req)));
   } catch (e) {

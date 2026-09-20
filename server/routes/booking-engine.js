@@ -138,7 +138,103 @@ router.post('/book', (req, res) => {
         rooms: result.rooms.map(r => r.number).join(', '),
         total: result.total,
         currency: tenant.currency || '$',
-        confirmationUrl: billing.resolvePlatformBaseUrl(req) + '/confirmation.html?hotel=' + encodeURIComponent(tenant.subdomain) + '&code=' + encodeURIComponent(result.code),
+        confirmationUrl: billing.resolvePlatformBaseUrl(req) + '/confirmation.html?hotel=' + encodeURIComponent(tenant.subdomain) + '&v=2&code=' + encodeURIComponent(result.code),
+      }) }).catch(() => {});
+    }
+    res.status(201).json({
+      ...result,
+      message: 'Reservation received. Present code ' + result.code + ' at the front desk to confirm your booking.',
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// GET /api/booking-engine/facilities?subdomain= — sellable halls + pool areas
+router.get('/facilities', (req, res) => {
+  const subdomain = resolveSubdomain(req);
+  if (!subdomain) return res.status(400).json({ error: 'subdomain is required' });
+  const tenant = publicTenant(res, subdomain);
+  if (!tenant) return;
+  const halls = engine.availableHalls(tenant.id).map(h => ({
+    id: h.id, kind: 'hall', name: h.name, category: h.category || 'Event Space',
+    capacity: h.capacity, description: h.description || null,
+    dayRate: h.day_rate, hourlyRate: h.hourly_rate, currency: tenant.currency || '$',
+  }));
+  const pools = engine.availablePools(tenant.id).map(p => ({
+    id: p.id, kind: 'pool', name: p.name, category: p.category || 'Pool',
+    capacity: p.capacity, description: p.description || null,
+    pricePerPersonPerHour: p.price, currency: tenant.currency || '$',
+  }));
+  res.json({ halls, pools });
+});
+
+// GET /api/booking-engine/facility-availability?subdomain=&kind=&facilityId=&date=&startTime=&endTime=
+// Live slot check for the widget before the guest commits.
+router.get('/facility-availability', (req, res) => {
+  const subdomain = resolveSubdomain(req);
+  const { kind, facilityId, date, startTime, endTime, partySize } = req.query;
+  if (!subdomain) return res.status(400).json({ error: 'subdomain is required' });
+  if (!kind || !facilityId || !date || !startTime || !endTime) {
+    return res.status(400).json({ error: 'kind, facilityId, date, startTime and endTime are required' });
+  }
+  const tenant = publicTenant(res, subdomain);
+  if (!tenant) return;
+  if (String(endTime) <= String(startTime)) return res.status(400).json({ error: 'endTime must be after startTime' });
+  const size = Math.max(1, parseInt(partySize, 10) || 1);
+
+  if (kind === 'hall') {
+    const hall = db.prepare('SELECT * FROM halls WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenant.id);
+    if (!hall) return res.status(404).json({ error: 'Facility not found' });
+    if (size > hall.capacity) return res.json({ available: false, reason: hall.name + ' holds up to ' + hall.capacity + ' guests' });
+    const free = engine.hallIsFree(tenant.id, hall.id, date, startTime, endTime);
+    return res.json({ available: free, reason: free ? null : hall.name + ' is already reserved for that time' });
+  }
+  if (kind === 'pool') {
+    const pool = db.prepare('SELECT * FROM pools WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenant.id);
+    if (!pool) return res.status(404).json({ error: 'Facility not found' });
+    const capacity = pool.capacity || 20;
+    const current = engine.poolHeadcount(tenant.id, pool.id, date, startTime, endTime);
+    const left = Math.max(0, capacity - current);
+    return res.json({ available: left >= size, reason: left >= size ? null : 'Only ' + left + ' of ' + capacity + ' slots left for that time' });
+  }
+  res.status(400).json({ error: 'kind must be hall or pool' });
+});
+
+// POST /api/booking-engine/facility-book — submit a hall or pool reservation
+router.post('/facility-book', (req, res) => {
+  const { subdomain, kind, facilityId, guestName, guestPhone, guestEmail, date, startTime, endTime, partySize, eventName, notes } = req.body || {};
+  if (!subdomain) return res.status(400).json({ error: 'subdomain is required' });
+  const tenant = db.prepare(`SELECT * FROM tenants WHERE subdomain = ? AND status IN ('active','trial')`).get(String(subdomain).toLowerCase());
+  if (!tenant) return res.status(404).json({ error: 'Hotel not found' });
+  if (!engineEnabled(tenant.id)) return res.status(503).json({ error: 'Online booking is currently closed for this hotel' });
+
+  try {
+    const result = engine.submitFacilityBooking(tenant.id, { kind, facilityId, guestName, guestPhone, guestEmail, date, startTime, endTime, partySize, eventName, notes });
+    // Staff heads-up (fire-and-forget) — reuse the room submission broadcast so
+    // the desk sees one consistent "new online booking" notification stream.
+    notifyStaffOfSubmission(tenant.id, {
+      code: result.code,
+      reference: result.reference || (result.kind === 'hall' ? 'Hall · ' + result.facility : 'Pool · ' + result.facility),
+      guestName: guestName,
+      guestPhone: guestPhone,
+      checkIn: result.date + ' ' + result.startTime,
+      checkOut: result.endTime,
+      total: result.total,
+    });
+    if (guestEmail) {
+      emailSvc.sendEmail({ to: guestEmail, ...emailSvc.bookingSubmittedEmail({
+        hotel: { name: tenant.name, phone: tenant.phone, email: tenant.email,
+                 checkInTime: tenant.check_in_time, checkOutTime: tenant.check_out_time },
+        guestName: String(guestName).trim(),
+        reference: result.reference || result.code,
+        code: result.code,
+        checkIn: result.date + ' ' + result.startTime,
+        checkOut: result.endTime,
+        rooms: result.facility,
+        total: result.total,
+        currency: tenant.currency || '$',
+        confirmationUrl: billing.resolvePlatformBaseUrl(req) + '/confirmation.html?hotel=' + encodeURIComponent(tenant.subdomain) + '&v=2&code=' + encodeURIComponent(result.code),
       }) }).catch(() => {});
     }
     res.status(201).json({
@@ -163,6 +259,61 @@ router.get('/confirmation', (req, res) => {
   }
   const tenant = db.prepare('SELECT * FROM tenants WHERE subdomain = ?').get(subdomain);
   if (!tenant) return res.status(404).json({ error: 'Hotel not found' });
+
+  // Facility (hall/pool) tender codes resolve first — their code spaces share
+  // the BE- format with room bookings but live in their own tables.
+  if (code) {
+    const hallBk = db.prepare(`
+      SELECT hb.*, h.name AS facility_name, h.category AS facility_category FROM hall_bookings hb
+      JOIN halls h ON h.id = hb.hall_id
+      WHERE hb.tenant_id = ? AND hb.engine_code = ?
+    `).get(tenant.id, String(code).trim().toUpperCase());
+    if (hallBk) {
+      return res.json({
+        facility: {
+          kind: 'hall', name: hallBk.facility_name, category: hallBk.facility_category || 'Event Space',
+          eventName: hallBk.event_name, date: hallBk.event_date,
+          startTime: hallBk.start_time, endTime: hallBk.end_time,
+          guestCount: hallBk.guest_count, total: hallBk.total_amount,
+        },
+        code: hallBk.engine_code,
+        // 'tentative' is internal hall vocabulary; guests see the same
+        // AWAITING DESK CONFIRMATION state as room submissions.
+        status: hallBk.engine_sync_status === 'pending' ? 'pending_payment' : hallBk.status,
+        engineSyncStatus: hallBk.engine_sync_status,
+        guestName: hallBk.organizer_name,
+        hotel: {
+          name: tenant.name, address: tenant.country || '', phone: tenant.phone || '', email: tenant.email || '',
+          checkInTime: hallBk.start_time, checkOutTime: hallBk.end_time, currency: tenant.currency || '$',
+        },
+        rooms: [],
+      });
+    }
+    const poolBk = db.prepare(`
+      SELECT pb.*, p.name AS facility_name, p.category AS facility_category FROM pool_bookings pb
+      JOIN pools p ON p.id = pb.pool_id
+      WHERE pb.tenant_id = ? AND pb.engine_code = ?
+    `).get(tenant.id, String(code).trim().toUpperCase());
+    if (poolBk) {
+      return res.json({
+        facility: {
+          kind: 'pool', name: poolBk.facility_name, category: poolBk.facility_category || 'Pool',
+          eventName: null, date: poolBk.date,
+          startTime: poolBk.start_time, endTime: poolBk.end_time,
+          guestCount: poolBk.party_size, total: poolBk.price * poolBk.party_size,
+        },
+        code: poolBk.engine_code,
+        status: poolBk.engine_sync_status === 'pending' ? 'pending_payment' : poolBk.status,
+        engineSyncStatus: poolBk.engine_sync_status,
+        guestName: poolBk.guest_name,
+        hotel: {
+          name: tenant.name, address: tenant.country || '', phone: tenant.phone || '', email: tenant.email || '',
+          checkInTime: poolBk.start_time, checkOutTime: poolBk.end_time, currency: tenant.currency || '$',
+        },
+        rooms: [],
+      });
+    }
+  }
 
   let booking;
   if (code) {
@@ -214,7 +365,7 @@ router.get('/qr', (req, res) => {
 
   const host = req.get('host') || 'localhost';
   const proto = req.protocol || 'http';
-  let target = `${proto}://${host}/confirmation.html?hotel=${encodeURIComponent(sub)}`;
+  let target = `${proto}://${host}/confirmation.html?hotel=${encodeURIComponent(sub)}&v=2`;
   if (code) target += '&code=' + encodeURIComponent(code);
 
   try {
@@ -230,7 +381,11 @@ router.get('/qr', (req, res) => {
 // ── Admin endpoints ─────────────────────────────────────────────────────────
 
 // GET /api/booking-engine/admin/config
-router.get('/admin/config', requireAuth, resolveTenant, requireTenant, requirePermission('settings.manage'), (req, res) => {
+// READ is for the whole front desk (bookings.manage): the page shows the
+// LIVE/OFF badge and guest notice alongside the submission queue. Only the
+// WRITE below stays settings.manage — enable/disable, notice and caps are
+// owner/admin decisions.
+router.get('/admin/config', requireAuth, resolveTenant, requireTenant, requirePermission('bookings.manage'), (req, res) => {
   const cfg = db.prepare('SELECT * FROM booking_engine_config WHERE tenant_id = ?').get(req.tenantId);
   res.json({
     enabled: !!(cfg && cfg.enabled),

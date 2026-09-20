@@ -17,6 +17,7 @@
 'use strict';
 
 const db = require('../db/connection');
+const { nanoid } = require('nanoid');
 const { effectiveRate } = require('../routes/room-setup');
 const { sendWhatsAppMessage } = require('../utils/whatsapp');
 const emailSvc = require('./email');
@@ -60,7 +61,9 @@ function emailGuestOnConfirm(hotel, booking) {
   if (!booking.guest_email) return;
   const rooms = db.prepare('SELECT room_number FROM booking_rooms WHERE booking_id = ?').all(booking.id).map(r => r.room_number).join(', ');
   const base = (process.env.APP_URL || '').replace(/\/+$/, '');
-  const url = base ? base + '/confirmation.html?hotel=' + encodeURIComponent(hotel.subdomain) + '&code=' + encodeURIComponent(booking.engine_code) : null;
+  // &v=2 cache-buster: guests whose browser cached the pre-fix confirmation
+  // page must get the current one (bump if a bad HTML deploy ever ships).
+  const url = base ? base + '/confirmation.html?hotel=' + encodeURIComponent(hotel.subdomain) + '&v=2&code=' + encodeURIComponent(booking.engine_code) : null;
   emailSvc.sendEmail({ to: booking.guest_email, ...emailSvc.bookingConfirmedEmail({
     hotel: guestHotel(hotel), guestName: booking.guest_name, reference: booking.reference,
     code: booking.engine_code, checkIn: booking.check_in, checkOut: booking.check_out,
@@ -71,7 +74,10 @@ function emailGuestOnConfirm(hotel, booking) {
 function emailGuestOnReject(hotel, booking, reason) {
   if (!booking.guest_email) return;
   const base = (process.env.APP_URL || '').replace(/\/+$/, '');
-  const url = base ? base + '/book.html?hotel=' + encodeURIComponent(hotel.subdomain) : null;
+  // &v=2 cache-buster: guests whose browser cached the pre-fix book.html
+  // (served with max-age=1d) must get the current page — a new URL key
+  // bypasses that poisoned entry entirely. Bump if a bad HTML deploy ships.
+  const url = base ? base + '/book.html?hotel=' + encodeURIComponent(hotel.subdomain) + '&v=2' : null;
   emailSvc.sendEmail({ to: booking.guest_email, ...emailSvc.bookingRejectedEmail({
     hotel: guestHotel(hotel), guestName: booking.guest_name, reference: booking.reference,
     reason: reason || null, rebookUrl: url,
@@ -190,7 +196,6 @@ function submitBooking(tenantId, payload) {
       .run(guestId, tenantId, String(guestName).trim(), String(guestPhone).trim(), guestEmail || null);
   }
 
-  const { nanoid } = require('nanoid');
   const id = 'bk_' + nanoid(10);
   const reference = 'BK-' + nanoid(8).toUpperCase();
   const code = makeEngineCode();
@@ -287,6 +292,212 @@ function rejectByCode(tenantId, code, reason, deskUserId) {
   return updated;
 }
 
+// ── Facilities (halls & pool slots) ────────────────────────────────────────
+// The public booking page also sells event spaces (halls) and pool slots.
+// Same shape as rooms: browse → submit with a tender code → desk confirms by
+// code. Facility submissions do NOT block inventory while pending — halls only
+// consider 'confirmed'/'tentative-desk-made' bookings and pool counts only
+// 'confirmed' headcount — and the desk confirm re-validates the slot.
+
+/** Active, publicly sellable halls for a tenant. */
+function availableHalls(tenantId) {
+  return db.prepare('SELECT * FROM halls WHERE tenant_id = ? AND active = 1 ORDER BY name').all(tenantId);
+}
+
+/** Active, publicly sellable pool areas for a tenant (price > 0 or free). */
+function availablePools(tenantId) {
+  return db.prepare('SELECT * FROM pools WHERE tenant_id = ? AND active = 1 ORDER BY name').all(tenantId);
+}
+
+/** Is a hall free for the given date/time window? Desk-made 'tentative' and
+ *  'confirmed' bookings count; engine-pending ones don't (spam guard). */
+function hallIsFree(tenantId, hallId, date, startTime, endTime) {
+  return !db.prepare(`
+    SELECT 1 FROM hall_bookings WHERE tenant_id = ? AND hall_id = ? AND event_date = ?
+      AND status IN ('tentative','confirmed') AND engine_sync_status IS NULL
+      AND NOT (end_time <= ? OR start_time >= ?)
+  `).get(tenantId, hallId, date, startTime, endTime);
+}
+
+/** Pool headcount already booked (confirmed only) overlapping the window. */
+function poolHeadcount(tenantId, poolId, date, startTime, endTime) {
+  const rows = db.prepare(`
+    SELECT party_size FROM pool_bookings WHERE tenant_id = ? AND pool_id = ? AND date = ?
+      AND status = 'confirmed' AND engine_sync_status IS NULL
+      AND NOT (end_time <= ? OR start_time >= ?)
+  `).all(tenantId, poolId, date, startTime, endTime);
+  return rows.reduce((s, r) => s + r.party_size, 0);
+}
+
+/**
+ * Submit a facility booking (hall or pool slot).
+ * kind: 'hall' | 'pool'. Returns the created booking with its tender code.
+ */
+function submitFacilityBooking(tenantId, payload) {
+  const { kind, facilityId, guestName, guestPhone, guestEmail, date, startTime, endTime, partySize, eventName, notes } = payload;
+
+  if (!['hall', 'pool'].includes(kind)) throw Object.assign(new Error('Unknown facility type'), { status: 400 });
+  if (!guestName || !String(guestName).trim()) throw Object.assign(new Error('Your name is required'), { status: 400 });
+  if (!guestPhone || !String(guestPhone).trim()) throw Object.assign(new Error('A phone number is required so the hotel can reach you'), { status: 400 });
+  if (!date) throw Object.assign(new Error('A date is required'), { status: 400 });
+  if (new Date(date + 'T23:59:59') < new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00')) {
+    throw Object.assign(new Error('The date cannot be in the past'), { status: 400 });
+  }
+  if (!startTime || !endTime) throw Object.assign(new Error('Start and end times are required'), { status: 400 });
+  if (String(endTime) <= String(startTime)) throw Object.assign(new Error('End time must be after start time'), { status: 400 });
+
+  const cfg = db.prepare('SELECT * FROM booking_engine_config WHERE tenant_id = ?').get(tenantId);
+  if (!cfg || !cfg.enabled) throw Object.assign(new Error('Online booking is currently closed for this hotel'), { status: 503 });
+
+  // Same daily abuse cap as rooms — all engine submissions share it.
+  const today = new Date().toISOString().slice(0, 10);
+  const submittedToday = db.prepare(`SELECT COUNT(*) c FROM bookings WHERE tenant_id = ? AND source = 'engine' AND date(created_at) = ?`).get(tenantId, today).c
+    + db.prepare(`SELECT COUNT(*) c FROM hall_bookings WHERE tenant_id = ? AND engine_code IS NOT NULL AND date(created_at) = ?`).get(tenantId, today).c
+    + db.prepare(`SELECT COUNT(*) c FROM pool_bookings WHERE tenant_id = ? AND engine_code IS NOT NULL AND date(created_at) = ?`).get(tenantId, today).c;
+  if (submittedToday >= cfg.max_daily) throw Object.assign(new Error('The hotel has reached its daily online-booking limit — please try again tomorrow or call us'), { status: 429 });
+
+  const size = Math.max(1, parseInt(partySize, 10) || 1);
+  const id = 'fb_' + nanoid(10);
+  const code = makeEngineCode();
+  let result;
+
+  if (kind === 'hall') {
+    const hall = db.prepare('SELECT * FROM halls WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenantId);
+    if (!hall) throw Object.assign(new Error('That event space is not available'), { status: 404 });
+    if (size > hall.capacity) throw Object.assign(new Error(hall.name + ' holds up to ' + hall.capacity + ' guests'), { status: 400 });
+    if (!hallIsFree(tenantId, hall.id, date, startTime, endTime)) {
+      throw Object.assign(new Error(hall.name + ' is already reserved for that time — pick another slot'), { status: 409 });
+    }
+    // Quote: hourly rate pro-rated, but never more than the day rate.
+    const hours = Math.max(1, Math.ceil((new Date('2000-01-01T' + endTime) - new Date('2000-01-01T' + startTime)) / 3600000));
+    const total = money(Math.min(hall.day_rate > 0 ? hall.day_rate : Infinity, hall.hourly_rate * hours));
+    const name = String(eventName || '').trim() || (String(guestName).trim() + ' — Event');
+    const tx = db.transaction(() => {
+      db.prepare(`INSERT INTO hall_bookings (id, tenant_id, hall_id, event_name, event_type, organizer_name, organizer_phone, organizer_email,
+                  event_date, start_time, end_time, guest_count, total_amount, status, engine_code, engine_sync_status, notes, created_by)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'tentative', ?, 'pending', ?, 'booking-engine')`)
+        .run(id, tenantId, hall.id, name.slice(0, 120), 'Online', String(guestName).trim(), String(guestPhone).trim(), guestEmail || null,
+             date, startTime, endTime, size, total, code, notes ? String(notes).slice(0, 500) : null);
+    });
+    tx();
+    result = { id, kind, code, facility: hall.name, date, startTime, endTime, partySize: size, total, reference: null };
+  } else {
+    const pool = db.prepare('SELECT * FROM pools WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenantId);
+    if (!pool) throw Object.assign(new Error('That pool area is not available'), { status: 404 });
+    const capacity = pool.capacity || 20;
+    const current = poolHeadcount(tenantId, pool.id, date, startTime, endTime);
+    if (current + size > capacity) {
+      throw Object.assign(new Error(pool.name + ' has ' + Math.max(0, capacity - current) + ' of ' + capacity + ' slots left for that time — try a smaller party or another slot'), { status: 409 });
+    }
+    const hours = Math.max(1, Math.ceil((new Date('2000-01-01T' + endTime) - new Date('2000-01-01T' + startTime)) / 3600000));
+    const total = money(pool.price * size * hours);
+    const tx = db.transaction(() => {
+      db.prepare(`INSERT INTO pool_bookings (id, tenant_id, guest_name, guest_phone, date, start_time, end_time, party_size, area, pool_id, price, status, engine_code, engine_sync_status, created_by)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?, 'confirmed', ?, 'pending', 'booking-engine')`)
+        .run(id, tenantId, String(guestName).trim(), String(guestPhone).trim(), date, startTime, endTime, size, pool.name, pool.id, pool.price, code);
+    });
+    tx();
+    result = { id, kind, code, facility: pool.name, date, startTime, endTime, partySize: size, total, reference: null };
+  }
+
+  // Guest confirmation-of-receipt (fire-and-forget).
+  const t = hotelHeader(tenantId);
+  notify(tenantId, String(guestPhone).trim(),
+    `🏨 ${t.name || 'Hotel'}: reservation received!\n\n` +
+    `Code: ${code}\n` +
+    `Facility: ${result.facility}\n` +
+    `${date} · ${startTime}–${endTime}\n` +
+    (result.total > 0 ? `Total: ${(t.currency || '')}${result.total} (pay at the hotel)\n\n` : '\n') +
+    `Present this code at the front desk to confirm your reservation.`);
+
+  return result;
+}
+
+/**
+ * Confirm a pending facility submission by tender code. Re-validates the slot
+ * inside the write transaction (something may have been booked while pending).
+ */
+function confirmFacilityByCode(tenantId, code, deskUserId) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (!normalized) throw Object.assign(new Error('No online booking with that code'), { status: 404 });
+
+  let row = db.prepare(`SELECT * FROM hall_bookings WHERE tenant_id = ? AND engine_code = ?`).get(tenantId, normalized);
+  if (row) {
+    if (row.engine_sync_status !== 'pending') throw Object.assign(new Error('This booking was already ' + (row.engine_sync_status || 'processed')), { status: 409 });
+    const hall = db.prepare('SELECT * FROM halls WHERE id = ?').get(row.hall_id);
+    if (!hallIsFree(tenantId, row.hall_id, row.event_date, row.start_time, row.end_time)) {
+      throw Object.assign(new Error(hall ? hall.name + ' has been reserved for that time since the request came in — reject it and offer an alternative' : 'The facility has been reserved since the request came in'), { status: 409 });
+    }
+    const tx = db.transaction(() => {
+      const r = db.prepare(`UPDATE hall_bookings SET status='confirmed', engine_sync_status='confirmed', updated_at=datetime('now') WHERE id=? AND engine_code=? AND engine_sync_status='pending'`).run(row.id, normalized);
+      if (r.changes === 0) throw Object.assign(new Error('This booking was just processed by someone else'), { status: 409 });
+    });
+    tx();
+    const updated = db.prepare('SELECT * FROM hall_bookings WHERE id = ?').get(row.id);
+    notify(tenantId, updated.organizer_phone, `✅ ${hotelHeader(tenantId).name || 'Hotel'}: your reservation of ${hall ? hall.name : 'the facility'} on ${updated.event_date} (${updated.start_time}–${updated.end_time}) is confirmed! Code ${updated.engine_code}.`);
+    return { kind: 'hall', booking: updated };
+  }
+
+  row = db.prepare(`SELECT * FROM pool_bookings WHERE tenant_id = ? AND engine_code = ?`).get(tenantId, normalized);
+  if (row) {
+    if (row.engine_sync_status !== 'pending') throw Object.assign(new Error('This booking was already ' + (row.engine_sync_status || 'processed')), { status: 409 });
+    const pool = db.prepare('SELECT * FROM pools WHERE id = ?').get(row.pool_id);
+    const capacity = (pool && pool.capacity) || 20;
+    const current = poolHeadcount(tenantId, row.pool_id, row.date, row.start_time, row.end_time);
+    if (current + row.party_size > capacity) {
+      throw Object.assign(new Error((pool ? pool.name : 'The pool') + ' is full for that time since the request came in — reject it and offer an alternative'), { status: 409 });
+    }
+    const tx = db.transaction(() => {
+      const r = db.prepare(`UPDATE pool_bookings SET engine_sync_status='confirmed', updated_at=datetime('now') WHERE id=? AND engine_code=? AND engine_sync_status='pending'`).run(row.id, normalized);
+      if (r.changes === 0) throw Object.assign(new Error('This booking was just processed by someone else'), { status: 409 });
+    });
+    tx();
+    const updated = db.prepare('SELECT * FROM pool_bookings WHERE id = ?').get(row.id);
+    notify(tenantId, updated.guest_phone, `✅ ${hotelHeader(tenantId).name || 'Hotel'}: your ${pool ? pool.name : 'pool'} reservation on ${updated.date} (${updated.start_time}–${updated.end_time}) is confirmed! Code ${updated.engine_code}.`);
+    return { kind: 'pool', booking: updated };
+  }
+
+  throw Object.assign(new Error('No online booking with that code'), { status: 404 });
+}
+
+/**
+ * Reject a pending facility submission (slot sold, spam, unreachable…).
+ */
+function rejectFacilityByCode(tenantId, code, reason, deskUserId) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (!normalized) throw Object.assign(new Error('No online booking with that code'), { status: 404 });
+
+  let row = db.prepare(`SELECT * FROM hall_bookings WHERE tenant_id = ? AND engine_code = ?`).get(tenantId, normalized);
+  if (row) {
+    if (row.engine_sync_status !== 'pending') throw Object.assign(new Error('This booking was already ' + (row.engine_sync_status || 'processed')), { status: 409 });
+    const tx = db.transaction(() => {
+      const r = db.prepare(`UPDATE hall_bookings SET status='cancelled', engine_sync_status='rejected', updated_at=datetime('now') WHERE id=? AND engine_code=? AND engine_sync_status='pending'`).run(row.id, normalized);
+      if (r.changes === 0) throw Object.assign(new Error('This booking was just processed by someone else'), { status: 409 });
+    });
+    tx();
+    const updated = db.prepare('SELECT * FROM hall_bookings WHERE id = ?').get(row.id);
+    const contact = (() => { const t = hotelHeader(tenantId); return [t.phone, t.email].filter(Boolean).join(' · ') || 'the hotel'; })();
+    notify(tenantId, updated.organizer_phone, `${hotelHeader(tenantId).name || 'Hotel'}: we're sorry — we could not confirm your facility reservation (code ${updated.engine_code}). Please contact us at ${contact} and we'll gladly help you rebook.`);
+    return { kind: 'hall', booking: updated };
+  }
+
+  row = db.prepare(`SELECT * FROM pool_bookings WHERE tenant_id = ? AND engine_code = ?`).get(tenantId, normalized);
+  if (row) {
+    if (row.engine_sync_status !== 'pending') throw Object.assign(new Error('This booking was already ' + (row.engine_sync_status || 'processed')), { status: 409 });
+    const tx = db.transaction(() => {
+      const r = db.prepare(`UPDATE pool_bookings SET status='cancelled', engine_sync_status='rejected', updated_at=datetime('now') WHERE id=? AND engine_code=? AND engine_sync_status='pending'`).run(row.id, normalized);
+      if (r.changes === 0) throw Object.assign(new Error('This booking was just processed by someone else'), { status: 409 });
+    });
+    tx();
+    const updated = db.prepare('SELECT * FROM pool_bookings WHERE id = ?').get(row.id);
+    const contact = (() => { const t = hotelHeader(tenantId); return [t.phone, t.email].filter(Boolean).join(' · ') || 'the hotel'; })();
+    notify(tenantId, updated.guest_phone, `${hotelHeader(tenantId).name || 'Hotel'}: we're sorry — we could not confirm your pool reservation (code ${updated.engine_code}). Please contact us at ${contact} and we'll gladly help you rebook.`);
+    return { kind: 'pool', booking: updated };
+  }
+
+  throw Object.assign(new Error('No online booking with that code'), { status: 404 });
+}
+
 module.exports = {
   makeEngineCode,
   availableRooms,
@@ -295,4 +506,11 @@ module.exports = {
   findByCode,
   confirmByCode,
   rejectByCode,
+  availableHalls,
+  availablePools,
+  hallIsFree,
+  poolHeadcount,
+  submitFacilityBooking,
+  confirmFacilityByCode,
+  rejectFacilityByCode,
 };

@@ -29,7 +29,10 @@ router.get('/transactions/:id', (req, res) => {
 // every pending incidental charge (POS, pool, hall, other services) tied to
 // the same room/guest/booking. This is what actually clears the way for
 // check-out — nothing here is a status label flip without money moving.
-router.post('/settle', requirePermission('payments.manage'), (req, res) => {
+// payments.use, not payments.manage: collecting what a guest already owes is
+// day-to-day desk work (the .use side of the fraud split). Refunds, voids and
+// payment-status edits — changing what is OWED — remain payments.manage.
+router.post('/settle', requirePermission('payments.use'), (req, res) => {
   const { roomNumber, guestId, bookingId, method, cashReceived, note } = req.body;
   if (!roomNumber && !guestId && !bookingId) return res.status(400).json({ error: 'roomNumber, guestId, or bookingId is required' });
   if (!method) return res.status(400).json({ error: 'A payment method is required to settle a balance' });
@@ -160,7 +163,10 @@ router.get('/balance', (req, res) => {
     if (room) context = { label: room.guest_name || 'Room ' + roomNumber, reference: roomNumber };
   }
 
-  res.json({ pendingTotal: resolved.pendingTotal, pendingCount: pending.length, transactions: pending, context });
+  // roomBalance + grandTotal are included so every consumer (settle modal,
+  // tests) sees the SAME numbers /settle will act on — the booking's own
+  // unpaid total PLUS pending incidentals — with no second lookup needed.
+  res.json({ pendingTotal: resolved.pendingTotal, pendingCount: pending.length, transactions: pending, context, roomBalance: resolved.roomBalance, grandTotal: resolved.grandTotal });
 });
 
 // Generate a payment link (in production this calls the Paystack/Stripe API

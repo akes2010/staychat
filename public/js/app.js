@@ -37,7 +37,9 @@ function getNavItems() {
   if (!App.user) return [];
   const all = [
     { page: 'dashboard', ico: '⊞', label: 'Dashboard', cap: 'dashboard.view' },
-    { page: 'billing', ico: '💳', label: 'Billing & Plan', cap: null },
+    // Hidden from everyone except the hotel owner/admin (billing.manage);
+    // superadmin manages billing per hotel inside the Super Admin console.
+    { page: 'billing', ico: '💳', label: 'Billing & Plan', cap: 'billing.manage' },
     { page: 'rooms', ico: '🛏', label: 'Rooms', cap: 'rooms.manage' },
     { page: 'bookings', ico: '📅', label: 'Bookings', cap: 'bookings.manage' },
     { page: 'wifi', ico: '📶', label: 'Guest Wi-Fi', cap: 'bookings.manage' },
@@ -107,7 +109,7 @@ function openSidebar() { document.getElementById('sidebar').classList.add('mobil
 function closeSidebar() { document.getElementById('sidebar').classList.remove('mobile-open'); document.getElementById('sb-overlay').style.display = 'none'; }
 
 const PAGE_CAPS = {
-  dashboard: 'dashboard.view', rooms: 'rooms.manage', bookings: 'bookings.manage', inbox: 'inbox.use',
+  dashboard: 'dashboard.view', billing: 'billing.manage', rooms: 'rooms.manage', bookings: 'bookings.manage', inbox: 'inbox.use',
   orders: 'orders.manage', pos: 'pos.use', pool: 'pool.use', halls: 'halls.use', misc: 'orders.manage',
   housekeeping: 'housekeeping.manage', maintenance: 'maintenance.manage', guests: 'guests.manage',
   analytics: 'analytics.view', reports: 'analytics.view', staff: 'staff.manage', shifts: 'attendance.use', eod: 'eod.use', menu: 'menu.manage',
@@ -120,9 +122,8 @@ function navigate(page) {
     toast('You don\'t have permission to access that module', 'error');
     return;
   }
-  // Billing is visible to every signed-in hotel user regardless of capabilities.
   if (page === 'billing' && App.user && App.user.role === 'superadmin' && !App.tenantId) {
-    toast('Pick a hotel to manage first', 'info');
+    toast('Billing is managed per hotel — pick one in Super Admin first', 'info');
     page = 'superadmin';
   }
   if (PAGE_CAPS[page] && App.user && App.user.role === 'superadmin' && !App.tenantId) {
@@ -145,10 +146,10 @@ function globalSearch(q) { if (q.length < 2) return; toast('Search across module
 function showNotifications() { toast('You have no new notifications', 'info'); }
 function openUserMenu() { toast('Signed in as: ' + App.user.name + ' (' + App.user.role + ')', 'info'); }
 
-// ── SaaS: plan banner, visible to EVERY user ────────────────────────────
-// Whole-team transparency: staff see the hotel's plan/trial state too —
-// "View plan" opens the Billing & Plan page for them (plan requests and
-// checkout still require owner/admin, enforced server-side).
+// ── SaaS: plan banner ───────────────────────────────────────────────────
+// The plan/trial state stays visible to the whole team (transparency), but the
+// "View plan" action — and the Billing & Plan page itself — is owner/admin
+// only (billing.manage; enforced server-side on /api/billing/*).
 function showTrialBanner() {
   const ent = App.entitlements;
   if (!ent) return;
@@ -170,14 +171,17 @@ function showTrialBanner() {
   const div = document.createElement('div');
   div.id = 'trial-banner';
   div.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;padding:8px 14px;font-size:12.5px;font-weight:600;background:linear-gradient(90deg,rgba(79,140,255,.15),rgba(34,211,167,.12));border-bottom:1px solid var(--border);color:var(--text)';
+  const canManage = can('billing.manage');
   div.innerHTML = '<span>' + text + '</span>' +
-    '<button class="btn primary" style="padding:4px 12px;font-size:11.5px" onclick="openBillingPage()">View plan</button>';
+    (canManage
+      ? '<button class="btn primary" style="padding:4px 12px;font-size:11.5px" onclick="openBillingPage()">View plan</button>'
+      : '');
   const mainWrap = document.getElementById('main-wrap');
   mainWrap.insertBefore(div, mainWrap.firstChild);
 }
 
 function openBillingPage() {
-  if (App.user && App.user.role === 'superadmin') { toast('Billing is managed per hotel — pick one in Super Admin first', 'info'); return; }
+  if (App.user && App.user.role === 'superadmin' && !App.tenantId) { toast('Billing is managed per hotel — pick one in Super Admin first', 'info'); return; }
   navigate('billing');
 }
 

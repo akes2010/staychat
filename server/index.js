@@ -160,6 +160,7 @@ app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/wifi', require('./routes/wifi'));
 app.use('/api/booking-engine', require('./routes/booking-engine'));
 app.use('/api/chat', require('./routes/chat'));
+app.use('/api/help', require('./routes/help'));
 app.use('/api/pool', require('./routes/pool'));
 app.use('/api/halls', require('./routes/halls'));
 app.use('/api/guests', require('./routes/guests'));
@@ -218,20 +219,45 @@ app.get('/api/health/detailed', (req, res) => {
 // Explicit page routes BEFORE static: `/` is the public marketing landing
 // page, `/app` is the dashboard SPA. Every other deep link falls through to
 // the SPA below, so existing bookmarks keep working.
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'landing.html')));
-app.get('/app', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
-app.get('/signup', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'signup.html')));
-app.get('/pay', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'pay.html')));
-app.get('/reset-password', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'reset-password.html')));
+// All HTML is served with `Cache-Control: no-cache` — it must always
+// revalidate (ETag → 304) so a fixed page is visible to every visitor
+// immediately after deploy. Without this, a poisoned page (e.g. one shipped
+// with a JS syntax error) stays dead in visitors' browsers for as long as
+// the cache entry is fresh, no matter what the fixed server sends afterwards.
+function sendPage(name) {
+  return (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(__dirname, '..', 'public', name));
+  };
+}
+app.get('/', sendPage('landing.html'));
+app.get('/app', sendPage('index.html'));
+app.get('/signup', sendPage('signup.html'));
+app.get('/pay', sendPage('pay.html'));
+app.get('/reset-password', sendPage('reset-password.html'));
+app.get('/help', sendPage('help.html'));
 
 app.use(express.static(path.join(__dirname, '..', 'public'), {
-  maxAge: isProduction ? '1d' : 0, // Cache static assets in production
+  maxAge: isProduction ? '1d' : 0, // Cache immutable-ish assets in production
   etag: true,
+  // HTML AND application JS/CSS must always REVALIDATE, never be served
+  // straight from the HTTP cache. HTML for the poisoned-page reasons below;
+  // JS because the app ships un-hashed filenames (`/js/pages/payments.js`)
+  // — a 1-day max-age meant every staff browser kept running the old modal
+  // code for up to a day after a fix deployed ("can't type the amount
+  // collected at checkout"). Revalidation is cheap (ETag → 304), so pages
+  // stay fast while every deploy is picked up on the next load.
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
 }));
 
 // SPA fallback
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return next();
+  res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 

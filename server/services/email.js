@@ -157,7 +157,9 @@ function refBox(label, value) {
 
 // ── Emails ──────────────────────────────────────────────────────────────────
 function signupWelcomeEmail({ hotelName, ownerName, subdomain, plan, trialEndsAt, paymentReference }) {
-  const bookUrl = APP_URL ? APP_URL + '/book.html?hotel=' + encodeURIComponent(subdomain || '') : null;
+  // &v=2 cache-buster: bypasses any browser entry poisoned by the pre-fix
+  // book.html (served with max-age=1d). Bump if a bad HTML deploy ships.
+  const bookUrl = APP_URL ? APP_URL + '/book.html?hotel=' + encodeURIComponent(subdomain || '') + '&v=2' : null;
   const appUrl = APP_URL ? APP_URL + '/app' : null;
   const html = wrap('Welcome to StayChat OS, ' + (ownerName || 'there') + '!',
     '<p style="font-size:14px;line-height:1.7">Your hotel <b>' + escapeHtml(hotelName) + '</b> is live on a 14-day free trial of the <b>' + escapeHtml(plan || 'Starter') + '</b> plan' +

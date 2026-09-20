@@ -18,7 +18,20 @@ const API = (() => {
 
     if (res.status === 401 && !opts._isRetry && path !== '/api/auth/login' && path !== '/api/auth/refresh') {
       const ok = await tryRefresh();
-      if (ok) return request(method, path, body, { ...opts, _isRetry: true });
+      if (ok) {
+        // Keep the in-memory access token in sync so the WebSocket client and
+        // anything else reading window.App.accessToken sees the fresh token.
+        // (The /api/auth/refresh response carries the new accessToken.)
+        try {
+          if (typeof window !== 'undefined' && window.App && window.App._lastRefresh) {
+            window.App.accessToken = window.App._lastRefresh.accessToken || window.App.accessToken;
+            if (window.App._lastRefresh.user) window.App.user = window.App._lastRefresh.user;
+            if (window.App._lastRefresh.tenant) window.App.tenant = window.App._lastRefresh.tenant;
+            if (window.App._lastRefresh.entitlements) window.App.entitlements = window.App._lastRefresh.entitlements;
+          }
+        } catch (e) { /* non-fatal */ }
+        return request(method, path, body, { ...opts, _isRetry: true });
+      }
     }
 
     let data = null;
@@ -48,7 +61,11 @@ const API = (() => {
     refreshing = (async () => {
       try {
         const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
-        return res.ok;
+        if (!res.ok) return false;
+        // Cache the refreshed session so request() can publish it to window.App.
+        const text = await res.text();
+        try { window.App._lastRefresh = text ? JSON.parse(text) : null; } catch (e) { window.App._lastRefresh = null; }
+        return true;
       } catch (e) {
         return false;
       } finally {

@@ -4,13 +4,14 @@
 // Public but defended: global rate limit applies (mounted under /api), plus a
 // tighter per-IP limiter here since chat is the most abuse-prone public surface.
 // No auth, no tenant context, no user data — answers come only from the curated
-// knowledge base in server/services/knowledge-base.js, with integration counts
-// pulled live from the service registry.
+// knowledge base in server/services/help-center.js (the same single source that
+// powers /help.html and /api/help), with integration counts pulled live from
+// the service registry.
 'use strict';
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { search, SUGGESTIONS } = require('../services/knowledge-base');
+const { search, SUGGESTIONS } = require('../services/help-center');
 
 const router = express.Router();
 

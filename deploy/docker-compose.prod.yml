@@ -1,9 +1,12 @@
-# deploy/docker-compose.prod.yml — full production stack for the Contabo VPS.
+# deploy/docker-compose.prod.yml — full production stack for any VPS
+# (Contabo, DigitalOcean, GCP, Hetzner, Hostinger KVM, …).
 # Two services: the StayChat OS app (build from the repo) and Caddy (automatic
-# HTTPS reverse proxy for staychat.akmustech.com).
+# HTTPS reverse proxy for your domain).
 #
-# Secrets come from /opt/staychat-os/.env (created once during setup —
-# never committed). See deploy/SETUP.md for the full runbook.
+# The public domain comes from .env (DOMAIN / APP_URL — written once by
+# setup-vps.sh; default staychat.akmustech.com). Always run compose with:
+#   docker compose --env-file .env -f deploy/docker-compose.prod.yml ...
+# Secrets live in the same .env (never committed). See deploy/SETUP.md.
 services:
   staychat:
     build:
@@ -15,7 +18,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - HOST=0.0.0.0
-      - APP_URL=https://staychat.akmustech.com
+      - APP_URL=${APP_URL:-https://staychat.akmustech.com}
       - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - COOKIE_SECRET=${COOKIE_SECRET}
@@ -37,7 +40,9 @@ services:
     volumes:
       - staychat_data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      # 127.0.0.1, not localhost — on alpine/musl 'localhost' resolves to ::1
+      # first and the app binds IPv4, so 'localhost' reports unhealthy
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       start_period: 15s
@@ -58,6 +63,9 @@ services:
     ports:
       - "80:80"    # HTTP → HTTPS redirect + ACME challenges
       - "443:443"  # HTTPS
+    environment:
+      # Caddyfile site address — lets one compose file serve any domain
+      - DOMAIN=${DOMAIN:-staychat.akmustech.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

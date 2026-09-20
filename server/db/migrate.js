@@ -858,6 +858,24 @@ function migrate() {
   const eodCols = db.prepare("PRAGMA table_info(eod_closings)").all().map(c => c.name);
   if (!eodCols.includes('closed_by_user_id')) db.exec("ALTER TABLE eod_closings ADD COLUMN closed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL");
 
+  // hall_bookings & pool_bookings → booking-engine (public OTA channel) fields.
+  // Guests can reserve halls/pool slots from the public booking page exactly like
+  // rooms: submission lands as 'tentative'/'confirmed' + engine_sync_status
+  // 'pending' with a tender code; the desk confirms/rejects by that code.
+  // pool_bookings.status has no 'pending_payment' value in its CHECK constraint,
+  // so pool submissions stay 'confirmed' (inventory) while engine_sync_status
+  // drives the desk workflow; halls use their native 'tentative' state.
+  const hallBookingCols = db.prepare("PRAGMA table_info(hall_bookings)").all().map(c => c.name);
+  [
+    ['engine_code', "TEXT"],        // tender code shown to the guest (unique, partial index below)
+    ['engine_sync_status', "TEXT"], // pending → confirmed/rejected
+  ].forEach(([col, def]) => { if (!hallBookingCols.includes(col)) db.exec(`ALTER TABLE hall_bookings ADD COLUMN ${col} ${def}`); });
+  const poolBookingCols2 = db.prepare("PRAGMA table_info(pool_bookings)").all().map(c => c.name);
+  [
+    ['engine_code', "TEXT"],
+    ['engine_sync_status', "TEXT"],
+  ].forEach(([col, def]) => { if (!poolBookingCols2.includes(col)) db.exec(`ALTER TABLE pool_bookings ADD COLUMN ${col} ${def}`); });
+
   // bookings → full guest bio-data + group-account billing
   const bookingCols2 = db.prepare("PRAGMA table_info(bookings)").all().map(c => c.name);
   [
@@ -985,8 +1003,11 @@ function migrate() {
   // One booking per engine tender code: the desk "confirm by code" lookup uses
   // this as the key, so two engine submissions can never share a code. Partial:
   // ordinary (front-desk-created) bookings keep NULL and don't participate.
+  // Same guarantee for the facility channels (halls, pool).
   try {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_bookings_engine_code ON bookings(engine_code) WHERE engine_code IS NOT NULL');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_hallbookings_engine_code ON hall_bookings(engine_code) WHERE engine_code IS NOT NULL');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_poolbookings_engine_code ON pool_bookings(engine_code) WHERE engine_code IS NOT NULL');
   } catch (e) {
     console.warn('⚠️ Could not enforce unique engine codes:', e.message);
   }

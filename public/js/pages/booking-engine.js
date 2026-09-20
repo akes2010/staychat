@@ -35,8 +35,10 @@ PAGES.engine = function () {
   function render() {
     const sub = state.settings.subdomain || '';
     const origin = window.location.origin;
-    const bookUrl = origin + '/book.html?hotel=' + encodeURIComponent(sub);
-    const confUrl = origin + '/confirmation.html?hotel=' + encodeURIComponent(sub);
+    // &v=2 cache-buster: bypasses any browser entry poisoned by the pre-fix
+    // book.html (served with max-age=1d). Bump if a bad HTML deploy ships.
+    const bookUrl = origin + '/book.html?hotel=' + encodeURIComponent(sub) + '&v=2';
+    const confUrl = origin + '/confirmation.html?hotel=' + encodeURIComponent(sub) + '&v=2';
     const list = state.subs.filter(b => state.filter === 'all' || (state.filter === 'pending' ? (b.status === 'pending_payment' && b.engineSyncStatus === 'pending') : b.status === state.filter));
 
     wrap.innerHTML =
@@ -44,17 +46,22 @@ PAGES.engine = function () {
         '<p>Your own public booking channel — synchronized with the front desk, no commission.</p></div>' +
         '<span class="badge ' + (state.cfg.enabled ? 'success' : '') + '">' + (state.cfg.enabled ? '● LIVE' : 'OFF') + '</span></div>' +
 
-      // ── Config ──
-      '<div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title">Configuration</span></div>' +
-        '<div class="toggle-wrap"><div class="toggle-info"><div class="toggle-label">Accept online bookings</div>' +
-          '<div class="toggle-desc">Exposes the public booking page for this hotel</div></div>' +
-          '<label class="toggle"><input type="checkbox" id="be-enabled" ' + (state.cfg.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label></div>' +
-        '<div class="form-row cols-2" style="margin-top:10px">' +
-          '<div class="form-group"><label class="form-label">Guest-facing notice (optional)</label>' +
-            '<input class="form-input" id="be-notice" value="' + escapeHtml(state.cfg.notice || '') + '" placeholder="e.g. Breakfast included · Free cancellation up to 48h"/></div>' +
-          '<div class="form-group"><label class="form-label">Max submissions per day</label>' +
-            '<input class="form-input" type="number" min="1" id="be-max" value="' + (state.cfg.maxDaily || 50) + '"/></div></div>' +
-        '<button class="btn primary sm" onclick="window.__beSave()">Save Configuration</button></div>' +
+      // ── Config (read-only for non-admins; only settings.manage can edit) ──
+      (can('settings.manage')
+        ? '<div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title">Configuration</span></div>' +
+          '<div class="toggle-wrap"><div class="toggle-info"><div class="toggle-label">Accept online bookings</div>' +
+            '<div class="toggle-desc">Exposes the public booking page for this hotel</div></div>' +
+            '<label class="toggle"><input type="checkbox" id="be-enabled" ' + (state.cfg.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label></div>' +
+          '<div class="form-row cols-2" style="margin-top:10px">' +
+            '<div class="form-group"><label class="form-label">Guest-facing notice (optional)</label>' +
+              '<input class="form-input" id="be-notice" value="' + escapeHtml(state.cfg.notice || '') + '" placeholder="e.g. Breakfast included · Free cancellation up to 48h"/></div>' +
+            '<div class="form-group"><label class="form-label">Max submissions per day</label>' +
+              '<input class="form-input" type="number" min="1" id="be-max" value="' + (state.cfg.maxDaily || 50) + '"/></div></div>' +
+          '<button class="btn primary sm" onclick="window.__beSave()">Save Configuration</button></div>'
+        : '<div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title">Configuration</span></div>' +
+          '<div style="font-size:13px;color:var(--text3)">Online bookings are <b>' + (state.cfg.enabled ? 'ACCEPTED' : 'CLOSED') + '</b>.' +
+            (state.cfg.notice ? ' Guest notice: “' + escapeHtml(state.cfg.notice) + '”' : '') +
+            ' <span style="color:var(--muted)">· Only the hotel admin can change engine settings.</span></div></div>') +
 
       // ── Links ──
       '<div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title">Guest-facing links</span></div>' +

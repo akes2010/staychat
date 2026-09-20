@@ -50,9 +50,23 @@ else
 fi
 
 section "SaaS surfaces"
-for p in "/" "/signup" "/pay" "/book.html" "/manifest.json" "/sw.js" "/icon-192.png" "/maskable-512.png"; do
+for p in "/" "/signup" "/pay" "/book.html" "/help" "/manifest.json" "/sw.js" "/icon-192.png" "/maskable-512.png"; do
   CODE=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$BASE$p" || true)
   [ "$CODE" = "200" ] && ok "$p → 200" || { [ "$CODE" = "000" ] && bad "$p → connection refused (app down or wrong port)" || bad "$p → $CODE (expected 200)"; }
+done
+
+section "HTML cache policy"
+# Regression guard for the "Search not responding" incident: HTML pages must be
+# served with `no-cache` so a fixed page is visible right after a deploy. If any
+# of these ever serves max-age again, a broken page can stay dead in guests'
+# browsers for up to a day even after the fix ships.
+for p in "/" "/app" "/book.html" "/confirmation.html" "/help"; do
+  CC=$(curl -sI --max-time 10 "$BASE$p" | tr -d '\r' | grep -i '^cache-control:' | head -1 | cut -d' ' -f2-)
+  if echo "$CC" | grep -qi 'no-cache'; then
+    ok "$p → no-cache (always revalidates)"
+  else
+    bad "$p → Cache-Control is '${CC:-missing}' (expected no-cache) — a stale broken page would survive deploys"
+  fi
 done
 
 section "Booking engine (public)"

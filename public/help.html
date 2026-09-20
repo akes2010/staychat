@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Help Center — StayChat OS</title>
+  <meta name="description" content="StayChat OS user manual and full FAQ: booking engine, tender codes, WhatsApp AI receptionist, rooms & rates, POS, accounting, Wi-Fi, permissions, plans and deployment.">
+  <link rel="manifest" href="/manifest.json"/>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+  <meta name="theme-color" content="#0a1220"/>
+  <style>
+    :root {
+      --bg:#0a1220; --bg2:#0e1930; --surface:#121f36; --border:#1e2f4d;
+      --text:#e8eef8; --muted:#93a5c4; --p:#4f8cff; --p2:#7aa8ff;
+      --accent:#22d3a7; --grad:linear-gradient(135deg,#4f8cff,#22d3a7);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+           background:var(--bg); color:var(--text); line-height:1.6; }
+    a { color:inherit; text-decoration:none; }
+    .wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
+
+    nav { position:sticky; top:0; z-index:50; background:rgba(10,18,32,.88); backdrop-filter:blur(12px);
+          border-bottom:1px solid var(--border); }
+    .nav-in { display:flex; align-items:center; justify-content:space-between; height:60px; }
+    .logo { font-weight:800; font-size:17px; display:flex; align-items:center; gap:8px; }
+    .logo .dot { width:9px; height:9px; border-radius:50%; background:var(--grad); }
+    .btn { display:inline-block; padding:9px 18px; border-radius:10px; font-weight:700; font-size:13.5px; cursor:pointer; border:none; }
+    .btn-p { background:var(--grad); color:#06101f; }
+    .btn-o { border:1.5px solid var(--border); color:var(--text); background:transparent; }
+    .btn-o:hover { border-color:var(--p); }
+
+    header.hero { padding:56px 0 30px; text-align:center; }
+    .kicker { display:inline-block; font-size:11.5px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase;
+              color:var(--p2); background:rgba(79,140,255,.1); border:1px solid rgba(79,140,255,.3);
+              padding:6px 14px; border-radius:20px; margin-bottom:16px; }
+    h1 { font-size:clamp(28px,4.5vw,40px); font-weight:800; letter-spacing:-.8px; }
+    .lead { color:var(--muted); font-size:15.5px; max-width:640px; margin:12px auto 26px; }
+
+    .searchbar { max-width:620px; margin:0 auto; display:flex; gap:10px; }
+    .searchbar input { flex:1; background:var(--surface); border:1.5px solid var(--border); border-radius:12px;
+                       color:var(--text); padding:14px 18px; font-size:15px; outline:none; }
+    .searchbar input:focus { border-color:var(--p); }
+
+    .layout { display:grid; grid-template-columns:230px 1fr; gap:34px; padding:40px 0 70px; }
+    .toc { position:sticky; top:80px; align-self:start; font-size:13px; }
+    .toc h4 { font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin:16px 0 6px; }
+    .toc a { display:block; padding:4px 10px; border-radius:8px; color:var(--muted); }
+    .toc a:hover, .toc a.active { color:var(--text); background:var(--surface); }
+
+    section.cat { margin-bottom:40px; }
+    section.cat > h2 { font-size:20px; font-weight:800; margin-bottom:14px; letter-spacing:-.3px; }
+    .sec { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:22px; margin-bottom:12px; scroll-margin-top:80px; }
+    .sec:hover { border-color:var(--p); }
+    .sec h3 { font-size:15.5px; display:flex; align-items:center; gap:10px; }
+    .sec .ico { font-size:20px; }
+    .sec pre { white-space:pre-wrap; font-family:inherit; font-size:13.5px; color:var(--muted); margin-top:10px; }
+
+    details { background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:10px; }
+    summary { cursor:pointer; padding:15px 20px; font-weight:600; font-size:14.5px; list-style:none;
+              display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    summary::-webkit-details-marker { display:none; }
+    summary::after { content:'+'; font-size:20px; color:var(--p2); }
+    details[open] summary::after { content:'–'; }
+    details .a { padding:0 20px 16px; font-size:13.5px; color:var(--muted); white-space:pre-wrap; }
+
+    .empty { text-align:center; color:var(--muted); padding:50px 0; }
+    .status { text-align:center; color:var(--muted); font-size:13px; padding:8px; }
+    mark { background:rgba(34,211,167,.25); color:var(--text); border-radius:3px; padding:0 2px; }
+
+    footer { border-top:1px solid var(--border); padding:28px 0; color:var(--muted); font-size:13px; text-align:center; }
+    footer a { color:var(--p2); }
+
+    @media (max-width:840px) { .layout { grid-template-columns:1fr; } .toc { display:none; } }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="logo" href="/landing.html"><span class="dot"></span>StayChat OS <span style="font-weight:600;color:var(--muted);font-size:13px">· Help Center</span></a>
+    <div style="display:flex;gap:10px">
+      <a class="btn btn-o" href="/landing.html">Home</a>
+      <a class="btn btn-p" href="/app">Open dashboard</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="kicker">User manual · Full FAQ</span>
+    <h1>How can we help?</h1>
+    <p class="lead">Everything about running your hotel on StayChat OS — the booking engine and tender codes, WhatsApp AI receptionist, Wi-Fi, POS, accounting, permissions, plans and self-hosting.</p>
+    <div class="searchbar">
+      <input id="q" type="search" placeholder="Search the manual and FAQ… (e.g. tender code, wifi, billing)" autocomplete="off">
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout">
+    <aside class="toc" id="toc"></aside>
+    <main id="content">
+      <div class="status" id="status">Loading the manual…</div>
+      <div id="results"></div>
+    </main>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    Still stuck? Ask the assistant on the <a href="/landing.html">home page</a> (bottom-right) — it answers from this same knowledge base.
+    <div style="margin-top:8px"><a href="/landing.html">Home</a> · <a href="/signup.html">Start free trial</a> · <a href="/app">Sign in</a> · <a href="/book.html?hotel=hospitally&v=2">Book a stay</a></div>
+  </div>
+</footer>
+
+<script>
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const esc = s => { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
+  let DATA = null; // { manual:[], faq:[] }
+
+  async function load() {
+    try {
+      const r = await fetch('/api/help');
+      DATA = await r.json();
+      $('status').textContent = '';
+      renderAll();
+    } catch (e) {
+      $('status').textContent = 'Could not load the Help Center — check your connection and refresh.';
+    }
+  }
+
+  function manualSection(m) {
+    return '<div class="sec" id="' + esc(m.id) + '">' +
+      '<h3><span class="ico">' + esc(m.icon) + '</span>' + esc(m.title) + '</h3>' +
+      '<pre>' + esc(m.body) + '</pre></div>';
+  }
+
+  function renderAll() {
+    const cats = [];
+    DATA.manual.forEach(m => { if (!cats.includes(m.category)) cats.push(m.category); });
+    let html = '';
+    cats.forEach(c => {
+      html += '<section class="cat" id="cat-' + esc(c.replace(/\W+/g, '-').toLowerCase()) + '"><h2>' + esc(c) + '</h2>' +
+        DATA.manual.filter(m => m.category === c).map(manualSection).join('') + '</section>';
+    });
+    html += '<section class="cat" id="cat-faq"><h2>Frequently asked questions</h2>' +
+      DATA.faq.map(f => '<details><summary>' + esc(f.q) + '</summary><div class="a">' + esc(f.a) + '</div></details>').join('') +
+      '</section>';
+    $('results').innerHTML = html;
+    renderToc(cats);
+  }
+
+  function renderToc(cats) {
+    let t = cats.map(c => '<h4>' + esc(c) + '</h4>' +
+      DATA.manual.filter(m => m.category === c).map(m => '<a href="#' + esc(m.id) + '">' + esc(m.title) + '</a>').join('')).join('');
+    t += '<h4>FAQ</h4><a href="#cat-faq">All questions</a>';
+    $('toc').innerHTML = t;
+  }
+
+  // Live search: server-scored first, client filter as instant feedback.
+  let searchTimer = null;
+  $('q').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, 200);
+  });
+
+  async function runSearch() {
+    const q = $('q').value.trim();
+    if (!q) { renderAll(); return; }
+    if (!DATA) return;
+    const nq = q.toLowerCase();
+    const mHit = DATA.manual.filter(m => (m.title + ' ' + m.body + ' ' + m.category).toLowerCase().includes(nq));
+    const fHit = DATA.faq.filter(f => (f.q + ' ' + f.a).toLowerCase().includes(nq));
+    let html = '<div class="status">' + mHit.length + ' manual section(s), ' + fHit.length + ' FAQ(s) matching “' + esc(q) + '”</div>';
+    if (mHit.length) html += '<section class="cat"><h2>Manual</h2>' + mHit.map(manualSection).join('') + '</section>';
+    if (fHit.length) html += '<section class="cat"><h2>FAQ</h2>' + fHit.map(f => '<details><summary>' + esc(f.q) + '</summary><div class="a">' + esc(f.a) + '</div></details>').join('') + '</section>';
+    if (!mHit.length && !fHit.length) {
+      // fall back to server-side scored search before giving up
+      try {
+        const r = await fetch('/api/help/search?q=' + encodeURIComponent(q));
+        const s = await r.json();
+        if (s.manual.length || s.faq.length) {
+          html = '<div class="status">Closest matches for “' + esc(q) + '”</div>';
+          if (s.manual.length) html += '<section class="cat"><h2>Manual</h2>' + s.manual.map(manualSection).join('') + '</section>';
+          if (s.faq.length) html += '<section class="cat"><h2>FAQ</h2>' + s.faq.map(f => '<details open><summary>' + esc(f.q) + '</summary><div class="a">' + esc(f.a) + '</div></details>').join('') + '</section>';
+        } else {
+          html = '<div class="empty">No matches. Try “tender code”, “wifi”, “billing”, “permissions” or “deploy”.</div>';
+        }
+      } catch (e) { html = '<div class="empty">No matches for “' + esc(q) + '”.</div>'; }
+    }
+    $('results').innerHTML = html;
+    $('toc').innerHTML = '';
+  }
+
+  load();
+</script>
+</body>
+</html>

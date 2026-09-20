@@ -101,9 +101,12 @@ PAGES.payments = function () {
     let balance;
     try { balance = await API.get('/api/payments/balance?' + params.toString()); } catch (err) { toast(err.message, 'error'); return; }
 
-    // /balance only covers incidental transactions; also pull the room's own
-    // balance the same way the checkout guard computes it, so this modal
-    // shows the true full picture.
+    // /balance covers incidental transactions; when settling a ROOM we also
+    // pull the room's own balance the way the checkout guard computes it. For
+    // BOOKING/GUEST targets the endpoint now returns roomBalance directly
+    // (the booking's own unpaid total), so the modal shows the SAME "Total
+    // Due" the server will actually settle — previously a booking checkout
+    // arrived showing only incidentals and the cash validation disagreed.
     let roomBalance = 0, roomLabel = null;
     if (target.roomNumber) {
       try {
@@ -115,8 +118,10 @@ PAGES.payments = function () {
           roomLabel = check.guestName;
         }
       } catch (e) { /* room might not exist / not occupied — fine, just no room balance */ }
+    } else if (Number(balance.roomBalance) > 0) {
+      roomBalance = Number(balance.roomBalance);
     }
-    const grandTotal = roomBalance + balance.pendingTotal;
+    const grandTotal = (roomBalance + balance.pendingTotal);
     if (grandTotal <= 0) {
       // If this lookup was triggered by "Go to Pay" from a room checkout, there's
       // nothing left to collect — finish the checkout instead of dead-ending
@@ -149,9 +154,8 @@ PAGES.payments = function () {
 
   function renderSettleModal(target, balance, roomBalance, roomLabel, grandTotal) {
     let method = null;
+    // The modal is rebuilt only when the METHOD changes — never on keystrokes.
     const render = () => {
-      const cashReceived = method === 'cash' && document.getElementById('sb-cash') ? Number(document.getElementById('sb-cash').value || 0) : 0;
-      const change = method === 'cash' ? Math.max(0, cashReceived - grandTotal) : 0;
       openModal('Settle Balance — ' + escapeHtml(roomLabel || balance.context?.label || target.roomNumber || 'Guest'),
         '<div class="pos-cart-totals" style="background:var(--surface2);padding:14px;border-radius:var(--radius);margin-bottom:14px">' +
           (roomBalance > 0 ? '<div class="pos-cart-totals-row"><span>Room Balance</span><span>' + formatMoney(roomBalance) + '</span></div>' : '') +
@@ -166,13 +170,29 @@ PAGES.payments = function () {
           }).join('') +
         '</div>' +
         (method === 'cash' ? '<div class="form-group" style="margin-bottom:8px"><label class="form-label">Cash Received</label><input class="form-input" type="number" min="0" step="0.01" id="sb-cash" oninput="window.__settleRecalc()"/></div>' +
-          (cashReceived > 0 ? '<div style="background:var(--surface2);border-radius:var(--radius);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between"><span style="font-weight:600;color:var(--text2)">Change Due</span><span style="font-weight:800;color:var(--a)">' + formatMoney(change) + '</span></div>' : '') : ''),
+          '<div id="sb-change"></div>' : ''),
         '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" ' + (method ? '' : 'disabled') + ' onclick="window.__confirmSettle()">Confirm Settlement</button>',
         { wide: true }
       );
     };
     window.__settleSelectMethod = (m) => { method = m; render(); };
-    window.__settleRecalc = render;
+    // Keystroke handler: update ONLY the change-due box. Rewriting the whole
+    // modal here (the old behavior) recreated the cash input on every
+    // keystroke, wiping its value and focus — the collected amount could not
+    // be typed at all.
+    window.__settleRecalc = () => {
+      const box = document.getElementById('sb-change');
+      const input = document.getElementById('sb-cash');
+      if (!box || !input) return;
+      const cashReceived = Number(input.value || 0);
+      const change = Math.max(0, cashReceived - grandTotal);
+      const shortfall = cashReceived > 0 && cashReceived < grandTotal ? grandTotal - cashReceived : 0;
+      box.innerHTML = shortfall > 0
+        ? '<div style="background:var(--error-bg);color:var(--error);border-radius:var(--radius);padding:10px 12px;margin-bottom:10px;font-size:13px;font-weight:600">Short by ' + formatMoney(shortfall) + ' — total due is ' + formatMoney(grandTotal) + '</div>'
+        : (change > 0
+          ? '<div style="background:var(--surface2);border-radius:var(--radius);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between"><span style="font-weight:600;color:var(--text2)">Change Due</span><span style="font-weight:800;color:var(--a)">' + formatMoney(change) + '</span></div>'
+          : (cashReceived > 0 ? '<div style="font-size:12px;color:var(--a);font-weight:600;padding:2px 0 10px">✓ Exact amount — no change due</div>' : ''));
+    };
     window.__confirmSettle = async () => {
       const body = { method, note: '' };
       if (target.bookingId) body.bookingId = target.bookingId;
@@ -186,7 +206,7 @@ PAGES.payments = function () {
       try {
         const result = await API.post('/api/payments/settle', body);
         toast('Balance settled — ' + formatMoney(result.grandTotal) + (result.change ? ' · Change: ' + formatMoney(result.change) : ''), 'success');
-        showReceiptPopup({
+        const receipt = {
           hotelName: (App.tenant && App.tenant.name) || 'StayChat OS',
           subtitle: escapeHtml(roomLabel || target.roomNumber || ''),
           title: 'SETTLEMENT RECEIPT',
@@ -199,7 +219,18 @@ PAGES.payments = function () {
             ...(result.change ? [['Change Given', formatMoney(result.change)]] : []),
           ],
           footer: target.checkoutRoomId ? 'Balance cleared — checking out the room now…' : 'Balance cleared — checkout may now proceed.',
-        });
+        };
+        showReceiptPopup(receipt);
+        // AUTO-PRINT: money just changed hands — cash, card or transfer — so
+        // the browser print dialog pops immediately, no extra click. The
+        // in-app preview stays open behind it; if the browser blocks the
+        // popup window, its 🖨️ Print Receipt button is the manual fallback.
+        setTimeout(() => {
+          try {
+            printReceiptWindow(receipt, receipt.defaultPaper);
+            toast('Receipt sent to the printer…', 'info');
+          } catch (e) { /* popup blocked — the preview's Print button still works */ }
+        }, 400);
         // This settlement came from a room's "Go to Pay" checkout flow — the
         // whole point was to clear the way for checkout, so finish it now
         // instead of leaving the guest checked in and unpaid-looking again.

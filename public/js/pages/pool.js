@@ -45,7 +45,7 @@ PAGES.pool = function () {
         '<td>' + escapeHtml(b.guest_name) + (b.guest_phone ? '<br/><span style="font-size:11px;color:var(--text3)">' + escapeHtml(b.guest_phone) + '</span>' : '') + '</td>' +
         '<td>' + (b.room_number ? escapeHtml(b.room_number) : '—') + '</td>' +
         '<td>' + b.party_size + '</td>' +
-        '<td>' + escapeHtml(b.area) + '</td>' +
+        '<td>' + escapeHtml(b.area) + (b.engine_code && b.engine_sync_status === 'pending' ? '<br/><span style="font-family:monospace;font-weight:800;font-size:11px;letter-spacing:1px;color:var(--p)">ONLINE · ' + escapeHtml(b.engine_code) + '</span>' : '') + '</td>' +
         '<td>' + formatMoney(b.price) + (b.paid ? ' ' + badge('Paid', 'success') : '') + '</td>' +
         '<td>' + badge(b.status.replace('_', ' '), statusColor(b.status)) + '</td>' +
         '<td>' + poolActionsHTML(b) + '</td>' +
