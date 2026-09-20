@@ -3,10 +3,16 @@ const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
+const { requirePermission } = require('../utils/permissions');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
 
+// READ is deliberately open to every authenticated staff member (POS customer
+// bills, check-in guest pickers and booking forms all consume the guest list),
+// but writes are floored at guests.manage — loyalty balances and the guest
+// ledger are money-adjacent, and minimal roles (cashier, barman, staff) must
+// not be able to rewrite or erase guest records via the API.
 function serialize(g) {
   return { ...g, preferences: JSON.parse(g.preferences || '[]') };
 }
@@ -22,7 +28,7 @@ router.get('/:id', (req, res) => {
   res.json(serialize(g));
 });
 
-router.post('/', (req, res) => {
+router.post('/', requirePermission('rooms.manage'), (req, res) => {
   const { name, phone, email, roomNumber, checkInDate, checkOutDate } = req.body;
   if (!name) return res.status(400).json({ error: 'Guest name is required' });
   const id = 'guest_' + nanoid(10);
@@ -34,7 +40,7 @@ router.post('/', (req, res) => {
   res.status(201).json(serialize(g));
 });
 
-router.patch('/:id', (req, res) => {
+router.patch('/:id', requirePermission('guests.manage'), (req, res) => {
   const g = db.prepare('SELECT * FROM guests WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!g) return res.status(404).json({ error: 'Guest not found' });
 
@@ -52,7 +58,7 @@ router.patch('/:id', (req, res) => {
   res.json(serialize(updated));
 });
 
-router.post('/:id/loyalty/add', (req, res) => {
+router.post('/:id/loyalty/add', requirePermission('guests.manage'), (req, res) => {
   const g = db.prepare('SELECT * FROM guests WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!g) return res.status(404).json({ error: 'Guest not found' });
   const points = Number(req.body.points || 100);
@@ -62,7 +68,7 @@ router.post('/:id/loyalty/add', (req, res) => {
   res.json(serialize(updated));
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requirePermission('guests.manage'), (req, res) => {
   const g = db.prepare('SELECT * FROM guests WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!g) return res.status(404).json({ error: 'Guest not found' });
   db.prepare('DELETE FROM guests WHERE id = ?').run(g.id);

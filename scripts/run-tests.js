@@ -18,6 +18,7 @@ const FAST = [
   'test-ota-flow.sh',
   'verify-booking-payment.js',
   'test-whatsapp-webhook-e2e.js',
+  'test-security-probes.js',
 ];
 const BROWSER = [
   'browser-test-settle-modal.js',

@@ -2,9 +2,13 @@
 const express = require('express');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant } = require('../middleware/auth');
+const { requirePermission } = require('../utils/permissions');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant);
+router.use(requireAuth, resolveTenant, requireTenant, requirePermission('dashboard.view'));
+// Analytics aggregates occupancy and revenue across the whole hotel — every
+// legitimate consumer (dashboard, analytics page, booking-engine metrics)
+// already holds dashboard.view; minimal roles (cashier, barman) do not.
 
 router.get('/summary', (req, res) => {
   const tenantId = req.tenantId;

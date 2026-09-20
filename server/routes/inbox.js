@@ -5,9 +5,13 @@ const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { broadcast } = require('../ws');
 const { getAIReplyAsync } = require('../ai/receptionist');
+const { requirePermission } = require('../utils/permissions');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
+// Writing into the guest conversation record is desk work (inbox.use) —
+// minimal roles (cashier, barman, staff) have no inbox page and must not be
+// able to post messages or fabricate conversations via the API.
 
 // GET /api/inbox/conversations
 router.get('/conversations', (req, res) => {
@@ -26,7 +30,7 @@ router.get('/conversations/:id/messages', (req, res) => {
 });
 
 // POST /api/inbox/conversations  — start a new conversation
-router.post('/conversations', (req, res) => {
+router.post('/conversations', requirePermission('inbox.use'), (req, res) => {
   const { guestName, guestPhone, roomNumber, firstMessage } = req.body;
   if (!guestName || !guestPhone) return res.status(400).json({ error: 'guestName and guestPhone are required' });
 
@@ -46,7 +50,7 @@ router.post('/conversations', (req, res) => {
 });
 
 // POST /api/inbox/conversations/:id/messages  — staff sends a message
-router.post('/conversations/:id/messages', (req, res) => {
+router.post('/conversations/:id/messages', requirePermission('inbox.use'), (req, res) => {
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
   const { body } = req.body;
@@ -64,7 +68,7 @@ router.post('/conversations/:id/messages', (req, res) => {
 
 // POST /api/inbox/simulate-incoming  — for demo/testing: simulate a guest message + trigger AI
 // (In production this logic lives in the WhatsApp webhook handler — see server/routes/webhooks.js)
-router.post('/conversations/:id/simulate-guest-message', async (req, res) => {
+router.post('/conversations/:id/simulate-guest-message', requirePermission('inbox.use'), async (req, res) => {
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
   const { body } = req.body;

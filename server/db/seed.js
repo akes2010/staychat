@@ -217,6 +217,12 @@ function seed() {
       guest_name: 'Grace Okafor', guest_phone: '+234 802 555 0199', guest_email: null, is_group: 0,
       group_name: null, adults: 1, children: 0, source: 'whatsapp', deposit_amount: 0, created_by: 'Priya Sharma' });
     insertBookingRoom.run('bkr_' + id('x'), t1, singleBookingId, t1Rooms[2].id, t1Rooms[2].number, t1Rooms[2].rate, null);
+
+    // Ledger consistency: back the seeded deposit with a matching completed transaction
+    // (bookings.paid_amount must always be explainable by the transactions table).
+    db.prepare(`INSERT INTO transactions (id, tenant_id, guest_name, room_number, description, amount, method, status, gateway_ref, booking_id)
+                VALUES (?,?,?,?,?,?,?, 'completed', ?, ?)`)
+      .run(id('txn'), t1, 'Grace Okafor', t1Rooms[2].number, 'Deposit — reservation BK-DEMO02-200', t1Rooms[2].rate, 'Card', 'SEED-DEP02', singleBookingId);
   }
 
   // ── HALLS & EVENT BOOKINGS ────────────────────────────────────────────

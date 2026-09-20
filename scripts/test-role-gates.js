@@ -67,6 +67,20 @@ function check(label, cond) {
   check('receptionist: GET /api/billing/state → 403', (await status('/api/billing/state', recep)) === 403);
   check('receptionist: GET /api/billing/usage → 200 (job data unaffected)', (await status('/api/billing/usage', recep)) === 200);
 
+  console.log('── API floors for minimal roles (cashier/barman have till-only powers) ──');
+  const cashier = await login('cashier@hospitally.com');
+  check('cashier: GET /api/guests → 200 (POS customer-bill picker still works)', (await status('/api/guests', cashier)) === 200);
+  check('cashier: POST /api/guests → 403 (no guest-record creation)', (await fetch(BASE + '/api/guests', { method: 'POST', headers: { Authorization: 'Bearer ' + cashier, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Nope' }) })).status === 403);
+  check('cashier: PATCH /api/guests/x → 403 (no ledger edits)', (await fetch(BASE + '/api/guests/x', { method: 'PATCH', headers: { Authorization: 'Bearer ' + cashier, 'Content-Type': 'application/json' }, body: '{}' })).status === 403);
+  check('cashier: POST loyalty → 403 (no loyalty inflation)', (await fetch(BASE + '/api/guests/x/loyalty/add', { method: 'POST', headers: { Authorization: 'Bearer ' + cashier, 'Content-Type': 'application/json' }, body: '{}' })).status === 403);
+  check('cashier: DELETE /api/guests/x → 403', (await fetch(BASE + '/api/guests/x', { method: 'DELETE', headers: { Authorization: 'Bearer ' + cashier } })).status === 403);
+  check('cashier: POST /api/maintenance → 403', (await fetch(BASE + '/api/maintenance', { method: 'POST', headers: { Authorization: 'Bearer ' + cashier, 'Content-Type': 'application/json' }, body: JSON.stringify({ roomNumber: '101', issue: 'x' }) })).status === 403);
+  check('cashier: POST /api/inbox/conversations → 403', (await fetch(BASE + '/api/inbox/conversations', { method: 'POST', headers: { Authorization: 'Bearer ' + cashier, 'Content-Type': 'application/json' }, body: '{}' })).status === 403);
+  check('cashier: GET /api/analytics/summary → 403 (no dashboard)', (await status('/api/analytics/summary', cashier)) === 403);
+  check('receptionist: POST /api/maintenance → 201 (desk logs issues)', (await fetch(BASE + '/api/maintenance', { method: 'POST', headers: { Authorization: 'Bearer ' + recep, 'Content-Type': 'application/json' }, body: JSON.stringify({ roomNumber: '101', issue: '[RoleGate] faucet drip' }) })).status === 201);
+  check('receptionist: POST /api/guests → 200 (check-in flow registers guests)', (await fetch(BASE + '/api/guests', { method: 'POST', headers: { Authorization: 'Bearer ' + recep, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Role Gate Walk-in' }) })).status === 201);
+  check('admin: GET /api/analytics/summary → 200', (await status('/api/analytics/summary', admin)) === 200);
+
   console.log('── WhatsApp setup surface ──');
   const settingsJson = await fetch(BASE + '/api/settings', { headers: { Authorization: 'Bearer ' + admin } }).then(r => r.json());
   const waSetup = settingsJson.waSetup || {};
