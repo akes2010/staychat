@@ -148,14 +148,21 @@ Activating after the trial: pick a plan (Billing & Plan — owner/admin only), g
   {
     id: 'whatsapp-ai', icon: '🤖', category: 'Guest experience',
     title: 'WhatsApp & the AI receptionist',
-    keys: ['whatsapp', 'ai', 'receptionist', 'bot', 'chat', 'message', 'inbox', 'cloud api', 'meta', 'auto reply', 'guest messages'],
-    body: `StayChat plugs into the official WhatsApp Business Cloud API (Settings → WhatsApp).
-• Guest messages land in a real-time shared inbox your whole team sees.
-• The AI receptionist replies instantly: availability, facilities, Wi-Fi, room service — and live booking status by tender code.
-• Anything it can't handle escalates cleanly to staff in the same inbox.
-• Staff get WhatsApp alerts for new online bookings and desk decisions.
-• Meta webhook signatures are verified and redeliveries de-duplicated.
-• The AI agent is configurable (Settings → AI): choose provider, model and agent role; bring your own API key.`,
+    keys: ['whatsapp', 'ai', 'receptionist', 'bot', 'chat', 'message', 'inbox', 'cloud api', 'meta', 'meta developer console', 'developers.facebook.com', 'app setup', 'webhook', 'callback url', 'verify token', 'webhook verify token', 'app secret', 'phone number id', 'access token', 'system user', 'permanent token', 'test number', 'graph api', 'business verification', 'auto reply', 'guest messages'],
+    body: `StayChat plugs into the official WhatsApp Business Cloud API. One-time setup (Settings → WhatsApp + Meta's Developer Console), about 15 minutes:
+
+1. Create the Meta app: developers.facebook.com → My Apps → Create App → type "Business", then add the WhatsApp product.
+2. Get your credentials (WhatsApp → API Setup): copy the Phone Number ID and create a permanent Access Token via Business Settings → System Users (add your app, grant whatsapp_business_messaging + whatsapp_business_management). Tokens from API Setup expire in 24 hours — use a System User token.
+3. Pick your Verify Token: any string you choose (e.g. staychat-verify-2026). You'll paste the SAME string in both places.
+4. Copy the App Secret: App Settings → Basic → App Secret.
+5. Paste everything into StayChat: Settings → WhatsApp → Phone Number ID, Access Token, Webhook Verify Token, App Secret, and your WhatsApp number → Save. The exact Webhook URL to use is shown right in that card: https://your-domain/api/webhooks/whatsapp/<your-subdomain>.
+6. Configure the webhook in Meta: WhatsApp → Configuration → Edit → Callback URL = the URL above, Verify token = your Verify Token string → "Verify and save" (StayChat answers Meta's handshake automatically).
+7. Under Webhook fields, subscribe to "messages" — without this Meta never sends guest messages.
+8. Test: WhatsApp your business number from any phone. The message lands in Inbox; with Enable AI Receptionist on, the AI replies instantly.
+
+Notes: the App Secret is what makes incoming webhooks trustworthy — StayChat verifies Meta's X-Hub-Signature-256 on every delivery and REJECTS unsigned posts, so don't skip it. Meta's test number can message up to 5 verified recipients only; to reach any guest, add your real business number and complete business verification. Replies are free within the 24-hour customer-service window; outside it you need approved message templates.
+
+Day to day: guest messages land in a real-time shared inbox your whole team sees; the AI receptionist answers availability, facilities, Wi-Fi, room service — and live booking status by tender code — and escalates cleanly to staff. Staff also get WhatsApp alerts for new online bookings and desk decisions. The AI agent itself is configurable (Settings → AI): provider, model, agent role, your own API key.`,
   },
   {
     id: 'integrations', icon: '🔌', category: 'Administration',
@@ -221,6 +228,7 @@ Setup: Settings → API Integrations → paste credentials → hit "Test Connect
 const FAQ = [
   { q: 'Do guests need to pay online to book?', keys: ['pay online', 'payment online', 'card', 'prepay', 'deposit', 'pay at hotel'], a: 'No. The booking engine is "reserve now, pay at the hotel" — guests leave a name and phone number and receive a tender code. Your desk confirms, payment happens at check-in through the normal folio flow. Deposits and online prepayments can be recorded when they arrive.' },
   { q: 'How does the tender code work?', keys: ['tender code', 'code', 'be-', 'pnr'], a: 'Every online booking gets a short code like BE-7K2M9QX4 (no confusing characters, readable over the phone). The guest presents it at the desk, shows the QR-coded confirmation slip, or just tells it to the AI receptionist on WhatsApp, which reads the live status instantly.' },
+  { q: 'How do I connect WhatsApp (Meta Developer Console setup)?', keys: ['whatsapp', 'meta', 'developer console', 'setup', 'webhook', 'verify token', 'app secret', 'phone number id', 'access token', 'connect', 'cloud api'], a: 'In developers.facebook.com create a Business-type app and add the WhatsApp product; copy the Phone Number ID (API Setup) and a permanent System User access token; choose any Webhook Verify Token string and copy the App Secret (Settings → Basic). Paste all four into Settings → WhatsApp and Save — the card shows your exact webhook URL (https://your-domain/api/webhooks/whatsapp/<your-subdomain>). In Meta → WhatsApp → Configuration set that URL + your verify token, then subscribe to the "messages" webhook field. Test by messaging your business number — it lands in Inbox and the AI replies. Full walkthrough: Help Center → "WhatsApp & the AI receptionist".' },
   { q: 'I lost my confirmation — how do I find my booking?', keys: ['lost', 'find my booking', 'find booking', 'their booking', 'my booking', 'confirmation', 'lookup', 'reference', 'phone', 'slip'], a: 'Open /confirmation.html?hotel=<hotel-subdomain> and enter your tender code — or your reference (BK-…) plus the phone number you booked with. Both paths render the same printable slip with a QR code.' },
   { q: 'What does the free trial include?', keys: ['trial', 'free', '14 day', '14-day'], a: 'Every plan starts with a 14-day free trial — full features, no credit card. Your requested plan\'s features are live immediately, and you can switch plans any time.' },
   { q: 'What happens when the trial ends?', keys: ['trial ends', 'expire', 'expires', 'after trial', 'suspended'], a: 'Pick a plan in Billing & Plan (owner/admin only). You\'ll get a payment reference (SC-…) — pay by transfer or the platform gateway. With a gateway configured, hosted checkout activates the subscription automatically; otherwise the platform team approves your reference. Renewal reminders go out 7 days and 1 day before expiry. If a subscription lapses, features lock but Billing stays reachable for self-service reactivation.' },

@@ -30,7 +30,8 @@ PAGES.settings = function () {
           '<div class="form-group"><label class="form-label">WhatsApp Phone Number</label><input class="form-input" id="set-waphone" value="' + escapeHtml(settings.waPhone || '') + '"/></div>' +
           '<div class="form-group"><label class="form-label">Phone Number ID</label><input class="form-input" id="set-waphoneid" placeholder="From Meta Developer Console"/></div>' +
           '<div class="form-group"><label class="form-label">Access Token</label><input class="form-input" type="password" id="set-watoken" placeholder="Permanent or temp token"/></div>' +
-          '<div class="form-group"><label class="form-label">Webhook Verify Token</label><input class="form-input" id="set-waverify" placeholder="Any string you choose"/></div></div>' +
+          '<div class="form-group"><label class="form-label">Webhook Verify Token</label><input class="form-input" id="set-waverify" placeholder="Any string you choose"/></div>' +
+          '<div class="form-group"><label class="form-label">App Secret</label><input class="form-input" type="password" id="set-waappsecret" placeholder="App Settings → Basic in Meta Developer Console"/></div></div>' +
         '<div style="display:flex;gap:10px;margin-top:8px"><button class="btn accent" onclick="toast(\'Save settings to test the connection\',\'info\')">Test Connection</button></div></div>' +
 
       '<div class="card"><div class="card-header"><span class="card-title">AI Receptionist</span></div>' +
@@ -147,6 +148,7 @@ PAGES.settings = function () {
     if (val('set-waphoneid')) body.waPhoneId = val('set-waphoneid');
     if (val('set-watoken')) body.waToken = val('set-watoken');
     if (val('set-waverify')) body.waVerifyToken = val('set-waverify');
+    if (val('set-waappsecret')) body.waAppSecret = val('set-waappsecret');
     if (val('set-ps-secret')) body.paystackSecretKey = val('set-ps-secret');
     if (val('set-stripe-secret')) body.stripeSecretKey = val('set-stripe-secret');
 

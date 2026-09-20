@@ -40,7 +40,10 @@ any time, exit 0 = healthy). The manual steps below complement it.
       in-app banner, Billing & Plan shows the 🔔 renewal card in the final
       week of any active subscription (emails go out at 7 days and 1 day)
 - [ ] **WhatsApp (optional)**: Settings → WhatsApp per hotel + Meta webhook
-      `https://staychat.akmustech.com/api/webhooks/whatsapp/<subdomain>`
+      `https://staychat.akmustech.com/api/webhooks/whatsapp/<subdomain>` —
+      the full Meta Developer Console walkthrough (Phone Number ID, System
+      User token, verify token, App Secret, "messages" subscription) is in
+      Help Center → "WhatsApp & the AI receptionist"
 - [ ] **Backups**: confirm `/opt/backups/` has a file after the first 03:17
       run (or run `deploy/backup-db.sh` manually right now) - [ ] **Monitoring**: `docker compose --env-file .env -f deploy/docker-compose.prod.yml logs -f`
       shows clean logs; `/api/health/detailed` for load-balancer-style checks
