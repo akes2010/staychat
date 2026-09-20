@@ -51,5 +51,9 @@ any time, exit 0 = healthy). The manual steps below complement it.
 ## Ongoing
 
 - Weekly: `bash deploy/check-deployment.sh`; glance at `/opt/backups/`
-- Before OS updates: `deploy/backup-db.sh` first - Deploying updates: `DOMAIN=<your-domain> deploy/deploy.sh` from your laptop
+- Before OS updates: `deploy/backup-db.sh` first
+- Before deploying: `npm run test:fast` (API suites, ~10s) — or the full
+  `npm test` including headless-Chromium browser tests — from your laptop;
+  deploy only on exit 0
+   (or on the VPS: `git pull && docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build`)
    (or on the VPS: `git pull && docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build`)

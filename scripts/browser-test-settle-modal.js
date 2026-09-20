@@ -21,6 +21,19 @@ const BASE = 'http://localhost:' + PORT;
 const PROFILE = '/tmp/staychat-settle-test-profile';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// Poll an expression until it equals `want` — fixed sleeps race a loaded
+// machine (the battery run), so every timing-sensitive assertion waits on a
+// CONDITION instead of the clock.
+const waitFor = async (evl, expr, want, timeoutMs = 6000) => {
+  const t0 = Date.now();
+  let last;
+  while (Date.now() - t0 < timeoutMs) {
+    last = await evl(expr);
+    if (last === want) return last;
+    await sleep(120);
+  }
+  return last;
+};
 let pass = 0, fail = 0;
 const ok = (m) => { pass++; console.log('  ✓ ' + m); };
 const bad = (m) => { fail++; console.log('  ✗ ' + m); };
@@ -102,11 +115,13 @@ async function withBrowser(fn) {
       // The settle-modal handlers are defined by the Payments page module, so
       // navigate there exactly like the desk does when settling a balance.
       await evl(`navigate('payments')`);
-      await sleep(1200);
-      const onPayments = await evl(`document.getElementById('topbar-title').textContent`);
+      const onPayments = await waitFor(evl, `document.getElementById('topbar-title').textContent`, 'Payments');
       if (onPayments !== 'Payments') return bad('did not reach the Payments page (title: ' + onPayments + ')');
       await evl(`window.__openSettleBalance({ bookingId: '${booking.id}' })`);
-      await sleep(900);
+      // Poll for the modal instead of a fixed sleep — under load the balance
+      // lookups + render can take longer than the old 900ms wait.
+      await waitFor(evl, `!!(document.querySelector('.modal-title') || {}).textContent`, true);
+      await sleep(150); // let the totals row render too
       const modalTitle = await evl(`(document.querySelector('.modal-title') || {}).textContent || ''`);
       if (!modalTitle.includes('Settle Balance')) return bad('settle modal did not open (title: "' + modalTitle + '")');
       ok('settle modal opened: "' + modalTitle.trim() + '"');
@@ -115,19 +130,19 @@ async function withBrowser(fn) {
       if (!totalShown.includes(String(booking.due))) bad('Total Due does not show the full amount owed');
 
       await evl(`window.__settleSelectMethod('cash')`);
-      await sleep(500);
-      const hasInput = await evl(`!!document.getElementById('sb-cash')`);
+      const hasInput = await waitFor(evl, `!!document.getElementById('sb-cash')`, true);
       if (!hasInput) return bad('cash input did not appear after selecting Cash');
       await evl(`document.getElementById('sb-cash').focus()`);
       await sleep(200);
 
       // THE regression: type digit by digit; after every keystroke the value
       // must have GROWN. The old bug wiped the input on each keystroke.
+      // Poll after each key: under load the input event can land a beat late.
       const typed = '500';
       let seq = [];
       for (let i = 1; i <= typed.length; i++) {
         await type(typed[i - 1]);
-        const v = await evl(`document.getElementById('sb-cash').value`);
+        const v = await waitFor(evl, `document.getElementById('sb-cash').value`, typed.slice(0, i));
         const focused = await evl(`document.activeElement === document.getElementById('sb-cash')`);
         seq.push(v);
         if (v !== typed.slice(0, i)) { bad(`typing broke: expected "${typed.slice(0, i)}" got "${v}"`); break; }
@@ -143,17 +158,21 @@ async function withBrowser(fn) {
       const targetsBefore = await fetch('http://localhost:9229/json').then(r => r.json());
       const beforeIds = new Set(targetsBefore.map(t => t.id));
       await evl(`window.__confirmSettle()`);
-      await sleep(2000); // auto-print fires 400ms after the settle response
+      await waitFor(evl, `(document.querySelector('.modal-title') || {}).textContent || ''`, '✅ SETTLEMENT RECEIPT');
       const receipt = await evl(`(document.querySelector('.modal-title') || {}).textContent || ''`);
       if (receipt.includes('SETTLEMENT RECEIPT')) ok('settlement receipt preview shown: ' + receipt.trim());
       else bad('no settlement receipt (title: ' + receipt + ')');
       // AUTO-PRINT: the print popup must have opened BY ITSELF (cash or card).
-      const targetsAfter = await fetch('http://localhost:9229/json').then(r => r.json());
-      const popup = targetsAfter.find(t => t.type === 'page' && !beforeIds.has(t.id));
+      let popup = null;
+      for (let i = 0; i < 30 && !popup; i++) {
+        const targetsAfter = await fetch('http://localhost:9229/json').then(r => r.json());
+        popup = targetsAfter.find(t => t.type === 'page' && !beforeIds.has(t.id));
+        if (!popup) await sleep(150);
+      }
       if (popup) ok('print dialog auto-popped after settlement (new window: "' + (popup.title || 'print') + '")');
       else bad('no print popup opened automatically — receipt printing needs a manual click');
       await evl(`closeModal()`); await sleep(300);
-      const after = await evl(`API.get('/api/payments/balance?bookingId=${booking.id}').then(b => b.grandTotal)`);
+      const after = await waitFor(evl, `API.get('/api/payments/balance?bookingId=${booking.id}').then(b => b.grandTotal)`, 0);
       if (after === 0) ok('booking balance cleared after browser settlement (grandTotal=0)');
       else bad('balance not cleared: ' + after);
       const co = await evl(`API.post('/api/bookings/${booking.id}/checkout', {}).then(() => 200).catch(e => e.status || 0)`);

@@ -11,6 +11,8 @@
     "icons": "node scripts/generate-icons.js",
     "check": "node server/db/check.js",
     "migrate": "node server/db/migrate.js",
+    "test": "node scripts/run-tests.js",
+    "test:fast": "node scripts/run-tests.js --fast",
     "rebuild": "npm rebuild better-sqlite3",
     "postinstall": "npm run rebuild"
   },

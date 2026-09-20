@@ -23,6 +23,18 @@ const PROFILE = '/tmp/staychat-checkout-flow-profile';
 const CDP = 'http://localhost:9231';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// Poll an expression until it equals `want` — fixed sleeps race a loaded
+// machine, so timing-sensitive assertions wait on a CONDITION instead.
+const waitFor = async (evl, expr, want, timeoutMs = 8000) => {
+  const t0 = Date.now();
+  let last;
+  while (Date.now() - t0 < timeoutMs) {
+    last = await evl(expr);
+    if (last === want) return last;
+    await sleep(120);
+  }
+  return last;
+};
 let pass = 0, fail = 0;
 const ok = (m) => { pass++; console.log('  ✓ ' + m); };
 const bad = (m) => { fail++; console.log('  ✗ ' + m); };
@@ -106,11 +118,11 @@ async function withBrowser(fn) {
       const posTitle = await evl(`document.getElementById('topbar-title').textContent`);
       if (posNav === 'navigated' && posTitle !== 'Point of Sale') ok('POS page refused for receptionist (stayed on: ' + posTitle + ')');
       else if (posTitle === 'Point of Sale') bad('receptionist could open the POS page');
-      await evl(`navigate('rooms')`); await sleep(1200);
+      await evl(`navigate('rooms')`); await sleep(800);
 
       console.log('── Rooms → Check Out → Go to Pay (the real desk journey)');
       await evl(`window.__checkOutRoom('${setup.roomId}')`);
-      await sleep(700);
+      await waitFor(evl, `((document.querySelector('.modal-title') || {}).textContent || '').includes('Outstanding Balance')`, true);
       const balTitle = await evl(`(document.querySelector('.modal-title') || {}).textContent || ''`);
       if (balTitle.includes('Outstanding Balance')) ok('checkout blocked with "Outstanding Balance" modal');
       else return bad('expected Outstanding Balance modal, got: "' + balTitle + '"');
@@ -120,7 +132,8 @@ async function withBrowser(fn) {
 
       // The "Go to Pay" button (same code path as clicking it).
       await evl(`window.__goSettleRoom('${setup.roomId}')`);
-      await sleep(1800); // payments page load + auto-open of the settle modal
+      // payments page load + auto-open of the settle modal — poll, don't guess
+      await waitFor(evl, `((document.querySelector('.modal-title') || {}).textContent || '').includes('Settle Balance')`, true, 10000);
       const settleTitle = await evl(`(document.querySelector('.modal-title') || {}).textContent || ''`);
       if (settleTitle.includes('Settle Balance')) ok('Payments page auto-opened the Settle Balance modal: "' + settleTitle.trim() + '"');
       else return bad('settle modal did not auto-open (top modal: "' + settleTitle + '")');
@@ -129,8 +142,7 @@ async function withBrowser(fn) {
 
       console.log('── Type the exact amount collected, in cash');
       await evl(`window.__settleSelectMethod('cash')`);
-      await sleep(500);
-      const hasInput = await evl(`!!document.getElementById('sb-cash')`);
+      const hasInput = await waitFor(evl, `!!document.getElementById('sb-cash')`, true);
       if (!hasInput) return bad('cash input did not appear');
       await evl(`document.getElementById('sb-cash').focus()`);
       await sleep(150);
@@ -138,7 +150,8 @@ async function withBrowser(fn) {
       const seq = [];
       for (let i = 1; i <= String(due).length; i++) {
         await type(String(due)[i - 1]);
-        seq.push(await evl(`document.getElementById('sb-cash').value`));
+        const v = await waitFor(evl, `document.getElementById('sb-cash').value`, String(due).slice(0, i));
+        seq.push(v);
       }
       const grew = seq.length === String(due).length && seq.every((v, i) => v === String(due).slice(0, i + 1));
       if (grew && seq[seq.length - 1] === String(due)) ok(`typed the exact amount ${due} digit-by-digit — ${JSON.stringify(seq)}, focus kept`);
@@ -151,12 +164,18 @@ async function withBrowser(fn) {
       const before = await fetch(CDP + '/json').then(r => r.json());
       const beforeIds = new Set(before.map(t => t.id));
       await evl(`window.__confirmSettle()`);
-      await sleep(2200); // settle → receipt → 400ms → auto-print
+      // settle → receipt → 400ms → auto-print: poll for the receipt instead
+      // of guessing the total latency with a fixed sleep.
+      await waitFor(evl, `((document.querySelector('.modal-title') || {}).textContent || '').includes('SETTLEMENT RECEIPT')`, true, 10000);
       const receiptTitle = await evl(`(document.querySelector('.modal-title') || {}).textContent || ''`);
       if (receiptTitle.includes('SETTLEMENT RECEIPT')) ok('settlement receipt popped up: "' + receiptTitle.trim() + '"');
       else bad('no receipt popup (top modal: "' + receiptTitle + '")');
-      const after = await fetch(CDP + '/json').then(r => r.json());
-      const popup = after.find(t => t.type === 'page' && !beforeIds.has(t.id));
+      let popup = null;
+      for (let i = 0; i < 40 && !popup; i++) {
+        const after = await fetch(CDP + '/json').then(r => r.json());
+        popup = after.find(t => t.type === 'page' && !beforeIds.has(t.id));
+        if (!popup) await sleep(150);
+      }
       if (popup) ok('print dialog opened BY ITSELF (window: "' + (popup.title || 'print') + '")');
       else bad('print dialog did not auto-pop');
 
