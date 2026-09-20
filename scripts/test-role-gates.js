@@ -74,6 +74,18 @@ function check(label, cond) {
   check('receptionist: POST /api/settings/whatsapp/test → 403 (owner/admin only)', (await fetch(BASE + '/api/settings/whatsapp/test', { method: 'POST', headers: { Authorization: 'Bearer ' + recep, 'Content-Type': 'application/json' }, body: '{}' })).status === 403);
   const noCreds = await fetch(BASE + '/api/settings/whatsapp/test', { method: 'POST', headers: { Authorization: 'Bearer ' + admin, 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.status);
   check('admin test without saved credentials → 400 with guidance (' + noCreds + ')', noCreds === 400);
+  // With (fake) credentials saved, the test's INBOUND self-check must pass —
+  // it exercises this server's real handshake + signature gates. The OUTBOUND
+  // probe will fail against Meta with a fake token (400/502), but the webhook
+  // results ride along either way.
+  await fetch(BASE + '/api/settings', { method: 'PATCH', headers: { Authorization: 'Bearer ' + admin, 'Content-Type': 'application/json' }, body: JSON.stringify({ waPhoneId: '111111111111111', waToken: 'fake_token_for_selftest', waVerifyToken: 'rolegate-verify', waAppSecret: 'rolegate-secret' }) });
+  const testRes = await fetch(BASE + '/api/settings/whatsapp/test', { method: 'POST', headers: { Authorization: 'Bearer ' + admin, 'Content-Type': 'application/json' }, body: '{}' });
+  const testBody = await testRes.json();
+  const wb = testBody.webhook || {};
+  check('in-app test: webhook handshake self-check passes (echo via saved verify token)', wb.handshakeOk === true);
+  check('in-app test: signed self-delivery passes the real signature gate', wb.signatureOk === true);
+  check('in-app test: fake token rejected by Meta probe (' + testRes.status + ')', testRes.status === 400 || testRes.status === 502);
+  await fetch(BASE + '/api/settings', { method: 'PATCH', headers: { Authorization: 'Bearer ' + admin, 'Content-Type': 'application/json' }, body: JSON.stringify({ waPhoneId: '', waToken: '', waVerifyToken: '', waAppSecret: '' }) });
 
   console.log('── POS is not for the front desk ──');
   check('receptionist: GET /api/pos/tickets → 403 (restaurant/bar till is cashier/barman+managers)', (await status('/api/pos/tickets', recep)) === 403);

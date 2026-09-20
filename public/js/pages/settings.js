@@ -217,10 +217,22 @@ PAGES.settings = function () {
     try {
       const r = await API.post('/api/settings/whatsapp/test', {});
       const label = '✓ Connected' + (r.verifiedName ? ' — ' + r.verifiedName : '') + (r.displayPhoneNumber ? ' (' + r.displayPhoneNumber + ')' : '');
-      if (span) span.innerHTML = '<span style="color:var(--a);font-weight:600">' + escapeHtml(label) + '</span>';
+      const wb = r.webhook || {};
+      const inbound = wb.handshakeOk && wb.signatureOk
+        ? '<span style="color:var(--a);font-weight:600">✓ webhook: handshake + signature verified</span>'
+        : '<span style="color:var(--warn);font-weight:600">⚠ webhook: ' + escapeHtml(wb.handshakeError || wb.signatureError || 'inbound checks failed') + '</span>';
+      if (span) span.innerHTML = '<div style="display:flex;flex-direction:column;gap:2px;margin-top:4px">' +
+        '<span style="color:var(--a);font-weight:600">' + escapeHtml(label) + '</span>' + inbound + '</div>';
       toast('WhatsApp connection verified', 'success');
     } catch (err) {
-      if (span) span.innerHTML = '<span style="color:var(--error);font-weight:600">✗ ' + escapeHtml(err.message) + '</span>';
+      const wb = (err.data && err.data.webhook) || {};
+      const inbound = wb.handshakeOk && wb.signatureOk
+        ? '<span style="color:var(--a);font-weight:600">✓ webhook: handshake + signature verified — only the token is bad</span>'
+        : (wb.handshakeError || wb.signatureError
+          ? '<span style="color:var(--warn);font-weight:600">⚠ webhook: ' + escapeHtml(wb.handshakeError || wb.signatureError) + '</span>'
+          : '');
+      if (span) span.innerHTML = '<div style="display:flex;flex-direction:column;gap:2px;margin-top:4px">' +
+        '<span style="color:var(--error);font-weight:600">✗ ' + escapeHtml(err.message) + '</span>' + inbound + '</div>';
       toast('WhatsApp test failed', 'error');
     }
   };

@@ -1,5 +1,6 @@
 // server/routes/settings.js
 const express = require('express');
+const crypto = require('crypto');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 const { fetchLiveRates, symbolToCode } = require('../utils/exchange-rates');
@@ -136,32 +137,65 @@ router.post('/exchange-rates/refresh', requireRole('hotel_admin', 'superadmin'),
 });
 
 // ── WhatsApp connection test ────────────────────────────────────────────────
-// POST /api/settings/whatsapp/test — live probe of the Meta Graph API using
-// the SAVED credentials. Confirms the token is valid and actually owns the
-// configured Phone Number ID (a real token for a different WhatsApp app would
-// still 401 here). Safe to re-run any time; never stores anything.
+// POST /api/settings/whatsapp/test — verifies BOTH halves of the integration:
+//
+// INBOUND (webhook): self-checks THIS server's webhook endpoint — the GET
+// handshake with the saved verify token (what Meta's "Verify and save" will
+// hit) and a signed empty delivery through the real signature gate (the
+// payload carries no messages[], so the webhook acks and ignores it — no fake
+// message is injected). Deterministic, no external network.
+//
+// OUTBOUND: live probe of the Meta Graph API with the saved token, confirming
+// it actually owns the configured Phone Number ID (a real token for a
+// different WhatsApp app would still 401 here). Safe to re-run any time;
+// never stores anything. Webhook results are included even when the Graph
+// probe fails, so an expired token doesn't hide inbound readiness.
 router.post('/whatsapp/test', requireRole('hotel_admin', 'superadmin'), async (req, res) => {
   const t = req.tenant;
   if (!t.wa_phone_id || !t.wa_token) {
     return res.status(400).json({ error: 'Save your Phone Number ID and Access Token first (Settings → WhatsApp)' });
   }
+
+  // ── Inbound webhook self-check (local, always runs) ──
+  const port = Number(process.env.PORT) || 3000;
+  const selfBase = 'http://127.0.0.1:' + port;
+  const webhookPath = '/api/webhooks/whatsapp/' + t.subdomain;
+  const webhook = { handshakeOk: false, signatureOk: false };
+  try {
+    const challenge = 'staychat-selftest-' + Date.now();
+    const echoed = await fetch(selfBase + webhookPath + '?hub.mode=subscribe&hub.verify_token=' + encodeURIComponent(t.wa_verify_token || '') + '&hub.challenge=' + challenge).then(r => r.text());
+    webhook.handshakeOk = echoed === challenge;
+    if (!webhook.handshakeOk) webhook.handshakeError = 'Meta\'s "Verify and save" would fail — check the Webhook Verify Token';
+  } catch (e) { webhook.handshakeError = e.message; }
+  try {
+    if (!t.wa_app_secret) {
+      webhook.signatureError = 'App Secret not saved — every inbound delivery is rejected until it is';
+    } else {
+      const body = JSON.stringify({ object: 'whatsapp_business_account', entry: [{ id: 'SELFTEST', changes: [{ field: 'messages', value: { messaging_product: 'whatsapp' } }] }] });
+      const sig = 'sha256=' + crypto.createHmac('sha256', t.wa_app_secret).update(body).digest('hex');
+      const pr = await fetch(selfBase + webhookPath, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': sig }, body });
+      webhook.signatureOk = pr.status === 200;
+      if (!webhook.signatureOk) webhook.signatureError = 'Signed self-delivery returned ' + pr.status;
+    }
+  } catch (e) { webhook.signatureError = e.message; }
+
+  // ── Outbound Graph probe (needs network + valid token) ──
   try {
     const resp = await fetch('https://graph.facebook.com/v19.0/' + t.wa_phone_id + '?fields=id,display_phone_number,verified_name,quality_rating', {
       headers: { Authorization: 'Bearer ' + t.wa_token },
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      // Meta signals an expired/invalid token with code 190 in the error body.
       const code = data && data.error && data.error.code;
       const hint = code === 190
         ? 'Token rejected (code 190) — API Setup tokens expire in 24 hours; create a permanent System User token'
         : ((data && data.error && data.error.message) || ('Meta API returned ' + resp.status));
-      return res.status(400).json({ ok: false, error: hint });
+      return res.status(400).json({ ok: false, error: hint, webhook });
     }
-    audit(req, 'settings.whatsapp_test', 'tenant', req.tenantId, { phoneNumberId: t.wa_phone_id });
-    res.json({ ok: true, displayPhoneNumber: data.display_phone_number, verifiedName: data.verified_name, qualityRating: data.quality_rating });
+    audit(req, 'settings.whatsapp_test', 'tenant', req.tenantId, { phoneNumberId: t.wa_phone_id, webhookOk: webhook.handshakeOk && webhook.signatureOk });
+    res.json({ ok: true, displayPhoneNumber: data.display_phone_number, verifiedName: data.verified_name, qualityRating: data.quality_rating, webhook });
   } catch (err) {
-    res.status(502).json({ ok: false, error: 'Could not reach Meta: ' + err.message });
+    res.status(502).json({ ok: false, error: 'Could not reach Meta: ' + err.message, webhook });
   }
 });
 
