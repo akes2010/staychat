@@ -67,6 +67,14 @@ function check(label, cond) {
   check('receptionist: GET /api/billing/state → 403', (await status('/api/billing/state', recep)) === 403);
   check('receptionist: GET /api/billing/usage → 200 (job data unaffected)', (await status('/api/billing/usage', recep)) === 200);
 
+  console.log('── WhatsApp setup surface ──');
+  const settingsJson = await fetch(BASE + '/api/settings', { headers: { Authorization: 'Bearer ' + admin } }).then(r => r.json());
+  const waSetup = settingsJson.waSetup || {};
+  check('GET /api/settings exposes waSetup presence flags', typeof waSetup === 'object' && 'phoneNumberId' in waSetup && 'appSecret' in waSetup);
+  check('receptionist: POST /api/settings/whatsapp/test → 403 (owner/admin only)', (await fetch(BASE + '/api/settings/whatsapp/test', { method: 'POST', headers: { Authorization: 'Bearer ' + recep, 'Content-Type': 'application/json' }, body: '{}' })).status === 403);
+  const noCreds = await fetch(BASE + '/api/settings/whatsapp/test', { method: 'POST', headers: { Authorization: 'Bearer ' + admin, 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.status);
+  check('admin test without saved credentials → 400 with guidance (' + noCreds + ')', noCreds === 400);
+
   console.log('── POS is not for the front desk ──');
   check('receptionist: GET /api/pos/tickets → 403 (restaurant/bar till is cashier/barman+managers)', (await status('/api/pos/tickets', recep)) === 403);
   check('admin: GET /api/pos/tickets → 200 (managers run any till)', (await status('/api/pos/tickets', admin)) === 200);

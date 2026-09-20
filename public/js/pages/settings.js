@@ -1,6 +1,33 @@
 // public/js/pages/settings.js
 window.PAGES = window.PAGES || {};
 
+// WhatsApp setup tracker: which credentials are already saved (presence only —
+// values never leave the server) and what remains, matching the Meta Developer
+// Console walkthrough in Help Center → "WhatsApp & the AI receptionist".
+function renderWaTracker(s) {
+  const st = s.waSetup || {};
+  const steps = [
+    ['Phone Number ID', st.phoneNumberId, 'Meta → WhatsApp → API Setup'],
+    ['Access Token', st.accessToken, 'permanent System User token (Business Settings → System Users)'],
+    ['Webhook Verify Token', st.verifyToken, 'any string you choose — the same one goes into Meta'],
+    ['App Secret', st.appSecret, 'Meta → App Settings → Basic (required — webhooks are signature-verified)'],
+  ];
+  const done = steps.filter(x => x[1]).length;
+  const rows = steps.map(([label, saved, hint]) =>
+    '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px">' +
+      '<span>' + (saved ? '✅' : '⬜') + '</span>' +
+      '<span style="font-weight:600;min-width:158px">' + label + '</span>' +
+      (saved ? '<span style="color:var(--a);font-weight:600">saved</span>' : '<span style="color:var(--text3)">' + hint + '</span>') +
+    '</div>').join('');
+  return '<div style="background:var(--surface2);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">' +
+      '<span style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Setup checklist</span>' +
+      '<span style="font-size:11.5px;font-weight:700">' + done + ' of 4 saved</span></div>' +
+    rows +
+    (done < 4 ? '<div style="font-size:11.5px;color:var(--text3);margin-top:6px">Full walkthrough: Help Center → "WhatsApp &amp; the AI receptionist". After saving all four, finish in Meta: set the callback URL below and subscribe to the "messages" webhook field.</div>' : '') +
+  '</div>';
+}
+
 PAGES.settings = function () {
   const wrap = el('div', 'fa');
   let settings = {};
@@ -25,14 +52,15 @@ PAGES.settings = function () {
           '<div class="form-group"><label class="form-label">Timezone</label><select class="form-select" id="set-tz">' + ['UTC','UTC+1','UTC+2','UTC+3','UTC-5','UTC-8'].map(t => '<option' + (settings.timezone === t ? ' selected' : '') + '>' + t + '</option>').join('') + '</select></div></div></div>' +
 
       '<div class="card"><div class="card-header"><span class="card-title">WhatsApp Business API</span>' + (settings.waConnected ? '<span class="badge success">Connected</span>' : '<span class="badge error">Not Connected</span>') + '</div>' +
-        '<div class="alert info" style="font-size:12px">To receive real WhatsApp messages, set your webhook URL in Meta\'s Developer Console to:<br/><code>' + window.location.origin + '/api/webhooks/whatsapp/' + escapeHtml(settings.subdomain || 'your-subdomain') + '</code></div>' +
+        renderWaTracker(settings) +
+        '<div class="alert info" style="font-size:12px">To receive real WhatsApp messages, set your webhook URL in Meta\'s Developer Console to:<br/><code>' + window.location.origin + '/api/webhooks/whatsapp/' + escapeHtml(settings.subdomain || 'your-subdomain') + '</code> — then subscribe to the "messages" webhook field.</div>' +
         '<div class="form-row cols-2">' +
           '<div class="form-group"><label class="form-label">WhatsApp Phone Number</label><input class="form-input" id="set-waphone" value="' + escapeHtml(settings.waPhone || '') + '"/></div>' +
           '<div class="form-group"><label class="form-label">Phone Number ID</label><input class="form-input" id="set-waphoneid" placeholder="From Meta Developer Console"/></div>' +
           '<div class="form-group"><label class="form-label">Access Token</label><input class="form-input" type="password" id="set-watoken" placeholder="Permanent or temp token"/></div>' +
           '<div class="form-group"><label class="form-label">Webhook Verify Token</label><input class="form-input" id="set-waverify" placeholder="Any string you choose"/></div>' +
           '<div class="form-group"><label class="form-label">App Secret</label><input class="form-input" type="password" id="set-waappsecret" placeholder="App Settings → Basic in Meta Developer Console"/></div></div>' +
-        '<div style="display:flex;gap:10px;margin-top:8px"><button class="btn accent" onclick="toast(\'Save settings to test the connection\',\'info\')">Test Connection</button></div></div>' +
+        '<div style="display:flex;gap:10px;margin-top:8px;align-items:center"><button class="btn accent" onclick="window.__waTest()">Test Connection</button><span id="wa-test-result" style="font-size:12.5px"></span></div></div>' +
 
       '<div class="card"><div class="card-header"><span class="card-title">AI Receptionist</span></div>' +
         '<div class="toggle-wrap" style="margin-bottom:8px"><div class="toggle-info"><div class="toggle-label">Enable AI Receptionist</div><div class="toggle-desc">Automatically respond to guest WhatsApp messages</div></div><label class="toggle"><input type="checkbox" id="set-ai" ' + (settings.aiEnabled ? 'checked' : '') + '><span class="toggle-slider"></span></label></div>' +
@@ -176,6 +204,25 @@ PAGES.settings = function () {
       toast('Booking engine ' + (saved.enabled ? 'enabled — your public booking page is live' : 'disabled'), 'success');
       render();
     } catch (err) { toast(err.message, 'error'); }
+  };
+
+  // Saves any new credentials first (the test probes the SAVED values), then
+  // asks the server to verify them against the live Meta Graph API.
+  window.__waTest = async () => {
+    const span0 = document.getElementById('wa-test-result');
+    if (span0) span0.textContent = 'Saving…';
+    await window.__saveAllSettings();
+    const span = document.getElementById('wa-test-result'); // render() replaced the node
+    if (span) span.textContent = 'Testing against Meta…';
+    try {
+      const r = await API.post('/api/settings/whatsapp/test', {});
+      const label = '✓ Connected' + (r.verifiedName ? ' — ' + r.verifiedName : '') + (r.displayPhoneNumber ? ' (' + r.displayPhoneNumber + ')' : '');
+      if (span) span.innerHTML = '<span style="color:var(--a);font-weight:600">' + escapeHtml(label) + '</span>';
+      toast('WhatsApp connection verified', 'success');
+    } catch (err) {
+      if (span) span.innerHTML = '<span style="color:var(--error);font-weight:600">✗ ' + escapeHtml(err.message) + '</span>';
+      toast('WhatsApp test failed', 'error');
+    }
   };
 
   function val(id) { const e = document.getElementById(id); return e ? e.value : undefined; }
