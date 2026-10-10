@@ -220,20 +220,79 @@ const SELF_HOSTED_PROBES = {
   iot_platform: async (c) => tcpProbe(c.platform_url),
 };
 
-// Parse a host[:port] or URL into {host, port, useTls}; default ports follow
-// each vendor's documented default where one exists.
 function parseHostPort(raw, fallbackPort) {
   const s = String(raw || '').trim();
   if (!s) return null;
+  // Leading-colon IPv6 literals ('::1', 'fd00::5' — with or without a scheme)
+  // make the generic regex capture the scheme/first segment as the host.
+  // Detect them explicitly: everything up to the LAST ':' before a digit-tail
+  // is the address; a trailing ':<digits>' after ']' or the final ':' is the port.
+  const stripScheme = s.replace(/^https?:\/\//i, '');
+  if (stripScheme.startsWith(':') || /^\[[0-9a-f:]+\]/i.test(stripScheme)) {
+    const useTls = /^https:/i.test(s);
+    // Bracketed literal: '[::1]:8443' → addr='::1', port=8443 ; '[fd00::5]' → port=fallback
+    const bracket = stripScheme.match(/^\[([0-9a-f:]+)\](?::(\d+))?$/i);
+    if (bracket) {
+      return { host: bracket[1], port: bracket[2] ? Number(bracket[2]) : (useTls ? 443 : fallbackPort), useTls };
+    }
+    // Bare (unbracketed) IPv6: '::1' or 'fd00::5'. A trailing ':<digits>' segment
+    // after the final colon is ambiguous in bare IPv6 (no brackets), so for safety
+    // we treat the whole string as the ADDRESS — the port stays the fallback.
+    // (Hotels entering IPv6 without brackets get port 80/443 — acceptable.)
+    return { host: stripScheme, port: useTls ? 443 : fallbackPort, useTls };
+  }
   const m = s.match(/^(?:https?:\/\/)?([^/:\s]+)(?::(\d+))?/i);
   if (!m) return null;
-  const useTls = /^https:/i.test(s);
+  const useTls = useTlsOf(s);
   return { host: m[1], port: m[2] ? Number(m[2]) : (useTls ? 443 : fallbackPort), useTls };
+}
+
+function useTlsOf(s) { return /^https:/i.test(s); }
+
+// True for hostnames/IPs the server must not dial on behalf of a tenant:
+// loopback (incl. metadata 169.254.169.254), RFC1918 private ranges, IPv6
+// loopback/ULA/link-local, cloud metadata hostnames, and bare IP literals
+// in those ranges. Public DNS names pass through (resolving them to a private
+// address is a DNS-rebinding risk accepted here because the probe is
+// read-only TCP connect with an 8s timeout).
+function isPrivateOrLocalHost(host) {
+  const h = String(host || '').trim().toLowerCase();
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost') || h === 'metadata.google.internal' || h.endsWith('.internal')) return true;
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    if (a === 0 || a === 10 || a === 127) return true;              // 0.x, 10/8, 127/8
+    if (a === 169 && b === 254) return true;                        // link-local + metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;               // 172.16/12
+    if (a === 192 && b === 168) return true;                        // 192.168/16
+    if (a === 100 && b >= 64 && b <= 127) return true;              // CGNAT 100.64/10
+  }
+  if (h.includes(':')) { // IPv6 literal (possibly with stray port text)
+    // '[::1]:8443' or '::1:8443' would be garbled by naive suffix checks —
+    // the ADDRESS is everything before the final ':<digits-only>' segment.
+    const addrPort = h.match(/^(.+):(\d+)$/);
+    const addr = (addrPort && !addrPort[1].includes(':\d')) ? addrPort[1] : h;
+    const bare = addr.replace(/^\[|\]$/g, '');
+    if (bare === '::1' || bare === '::' || bare.startsWith('fe80:') || bare.startsWith('fc') || bare.startsWith('fd') || bare.startsWith('::ffff:127.')) return true;
+  }
+  return false;
 }
 
 function tcpProbe(rawUrl, fallbackPort = 80) {
   const target = parseHostPort(rawUrl, fallbackPort);
+  // IPv6 literals ('::1', 'fd00::5') don't survive the host regex above —
+  // check the RAW string for them before the "could not parse" bail-out.
+  if (!target && isPrivateOrLocalHost(String(rawUrl || '').trim())) {
+    return Promise.resolve(fail('Refusing to test a private/internal address (' + String(rawUrl).trim() + ') — enter the device\'s public hostname or IP'));
+  }
   if (!target) return Promise.resolve(fail('Could not parse host from "' + rawUrl + '"'));
+  // SSRF guard: a signed-in hotel admin controls this host string, and the
+  // server runs on the same network as its own database/vault. Refuse to dial
+  // private ranges, loopback, link-local and the metadata address.
+  if (isPrivateOrLocalHost(target.host)) {
+    return Promise.resolve(fail('Refusing to test a private/internal address (' + target.host + ') — enter the device\'s public hostname or IP'));
+  }
   return new Promise((resolve) => {
     const socket = new net.Socket();
     const done = (result) => { socket.destroy(); resolve(result); };

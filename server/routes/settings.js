@@ -4,38 +4,42 @@ const crypto = require('crypto');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 const { fetchLiveRates, symbolToCode } = require('../utils/exchange-rates');
+const { encryptTenantSecrets, decryptTenantSecrets } = require('../utils/tenant-secrets');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
 
 function publicTenant(t) {
   const engineCfg = db.prepare('SELECT * FROM booking_engine_config WHERE tenant_id = ?').get(t.id);
+  // Credentials are encrypted at rest — decrypt so the presence flags
+  // (waSetup / paystackSecretSet / stripeSecretSet) reflect the REAL state.
+  const d = decryptTenantSecrets(t);
   return {
-    id: t.id, name: t.name, subdomain: t.subdomain, plan: t.plan, status: t.status,
-    country: t.country, email: t.email, phone: t.phone, currency: t.currency, timezone: t.timezone,
-    checkInTime: t.check_in_time, checkOutTime: t.check_out_time,
-    aiEnabled: !!t.ai_enabled, aiTone: t.ai_tone, autoBooking: !!t.auto_booking,
-    autoAssignHk: !!t.auto_assign_hk, autoAssignMaint: !!t.auto_assign_maint,
-    housekeepingSla: t.housekeeping_sla, maintenanceSla: t.maintenance_sla,
-    posTaxPct: t.pos_tax_pct, posServicePct: t.pos_service_pct, poolCapacity: t.pool_capacity,
-    paymentMethods: JSON.parse(t.payment_methods || '["cash","card"]'),
-    paymentMethodConfigs: JSON.parse(t.payment_method_configs || '{}'),
-    subscription: { planId: t.plan_id, billingCycle: t.billing_cycle, status: t.subscription_status, nextBillingDate: t.next_billing_date },
-    waPhone: t.wa_phone, waConnected: !!t.wa_connected,
+    id: d.id, name: d.name, subdomain: d.subdomain, plan: d.plan, status: d.status,
+    country: d.country, email: d.email, phone: d.phone, currency: d.currency, timezone: d.timezone,
+    checkInTime: d.check_in_time, checkOutTime: d.check_out_time,
+    aiEnabled: !!d.ai_enabled, aiTone: d.ai_tone, autoBooking: !!d.auto_booking,
+    autoAssignHk: !!d.auto_assign_hk, autoAssignMaint: !!d.auto_assign_maint,
+    housekeepingSla: d.housekeeping_sla, maintenanceSla: d.maintenance_sla,
+    posTaxPct: d.pos_tax_pct, posServicePct: d.pos_service_pct, poolCapacity: d.pool_capacity,
+    paymentMethods: JSON.parse(d.payment_methods || '["cash","card"]'),
+    paymentMethodConfigs: JSON.parse(d.payment_method_configs || '{}'),
+    subscription: { planId: d.plan_id, billingCycle: d.billing_cycle, status: d.subscription_status, nextBillingDate: d.next_billing_date },
+    waPhone: d.wa_phone, waConnected: !!d.wa_connected,
     // Presence flags only — never the secret values. Lets the UI show which
     // WhatsApp credentials are already saved and drive the setup tracker.
     waSetup: {
-      phoneNumberId: !!t.wa_phone_id,
-      accessToken: !!t.wa_token,
-      verifyToken: !!t.wa_verify_token,
-      appSecret: !!t.wa_app_secret,
-      phone: !!t.wa_phone,
+      phoneNumberId: !!d.wa_phone_id,
+      accessToken: !!d.wa_token,
+      verifyToken: !!d.wa_verify_token,
+      appSecret: !!d.wa_app_secret,
+      phone: !!d.wa_phone,
     },
     // Secrets are masked — never sent in full to the client.
-    paystackPublicKey: t.paystack_public_key,
-    paystackSecretSet: !!t.paystack_secret_key,
-    stripePublicKey: t.stripe_public_key,
-    stripeSecretSet: !!t.stripe_secret_key,
+    paystackPublicKey: d.paystack_public_key,
+    paystackSecretSet: !!d.paystack_secret_key,
+    stripePublicKey: d.stripe_public_key,
+    stripeSecretSet: !!d.stripe_secret_key,
     // Booking engine (public widget) state for the settings card.
     engineEnabled: !!(engineCfg && engineCfg.enabled),
     engineNotice: engineCfg ? engineCfg.notice : null,
@@ -96,9 +100,14 @@ router.patch('/', requireRole('hotel_admin', 'superadmin'), (req, res) => {
 
   // If WhatsApp credentials are being set (phone ID + token present, either now or already saved),
   // mark the integration as connected so the UI badge reflects reality.
+  // (decryptTenantSecrets: req.tenant's stored secret may be ENCRYPTED at rest —
+  // an already-saved legacy-encrypted token must still count as "present".)
   const willHavePhoneId = updates.wa_phone_id || req.tenant.wa_phone_id;
-  const willHaveToken = updates.wa_token || req.tenant.wa_token;
+  const willHaveToken = updates.wa_token || decryptTenantSecrets(req.tenant).wa_token;
   if (willHavePhoneId && willHaveToken) updates.wa_connected = 1;
+
+  // Secrets are ENCRYPTED at rest (AES-256-GCM) before they ever touch the DB.
+  Object.assign(updates, encryptTenantSecrets(updates));
 
   const setClause = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE tenants SET ${setClause}, updated_at = datetime('now') WHERE id = @id`).run({ ...updates, id: req.tenantId });
@@ -151,7 +160,8 @@ router.post('/exchange-rates/refresh', requireRole('hotel_admin', 'superadmin'),
 // never stores anything. Webhook results are included even when the Graph
 // probe fails, so an expired token doesn't hide inbound readiness.
 router.post('/whatsapp/test', requireRole('hotel_admin', 'superadmin'), async (req, res) => {
-  const t = req.tenant;
+  // Stored credentials are encrypted at rest — decrypt for the live probe.
+  const t = decryptTenantSecrets(db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenantId));
   if (!t.wa_phone_id || !t.wa_token) {
     return res.status(400).json({ error: 'Save your Phone Number ID and Access Token first (Settings → WhatsApp)' });
   }

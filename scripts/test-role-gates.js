@@ -106,16 +106,20 @@ function check(label, cond) {
   check('admin: GET /api/pos/tickets → 200 (managers run any till)', (await status('/api/pos/tickets', admin)) === 200);
 
   console.log('── Booking engine access ──');
+  // Booking dates must always be in the future — the engine rejects past
+  // check-ins server-side, so the test computes them relative to today.
+  const FUTURE_IN = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+  const FUTURE_OUT = new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
   check('receptionist: GET /api/booking-engine/admin/config → 200 (desk read)', (await status('/api/booking-engine/admin/config', recep)) === 200);
   const cfgBody = JSON.stringify({ enabled: true, notice: 'x', maxDaily: 50 });
   check('receptionist: PUT /api/booking-engine/admin/config → 403 (no editing)', (await fetch(BASE + '/api/booking-engine/admin/config', { method: 'PUT', headers: { Authorization: 'Bearer ' + recep, 'Content-Type': 'application/json' }, body: cfgBody })).status === 403);
   check('admin: PUT /api/booking-engine/admin/config → 200', (await fetch(BASE + '/api/booking-engine/admin/config', { method: 'PUT', headers: { Authorization: 'Bearer ' + admin, 'Content-Type': 'application/json' }, body: cfgBody })).status === 200);
 
   console.log('── Desk workflow on a fresh public booking ──');
-  const av = await fetch(BASE + '/api/booking-engine/availability?subdomain=hospitally&checkIn=2026-10-05&checkOut=2026-10-06').then(r => r.json());
+  const av = await fetch(BASE + `/api/booking-engine/availability?subdomain=hospitally&checkIn=${FUTURE_IN}&checkOut=${FUTURE_OUT}`).then(r => r.json());
   const bk = await fetch(BASE + '/api/booking-engine/book', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subdomain: 'hospitally', guestName: 'Role Gate Guest', guestPhone: '+234807770011', checkIn: '2026-10-05', checkOut: '2026-10-06', roomIds: [av.rooms[0].roomId], adults: 1, children: 0 }),
+    body: JSON.stringify({ subdomain: 'hospitally', guestName: 'Role Gate Guest', guestPhone: '+234807770011', checkIn: FUTURE_IN, checkOut: FUTURE_OUT, roomIds: [av.rooms[0].roomId], adults: 1, children: 0 }),
   }).then(r => r.json());
   check('guest booking created (' + (bk.code || '?') + ')', !!bk.code);
   const pending = await fetch(BASE + '/api/bookings?status=pending_payment', { headers: { Authorization: 'Bearer ' + recep } }).then(r => r.json());

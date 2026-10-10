@@ -65,6 +65,17 @@ function seed() {
   `);
   insertUser.run({ id:id('user'), tenant_id:null, name:'Super Admin', email:'superadmin@staychat.io', password_hash:passwordHash, role:'superadmin', department:null, avatar:'SA', phone:null });
   const adminUserId = id('user');
+  // Booking engine ON for every seeded hotel — mirrors what signup does for
+  // real tenants, so a freshly seeded deployment has the demo booking funnel
+  // (book.html → pending desk queue → confirm → check-in) fully usable.
+  // (Runs after all three tenants exist — booking_engine_config rows FK to tenants.)
+  const insertEngineCfg = db.prepare(`
+    INSERT INTO booking_engine_config (tenant_id, enabled, notice, max_daily)
+    VALUES (?, 1, NULL, 50)
+    ON CONFLICT(tenant_id) DO UPDATE SET enabled = 1
+  `);
+  insertEngineCfg.run(t1); insertEngineCfg.run(t2); insertEngineCfg.run(t3);
+
   insertUser.run({ id:adminUserId, tenant_id:t1, name:'John Manager', email:'admin@hospitally.com', password_hash:passwordHash, role:'hotel_admin', department:null, avatar:'JM', phone:'+1 555 0001' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Priya Sharma', email:'reception@hospitally.com', password_hash:passwordHash, role:'receptionist', department:'Front Desk', avatar:'PS', phone:'+1 555 0108' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Felix Zhang', email:'felix@hospitally.com', password_hash:passwordHash, role:'staff', department:'Housekeeping', avatar:'FZ', phone:'+1 555 0101' });

@@ -8,6 +8,7 @@ const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, requireRole, audit } = require('../middleware/auth');
+const { sanitizeTenant } = require('../utils/tenant-secrets');
 
 const router = express.Router();
 router.use(requireAuth, requireRole('superadmin'));
@@ -117,7 +118,9 @@ router.post('/tenants/:tenantId/subscription', (req, res) => {
     return res.status(400).json({ error: 'Invalid action' });
   }
 
-  res.json(db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant.id));
+  // SECURITY: strip credential columns — `SELECT *` would otherwise return
+  // the hotel's WhatsApp tokens / gateway secret keys in the REST response.
+  res.json(sanitizeTenant(db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenant.id)));
 });
 
 module.exports = router;

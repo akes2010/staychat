@@ -141,6 +141,28 @@ app.use('/api', globalLimiter);
 if (!process.env.COOKIE_SECRET && process.env.NODE_ENV === 'production') {
   throw new Error('FATAL: COOKIE_SECRET must be set in production environment');
 }
+
+// ── Maintenance Mode (env-var toggle — no code or data changes needed) ──────
+// deploy/update.sh sets MAINTENANCE=1 in .env during updates and lifts it on
+// success. Gate order matters: health endpoints stay up (monitoring + the
+// update script itself poll them); WhatsApp/payment webhooks stay up so Meta
+// doesn't disable the integration during a maintenance window; everything
+// else that would touch tenant data answers 503 with a clean retry JSON.
+const MAINTENANCE_EXEMPT = (p) =>
+  p === '/api/health' || p.startsWith('/api/health/') ||
+  p.startsWith('/api/webhooks/') ||
+  p === '/maintenance.html' || p.startsWith('/maintenance-assets');
+app.use((req, res, next) => {
+  if (String(process.env.MAINTENANCE || '') !== '1' || MAINTENANCE_EXEMPT(req.path)) return next();
+  // Public guest pages still read (read-only) so guests can view the booking
+  // wiki; anything that writes is gated AFTER auth below.
+  if (req.method === 'GET' && !req.path.startsWith('/api/')) return next();
+  res.status(503).set('Retry-After', '300').json({
+    error: 'Scheduled maintenance — the system is being updated. Please try again in a few minutes.',
+    maintenance: true,
+    retryAfterSeconds: 300,
+  });
+});
 app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-only-insecure-secret'));
 
 // ── Logging ─────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ const db = require('../db/connection');
 const { requireAuth, requireRole, audit } = require('../middleware/auth');
 const { PLAN_CATALOG, sweepExpiredTrials } = require('../services/entitlements');
 const billing = require('../services/billing');
+const { sanitizeTenant } = require('../utils/tenant-secrets');
 
 const router = express.Router();
 router.use(requireAuth, requireRole('superadmin'));
@@ -50,7 +51,10 @@ const PLAN_MRR = Object.fromEntries(Object.entries(PLAN_CATALOG).map(([k, p]) =>
 
 function publicTenant(t) {
   const roomCount = db.prepare('SELECT COUNT(*) as c FROM rooms WHERE tenant_id = ?').get(t.id).c;
-  return { ...t, ai_enabled: !!t.ai_enabled, wa_connected: !!t.wa_connected, roomCount,
+  // SECURITY: spread the raw row ONLY after stripping credential columns —
+  // `SELECT *` otherwise ships every hotel's WhatsApp tokens and payment
+  // gateway secret keys to the superadmin console (and into proxied logs).
+  return { ...sanitizeTenant(t), ai_enabled: !!t.ai_enabled, wa_connected: !!t.wa_connected, roomCount,
     subscriptionStatus: t.subscription_status, planId: t.plan_id, billingCycle: t.billing_cycle, nextBillingDate: t.next_billing_date };
 }
 

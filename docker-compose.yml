@@ -21,6 +21,9 @@ services:
       - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - COOKIE_SECRET=${COOKIE_SECRET:-}
+      # Credential encryption (AES-256-GCM) — MANDATORY in production:
+      # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - CREDENTIALS_ENCRYPTION_KEY=${CREDENTIALS_ENCRYPTION_KEY:-}
       
       # Database
       - DATA_DIR=/app/data
@@ -39,7 +42,9 @@ services:
       # Optional: Mount custom config
       # - ./data:/app/data:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      # 127.0.0.1, not localhost — on alpine/musl 'localhost' resolves to ::1
+      # first and the app binds IPv4, so 'localhost' reports unhealthy
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       start_period: 15s

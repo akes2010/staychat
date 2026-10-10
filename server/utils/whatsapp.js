@@ -10,6 +10,7 @@
 'use strict';
 
 const db = require('../db/connection');
+const { decryptTenantSecrets } = require('./tenant-secrets');
 
 /**
  * Send a WhatsApp text message.
@@ -25,14 +26,17 @@ async function sendWhatsAppMessage(tenantOrId, toPhone, text) {
     ? db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantOrId)
     : tenantOrId;
   if (!tenant) throw new Error('Tenant not found for WhatsApp send');
-  if (!tenant.wa_phone_id || !tenant.wa_token) {
+  // Credentials are encrypted at rest — decrypt before calling Meta. Legacy
+  // plaintext rows pass through transparently until re-saved.
+  const creds = typeof tenantOrId === 'string' ? decryptTenantSecrets(tenant) : tenant;
+  if (!creds.wa_phone_id || !creds.wa_token) {
     console.warn(`[WA] Tenant ${tenant.id} has no WhatsApp credentials configured — skipping send.`);
     return { skipped: true };
   }
 
-  const resp = await fetch(`https://graph.facebook.com/v19.0/${tenant.wa_phone_id}/messages`, {
+  const resp = await fetch(`https://graph.facebook.com/v19.0/${creds.wa_phone_id}/messages`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${tenant.wa_token}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${creds.wa_token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ messaging_product: 'whatsapp', to: toPhone, type: 'text', text: { body: text } }),
   });
   if (!resp.ok) {

@@ -10,6 +10,7 @@ const db = require('../db/connection');
 const { getAIReplyAsync } = require('../ai/receptionist');
 const { broadcast } = require('../ws');
 const { sendWhatsAppMessage } = require('../utils/whatsapp');
+const { decryptTenantSecrets } = require('../utils/tenant-secrets');
 
 const router = express.Router();
 
@@ -25,7 +26,8 @@ function timingSafeEqualStr(a, b) {
 
 // ── GET /api/webhooks/whatsapp/:subdomain — Meta's verification handshake ──
 router.get('/whatsapp/:subdomain', (req, res) => {
-  const tenant = db.prepare('SELECT * FROM tenants WHERE subdomain = ?').get(req.params.subdomain);
+  // Credentials are encrypted at rest — decrypt before comparing the verify token.
+  const tenant = decryptTenantSecrets(db.prepare('SELECT * FROM tenants WHERE subdomain = ?').get(req.params.subdomain));
   if (!tenant) return res.status(404).send('Unknown hotel');
 
   const mode = req.query['hub.mode'];
@@ -42,7 +44,9 @@ router.get('/whatsapp/:subdomain', (req, res) => {
 router.post('/whatsapp/:subdomain', express.json({
   verify: (req, res, buf) => { req.rawBody = buf; } // captured for signature verification below
 }), async (req, res) => {
-  const tenant = db.prepare('SELECT * FROM tenants WHERE subdomain = ?').get(req.params.subdomain);
+  // Stored credentials are encrypted at rest (AES-256-GCM) — decrypt for the
+  // signature check. Legacy plaintext rows pass through transparently.
+  const tenant = decryptTenantSecrets(db.prepare('SELECT * FROM tenants WHERE subdomain = ?').get(req.params.subdomain));
   if (!tenant) return res.status(404).json({ error: 'Unknown hotel' });
 
   // Verify Meta's X-Hub-Signature-256. Fail CLOSED: an unconfigured tenant
@@ -130,7 +134,8 @@ router.post('/whatsapp/:subdomain', express.json({
 router.post('/paystack/:subdomain', express.json({
   verify: (req, res, buf) => { req.rawBody = buf; } // captured so we can HMAC the exact bytes Paystack signed
 }), (req, res) => {
-  const tenant = db.prepare('SELECT * FROM tenants WHERE subdomain = ?').get(req.params.subdomain);
+  // Stored credentials are encrypted at rest — decrypt for the HMAC check.
+  const tenant = decryptTenantSecrets(db.prepare('SELECT * FROM tenants WHERE subdomain = ?').get(req.params.subdomain));
   if (!tenant) return res.status(404).json({ error: 'Unknown hotel' });
 
   // Fail CLOSED: without a configured secret we cannot verify the sender, so we

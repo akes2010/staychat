@@ -263,7 +263,7 @@ function sweepExpiredTrials() {
   const log = db.prepare(`INSERT INTO billing_events (id, tenant_id, type, note) VALUES (?,?,?,?)`);
   expired.forEach(t => {
     mark.run(t.id);
-    log.run('evt_' + require('nanoid')(10), t.id, 'trial.expired', 'Trial ended on ' + t.trial_ends_at + ' — account suspended pending upgrade');
+    log.run('evt_' + require('nanoid').nanoid(10), t.id, 'trial.expired', 'Trial ended on ' + t.trial_ends_at + ' — account suspended pending upgrade');
   });
   return expired.length;
 }
