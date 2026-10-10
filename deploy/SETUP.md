@@ -109,6 +109,21 @@ Settings → WhatsApp: paste Phone Number ID + Access Token + a verify token,
 then in Meta's console point the webhook at:
 `https://staychat.akmustech.com/api/webhooks/whatsapp/<hotel-subdomain>`
 
+### Contabo / Truehost quick reference
+
+Both providers follow the exact same path:
+
+| Step | Contabo | Truehost |
+|---|---|---|
+| Image | Ubuntu 24.04, any plan (Cloud VPS 1 is plenty) | Ubuntu 24.04 KVM plan |
+| SSH | `ssh root@VPS_IP` (password arrives by email → set your key) | `ssh root@VPS_IP` from the Truehost client panel |
+| DNS | Domain panel → add an **A record** → VPS IPv4 | Client Area → DNS Zone → **A record** → VPS IPv4 |
+| Firewall | open 22/80/443 (ufw is configured by setup-vps.sh) | check the panel's firewall allows 22/80/443 |
+| Deploy | `REMOTE=root@VPS_IP DOMAIN=yourdomain.com deploy/deploy.sh` | same one-liner |
+
+One caveat for both: **email port 25 is often blocked by default on new VPSs.**
+That's fine — the app uses Resend/SMTP APIs over 443, which are never blocked.
+
 ## 7. Maintenance
 
 ```bash
@@ -116,6 +131,19 @@ cd /opt/staychat-os
 
 # Deploy new code (after git pull or rsync)
 docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build
+
+# CERTIFIED-SAFE UPDATE — backs up the DB first, dress-rehearses migrations on
+# a COPY of your data before the live container changes, verifies health, and
+# auto-rolls back (previous image + code + DB) if anything fails. Customer
+# data and .env secrets are never touched.
+bash deploy/update.sh                # code already uploaded (default)
+bash deploy/update.sh --pull         # repo is a git checkout — pull latest first
+bash deploy/update.sh --set-maintenance   # keep maintenance mode on after
+
+# MAINTENANCE MODE (manual, no code/data changes)
+bash deploy/update.sh --lift-maintenance   # take the app back to full service
+# (update.sh sets/lifts it automatically; only touch it by hand after a
+#  manual intervention)
 
 # Logs
 docker compose --env-file .env -f deploy/docker-compose.prod.yml logs -f staychat
@@ -132,15 +160,17 @@ docker volume run --rm -i -v staychat-os_staychat_data:/data alpine sh -c \
 docker compose --env-file .env -f deploy/docker-compose.prod.yml start staychat
 ```
 
-**Wipe demo data before real customers** (careful — irreversible):
+3. Config change: edit `.env`, then (same as deploy)
+   `docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build`
+
+**Wipe demo data before going live with real hotels** (one command, keeps the
+superadmin login, secrets and platform settings — a fresh backup is taken first):
 
 ```bash
-docker compose --env-file .env -f deploy/docker-compose.prod.yml stop staychat
-docker volume rm staychat-os_staychat_data
-docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d
-# Then sign up fresh at /signup — the superadmin login can also be created
-# by re-seeding: docker exec staychat node server/db/seed.js
+bash deploy/wipe-demo.sh          # prompts: type WIPE; add --force to skip
 ```
+
+After the wipe, sign up real hotels at `https://<your-domain>/signup`.
 
 ## 8. What runs where
 
