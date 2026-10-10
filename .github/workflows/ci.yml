@@ -1,0 +1,91 @@
+# .github/workflows/ci.yml — run the StayChat OS regression battery on every
+# push and pull request to master.
+#
+# Mirrors what the project runs locally (`npm test`):
+#   • 6 fast API/server suites (role gates, WS auth, OTA flow, booking⇄payment,
+#     WhatsApp webhook e2e, security probes)
+#   • 3 headless-Chromium browser suites
+# The 9-suite battery is the same gate `deploy/update.sh` and release testing
+# use — a red CI means "do not deploy".
+#
+# Notes:
+#   • better-sqlite3 needs its native build toolchain — installed via apt +
+#     npm rebuild (the package.json postinstall already does the rebuild).
+#   • The tests boot throwaway servers on high ports and use temp data dirs —
+#     they never touch the workspace's data/ directory state.
+#   • Chromium suites plan for slow CI: expect the full battery ~2-4 min.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}   # allow manual runs from the Actions tab
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Regression battery (9 suites)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Native build toolchain (better-sqlite3)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3 make g++
+
+      - name: Install dependencies
+        run: npm ci --include=dev
+
+      - name: Rebuild better-sqlite3 for CI's Node
+        run: npm run rebuild
+
+      - name: Headless Chromium (for the browser suites)
+        # The browser suites spawn the `chromium` binary directly — install it
+        # (Ubuntu's chromium-browser is a snap shim on runners; use another
+        # package + expose it as `chromium` on PATH via a symlink).
+        run: |
+          sudo apt-get install -y -qq chromium
+          CHROME=$(command -v chromium || command -v chromium-browser)
+          sudo ln -sf "$CHROME" /usr/local/bin/chromium
+          chromium --version
+
+      - name: Syntax check server entry
+        run: node --check server/index.js
+
+      - name: Migrate + seed + verify (fresh DB)
+        run: |
+          npm run seed
+          npm run check
+
+      - name: Run the 9-suite regression battery
+        run: npm test
+        env:
+          NODE_ENV: production
+          # Non-secret placeholders so the server's production-mode secret
+          # refusal doesn't fire during tests (tests spawn their own servers).
+          JWT_ACCESS_SECRET: ci_placeholder_access_secret_not_a_real_secret_0000000000000000ff
+          JWT_REFRESH_SECRET: ci_placeholder_refresh_secret_not_a_real_secret_00000000000000ff
+          COOKIE_SECRET: ci_placeholder_cookie_secret_not_a_real_secret_0000
+          CREDENTIALS_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-shots-on-failure
+          path: deploy/browser-shots/
+          if-no-files-found: ignore
+          retention-days: 7
