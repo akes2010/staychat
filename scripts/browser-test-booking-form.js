@@ -165,8 +165,8 @@ async function connectCdp(port) {
       sel.forEach(id => { if (avail.find(r => r.id === id)) window.__toggleRoomPick(id); });
       return true; })()`);
     await sleep(350);
-    // Re-open the modal's fresh list: refresh the exposed availability.
-    await evaljs(`window.__openNewBooking(); window.__bookingSelectedRoomIds = []; true`);
+    // Re-open a truly fresh form (bypasses the draft-resume prompt we're about to test separately).
+    await evaljs(`window.__startFreshBooking(); window.__bookingSelectedRoomIds = []; true`);
     // Re-open wiped form state — retyped quickly:
     await evaljs(`document.getElementById('nb-surname').value='Okafor'; document.getElementById('nb-firstname').value='Chidi';
       document.getElementById('nb-phone').value='+2348077799888'; document.getElementById('nb-notes').value='Late arrival around 10pm';
@@ -215,6 +215,25 @@ async function connectCdp(port) {
     (ref && ref.startsWith('BK-')) ? ok('group booking created: ' + ref + ' (' + nrooms + ' rooms, ' + gname + ')') : bad('group booking: ' + lastRef);
     // guest_name = firstName + ' ' + surname — verifies BOTH fields survived
     (gname === 'Chidi Okafor') ? ok('guest data (Chidi Okafor) carried into the booking') : bad('guest name wrong: ' + gname);
+
+    // ── DRAFT SAFETY NET: close the form mid-registration, reopen → rescue ──
+    await evaljs(`window.__startFreshBooking(); true`); await sleep(350);
+    await evaljs(`['nb-surname','nb-phone'].forEach(id=>{const e=document.getElementById(id);e.value=(id==='nb-surname'?'Balogun':'+2347012345678');e.dispatchEvent(new Event('input',{bubbles:true}));}); true`);
+    await sleep(250);
+    // Simulate an accidental close — the desk loses the modal, not the data
+    await evaljs(`closeModal(); true`); await sleep(250);
+    await evaljs(`window.__openNewBooking(); true`); await sleep(300);
+    const rescueModal = await evaljs(`document.body.textContent.includes('Continue your draft?')`);
+    rescueModal ? ok('draft rescue modal appears after accidental close') : bad('no draft rescue modal after close');
+    await evaljs(`window.__resumeDraftBooking(); true`); await sleep(300);
+    const rSurname = await evaljs(`document.getElementById('nb-surname').value`);
+    const rPhone = await evaljs(`document.getElementById('nb-phone').value`);
+    (rSurname === 'Balogun') ? ok('draft resumed: surname intact') : bad('draft surname: ' + JSON.stringify(rSurname));
+    (rPhone === '+2347012345678') ? ok('draft resumed: phone intact') : bad('draft phone: ' + JSON.stringify(rPhone));
+    // "Start fresh" clears the draft
+    await evaljs(`window.__startFreshBooking(); closeModal(); window.__openNewBooking(); true`); await sleep(350);
+    const noRescue = await evaljs(`document.getElementById('nb-surname') !== null`);
+    noRescue ? ok('Start Fresh cleared the draft (clean form shown)') : bad('draft still popping rescue after fresh start');
   } catch (e) {
     bad(String(e.message || e).slice(0, 300));
   } finally {

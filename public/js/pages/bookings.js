@@ -130,12 +130,45 @@ PAGES.bookings = function () {
   // Exposed read-only for tests/extension hooks (mutations go through __toggleRoomPick).
 
   window.__openNewBooking = () => {
+    // Resume a half-filled draft if one exists (e.g. the form was closed by
+    // accident, or the page reloaded mid-registration). Drafts older than a
+    // day are ignored — a desk wanting a fresh form clicks "Start fresh".
+    const draft = loadDraft();
+    if (draft && Array.isArray(draft.rooms) && Date.now() - draft.at < 864e5) {
+      selectedRoomIds = draft.rooms.slice();
+      selectedPayMethod = draft.pay || null;
+      openModal('New Reservation — Continue your draft?',
+        '<div style="font-size:13.5px;line-height:1.55;margin-bottom:14px">We saved what you had already filled in' +
+          (draft.v && draft.v['nb-surname'] ? ' for <b>' + escapeHtml(draft.v['nb-surname']) : '') +
+          (draft.v && draft.v['nb-firstname'] ? ' ' + escapeHtml(draft.v['nb-firstname']) + '</b>' : '') +
+          (draft.rooms.length ? ' with <b>' + draft.rooms.length + ' room' + (draft.rooms.length === 1 ? '' : 's') + ' selected</b>' : '') + '. Continue where you left off, or start a fresh form.</div>',
+        '<button class="btn outline" onclick="window.__startFreshBooking()">Start Fresh</button><button class="btn primary" onclick="window.__resumeDraftBooking()">Continue Draft</button>'
+      );
+      return;
+    }
+    startFreshBooking();
+  };
+
+  function startFreshBooking() {
     selectedRoomIds = [];
     selectedPayMethod = null;
+    clearDraft();
     const available = state.rooms.filter(r => r.status === 'available');
     // Exposed for tests/extension hooks: the list the modal is showing.
     window.__bookingAvailableRooms = available;
     renderBookingForm(available);
+  }
+  window.__startFreshBooking = startFreshBooking;
+
+  window.__resumeDraftBooking = () => {
+    const draft = loadDraft();
+    if (!draft) { startFreshBooking(); return; }
+    const available = state.rooms.filter(r => r.status === 'available');
+    window.__bookingAvailableRooms = available;
+    renderBookingForm(available, { v: draft.v || {}, s: draft.s || {}, c: Object.assign({}, draft.c, { 'nb-group-toggle': !!draft.group }) });
+    // renderBookingForm already applied the snapshot; make sure the group
+    // toggle matches the resumed intent and the room highlight is live.
+    const gt = document.getElementById('nb-group-toggle'); if (gt) gt.checked = !!draft.group;
   };
 
   const payIcons = { cash: ['💵', 'Cash'], card: ['💳', 'Card'], pos: ['🏧', 'POS Terminal'], bank_transfer: ['🏦', 'Bank Transfer'], check: ['📝', 'Check'], crypto: ['₿', 'Crypto'], paypal: ['🅿️', 'PayPal'], payoneer: ['💠', 'Payoneer'], airtm: ['🌐', 'Airtm'], mobile_transfer: ['📱', 'Mobile Transfer'], offline: ['📋', 'Offline'] };
@@ -171,6 +204,32 @@ PAGES.bookings = function () {
   const NB_SELECTS = ['nb-idtype','nb-country','nb-source'];
   let nbFocusId = null; // element about to lose focus on a room/group re-render
 
+  // DRAFT PERSISTENCE — the belt-and-braces layer for the continuation bug.
+  // Whatever happens (modal churn, accidental Cancel, full page reload), the
+  // half-filled reservation survives in sessionStorage and is offered back the
+  // next time the form opens. The in-page snapshot handles the live path; this
+  // guards everything else.
+  const NB_DRAFT_KEY = 'staychat.booking.draft';
+
+  function saveDraft() {
+    try {
+      const v = {}; NB_FIELDS.forEach(id => { const e = document.getElementById(id); if (e && e.value) v[id] = e.value; });
+      const s = {}; NB_SELECTS.forEach(id => { const e = document.getElementById(id); if (e && e.value) s[id] = e.value; });
+      const gs = document.getElementById('nb-state'); if (gs && gs.value) s['nb-state'] = gs.value;
+      const c = { group: !!document.getElementById('nb-group-toggle')?.checked, prepaid: !!document.getElementById('nb-prepaid')?.checked };
+      sessionStorage.setItem(NB_DRAFT_KEY, JSON.stringify({
+        v, s, c, rooms: selectedRoomIds.slice(), group: selectedRoomIds.length > 1,
+        pay: selectedPayMethod, at: Date.now(),
+      }));
+    } catch (e) { /* storage unavailable — feature silently off */ }
+  }
+
+  function loadDraft() {
+    try { return JSON.parse(sessionStorage.getItem(NB_DRAFT_KEY) || 'null'); } catch (e) { return null; }
+  }
+
+  function clearDraft() { try { sessionStorage.removeItem(NB_DRAFT_KEY); } catch (e) {} }
+
   function snapshotBookingForm() {
     const active = document.activeElement;
     nbFocusId = (active && active.id && active.id.startsWith('nb-')) ? active.id : null;
@@ -181,6 +240,8 @@ PAGES.bookings = function () {
     const gst = document.getElementById('nb-state'); if (gst) s['nb-state'] = gst.value;
     c['nb-group-toggle'] = !!document.getElementById('nb-group-toggle')?.checked;
     c['nb-prepaid'] = !!document.getElementById('nb-prepaid')?.checked;
+    // Room picks are module state, not DOM ids — carry them into the draft.
+    try { saveDraft(); } catch (e) {}
     return { v, s, c };
   }
 
@@ -263,6 +324,14 @@ PAGES.bookings = function () {
     // the fix for the continuation bug: the room pick / group toggle happens
     // MID-FORM, and the desk keeps typing exactly where they left off.
     applyBookingFormSnap(snap);
+    // Every keystroke saves the draft (cheap, single-key) — an accidental close
+    // or reload the next second can rescue everything typed so far.
+    const body = document.querySelector('#modal .modal-body');
+    if (body && !body.dataset.draftHooked) {
+      body.dataset.draftHooked = '1';
+      body.addEventListener('input', saveDraft);
+      body.addEventListener('change', saveDraft);
+    }
   }
 
   function stateFieldHTML(country) {
@@ -338,6 +407,7 @@ PAGES.bookings = function () {
         payment: payAmount > 0 && selectedPayMethod ? { amount: payAmount, method: selectedPayMethod } : null,
         notes: document.getElementById('nb-notes').value,
       });
+      clearDraft(); // a completed registration is no longer a draft
       toast('Reservation created', 'success');
       if (payAmount > 0) {
         const balanceRemaining = Math.max(0, booking.total_amount - payAmount);
