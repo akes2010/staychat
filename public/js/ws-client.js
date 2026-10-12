@@ -13,6 +13,7 @@ const WSClient = (() => {
   let backoffTimer = null;
   let stopped = true; // true when deliberately closed (logout / session gone)
   let refreshing = null; // in-flight token refresh promise
+  let refreshBackoffUntil = 0; // after a 429, wait out the server's window
 
   function setTokenGetter(fn) { accessTokenGetter = fn; }
 
@@ -20,9 +21,17 @@ const WSClient = (() => {
   // Returns true on success. Concurrent callers share one in-flight refresh.
   async function refreshAccessToken() {
     if (refreshing) return refreshing;
+    if (Date.now() < refreshBackoffUntil) return false;
     refreshing = (async () => {
       try {
         const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+        if (res.status === 429) {
+          // Rate-limited: don't keep poking the server every reconnect. Sit
+          // out the limiter's window; the WS reconnect backoff keeps ticking.
+          refreshBackoffUntil = Date.now() + 60 * 1000;
+          return false;
+        }
+        refreshBackoffUntil = 0;
         if (!res.ok) return false;
         const data = await res.json().catch(() => null);
         // Publish the fresh session exactly like login does.

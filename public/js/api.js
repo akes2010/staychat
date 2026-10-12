@@ -4,6 +4,10 @@
 
 const API = (() => {
   let refreshing = null;
+  // When the server rate-limits the refresh endpoint (429), retrying the next
+  // request just burns the retry budget and keeps the app 'offline'. Back off
+  // hard for a while; show the user a clear message instead of a blank console.
+  let refreshBackoffUntil = 0;
 
   async function request(method, path, body, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
@@ -58,9 +62,21 @@ const API = (() => {
 
   async function tryRefresh() {
     if (refreshing) return refreshing;
+    if (Date.now() < refreshBackoffUntil) return false;
     refreshing = (async () => {
       try {
         const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+        if (res.status === 429) {
+          // Rate-limited: sit out a chunk of the limiter's window instead of
+          // re-arming the cycle on every keystroke (which is what made the
+          // lockout stick).
+          refreshBackoffUntil = Date.now() + 60 * 1000;
+          if (typeof toast === 'function' && window.App && window.App.user) {
+            toast('Session updates are paused — the server is busy. Your work is safe; try again in a minute.', 'warn', 8000);
+          }
+          return false;
+        }
+        refreshBackoffUntil = 0;
         if (!res.ok) return false;
         // Cache the refreshed session so request() can publish it to window.App.
         const text = await res.text();

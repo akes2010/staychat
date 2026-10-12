@@ -16,18 +16,31 @@ const router = express.Router();
 // ── Rate Limiting ──────────────────────────────────────────────────────────
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Only 5 attempts per window (stricter than before)
+  max: 30, // per-IP attempts per window. All staff often share ONE office IP
+  // (NAT behind the router), so a tiny per-IP cap (5) locked out the whole
+  // hotel — including the super admin — the moment a few passwords were
+  // mistyped or a tab retry-storm hit during a deploy. Still stops brute
+  // force outright: 30 tries * spread over 15 min is far below any
+  // practical bcrypt-cracking rate, and successful logins don't count.
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful logins
-  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  message: { error: 'Too many login attempts. Please wait 15 minutes and try again.' },
 });
 
 const refreshLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 10,
+  // Every tab restores its session on load and dedicated auto-refresh paths
+  // (api.js on 401, ws-client.js on WS 4001) all funnel through here, so a
+  // NAT'd office where everyone opens the dashboard at shift start easily
+  // burst-past a small cap — and a 429 here makes the SPA look "blank":
+  // the shell renders but every data call fails with 'Not authenticated'.
+  max: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  // A REFUSED refresh (no/expired cookie) is noise, not abuse — don't let it
+  // consume the budget of the tabs that have a valid cookie.
+  skipFailedRequests: true,
   message: { error: 'Too many refresh attempts. Please slow down.' },
 });
 
