@@ -60,6 +60,48 @@ ssh root@YOUR_VPS_IP
 cd /opt/staychat-os && DOMAIN=staychat.akmustech.com bash deploy/setup-vps.sh
 ```
 
+### 1a. Git-based first deploy (recommended for remote maintenance)
+
+Deploying straight from GitHub makes every future upgrade a one-line commit
+diff. On the VPS the database and `.env` live **outside** the code tree and are
+never touched by pulls — this is the safest way to keep remote control.
+
+```bash
+# ON THE VPS — one time only:
+ssh root@YOUR_VPS_IP
+apt-get update && apt-get install -y git
+# deploy key (read-only) is plenty; paste it into GitHub → repo → Settings →
+# Deploy keys → Add deploy key:
+ssh-keygen -t ed25519 -N '' -f /root/.ssh/staychat_deploy && cat /root/.ssh/staychat_deploy.pub
+cat >> /root/.ssh/config <<'CFG'
+Host github-staychat
+  HostName github.com
+  User git
+  IdentityFile /root/.ssh/staychat_deploy
+CFG
+
+git clone git@github-staychat:akes2010/staychat.git /opt/staychat-os
+cd /opt/staychat-os && DOMAIN=staychat.akmustech.com bash deploy/setup-vps.sh
+```
+
+Then deploy from your laptop exactly as before:
+
+```bash
+REMOTE=root@YOUR_VPS_IP DOMAIN=staychat.akmustech.com deploy/deploy.sh
+```
+
+**Future upgrades (from anywhere — this is the remote-maintenance loop):**
+
+```bash
+git push origin master                      # laptop: ship a change
+ssh root@YOUR_VPS_IP                        # or run remotely via ssh one-liner:
+ssh root@YOUR_VPS_IP 'cd /opt/staychat-os && bash deploy/update.sh --pull'
+```
+
+`update.sh --pull` is the certified-safe path: backs up the DB first,
+dress-rehearses migrations against a COPY of your data, swaps in the new build,
+verifies health, and auto-rolls back (image + code + DB) if anything fails.
+
 (Or `git clone` your repo into `/opt/staychat-os` if you've pushed it.)
 
 ## 2. First visit
