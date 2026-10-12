@@ -175,6 +175,40 @@ async function req(method, p, token, body) {
     check('refresh_token SameSite=Strict', /samesite=strict/i.test(refresh));
   }
 
+  // ── 5. Platform payment webhooks: fail-closed & signature-gated ─────────
+  console.log('\n── Platform gateway webhooks (money paths) ──');
+  const flwBody = JSON.stringify({ event: 'charge.completed', data: { reference: 'SC-forged', amount: 9900 } });
+  const manualBody = JSON.stringify({ provider: 'crypto', reference: 'SC-forged', amount: 99 });
+  const plain = async (p, extraHeaders, body) => {
+    const r2 = await fetch(BASE + p, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, extraHeaders), body: body || raw });
+    return { status: r2.status };
+  };
+  const flw = await plain('/api/webhooks/platform/flutterwave', { 'verif-hash': 'forged' }, flwBody);
+  check('flutterwave webhook unconfigured → 503 (fail closed)', flw.status === 503, 'got ' + flw.status);
+  const opay = await plain('/api/webhooks/platform/opay', { Authorization: 'forged' }, flwBody);
+  check('opay webhook unconfigured → 503 (fail closed)', opay.status === 503, 'got ' + opay.status);
+  const manual = await plain('/api/webhooks/platform/manual', { 'X-Webhook-Secret': 'forged' }, manualBody);
+  check('manual settlement webhook unconfigured → 503 (fail closed)', manual.status === 503, 'got ' + manual.status);
+  const stripe = await fetch(BASE + '/api/webhooks/platform/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Stripe-Signature': 't=1763000000,v1=deadbeef' }, body: flwBody });
+  check('stripe platform webhook unconfigured → 503 (fail closed)', stripe.status === 503, 'got ' + stripe.status);
+  // Forged-subscription danger check: a passing forged webhook would activate
+  // a subscription without money. Provider responses above must never be 200.
+  const forgedActivation = [flw, opay, manual, stripe].some(x => x.status === 200);
+  check('no forged payload activated anything', !forgedActivation);
+
+  // ── 6. Theme endpoint: whitelist validation (stored-XSS guard) ──────────
+  console.log('\n── User skin theme endpoint ──');
+  const adminTok = await login('admin@hospitally.com');
+  const badTheme = await req('PATCH', '/api/auth/theme', adminTok, { theme: '<script>alert(1)</script>' });
+  check('theme PATCH rejects non-whitelist value → 400', badTheme.status === 400, 'got ' + badTheme.status);
+  const goodTheme = await req('PATCH', '/api/auth/theme', adminTok, { theme: 'ocean' });
+  check('theme PATCH accepts a valid skin', goodTheme.status === 200 && goodTheme.data.theme === 'ocean', JSON.stringify(goodTheme.data));
+  await req('PATCH', '/api/auth/theme', adminTok, { theme: 'green' }); // restore
+  const meAfter = await req('GET', '/api/auth/me', adminTok);
+  check('/me reflects saved theme', meAfter.data.user.theme === 'green', JSON.stringify(meAfter.data.user.theme));
+  const noAuthTheme = await fetch(BASE + '/api/auth/theme', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: 'ocean' }) });
+  check('theme PATCH unauthenticated → 401', noAuthTheme.status === 401, 'got ' + noAuthTheme.status);
+
   console.log('\n═══ SECURITY PROBES: ' + passed + ' passed, ' + failed + ' failed ═══');
   srv && srv.kill('SIGKILL');
   try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) {}
