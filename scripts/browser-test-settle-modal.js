@@ -50,10 +50,24 @@ function waitHealthy() {
 async function withBrowser(fn) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(PROFILE, { recursive: true });
+  // Refuse to start if a previous run's DevTools endpoint is still alive —
+  // connecting to a stale browser made assertions evaluate on the wrong page.
+  for (let i = 0; i < 20; i++) {
+    try { await fetch('http://localhost:9229/json/version'); throw new Error('port 9229 busy — a previous chromium instance is still shutting down'); }
+    catch (e) { if (e instanceof TypeError) break; await sleep(250); }
+  }
   const chrome = spawn('chromium', ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-popup-blocking',
     `--user-data-dir=${PROFILE}`, '--remote-debugging-port=9229', 'about:blank'], { stdio: 'ignore' });
   try {
-    for (let i = 0; i < 40; i++) { try { await fetch('http://localhost:9229/json/version'); break; } catch (e) { await sleep(250); } }
+    // Wait until OUR chromium answers, not just any listener on the port.
+    let devtoolsUp = false;
+    for (let i = 0; i < 40 && !devtoolsUp; i++) {
+      try {
+        const v = await fetch('http://localhost:9229/json/version').then(r => r.json());
+        devtoolsUp = !!v.webSocketDebuggerUrl;
+      } catch (e) { await sleep(250); }
+    }
+    if (!devtoolsUp) throw new Error('our chromium DevTools endpoint never came up');
     const list = await fetch('http://localhost:9229/json').then(r => r.json());
     const ws = new WebSocket(list.find(t => t.type === 'page').webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
     await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
@@ -70,7 +84,15 @@ async function withBrowser(fn) {
       }
     };
     return await fn({ send, evl, type });
-  } finally { try { chrome.kill(); } catch (e) {} }
+  } finally {
+    // kill() alone doesn't wait — the next run then races a half-dead DevTools
+    // port and evaluates its first assertion against the WRONG page.
+    try { chrome.kill(); } catch (e) {}
+    await new Promise(res => {
+      const t = setTimeout(res, 3000);
+      chrome.once('exit', () => { clearTimeout(t); res(); });
+    });
+  }
 }
 
 (async () => {

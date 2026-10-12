@@ -38,7 +38,7 @@ PAGES.payments = function () {
     '</div>' +
     '<div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">' +
       '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface2)">' +
-        '<span style="font-weight:700;font-size:15px">Recent Transactions</span><button class="btn outline sm" onclick="toast(\'CSV export coming soon\',\'info\')">Export</button></div>' +
+        '<span style="font-weight:700;font-size:15px">Recent Transactions</span><button class="btn outline sm" onclick="window.__exportTransactionsCSV()">Export CSV</button></div>' +
       '<div class="table-wrap" style="border:none;border-radius:0"><table><thead><tr><th>Guest / Room</th><th>Description</th><th>Method</th><th>Amount</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>' +
         (state.txns.length === 0 ? '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:30px">No transactions yet</td></tr>' : '') +
         state.txns.map(t => '<tr>' +
@@ -56,9 +56,21 @@ PAGES.payments = function () {
       '</div><p style="font-size:11px;color:var(--text3);margin-top:10px">Configured by the owner/manager in Settings → Accepted Payment Methods.</p></div>';
   }
 
+  // Real CSV download of the exact transactions on screen — server builds the
+  // file from the same table the UI reads, so the export always matches.
+  window.__exportTransactionsCSV = () => {
+    window.location.href = '/api/reports/transactions/csv';
+    toast('CSV export downloaded', 'success');
+  };
+
   window.__filterPending = () => {
-    const rows = wrap.querySelectorAll('tbody tr');
-    toast('Showing all — filter by status coming soon; pending rows have a Settle button', 'info');
+    // Real filter: hide completed rows in place. Click again to show all.
+    const hiding = wrap.__pendingOnly = !wrap.__pendingOnly;
+    wrap.querySelectorAll('tbody tr').forEach(tr => {
+      const isPending = tr.querySelector('.btn.warn') !== null;
+      tr.style.display = (hiding && !isPending) ? 'none' : '';
+    });
+    toast(hiding ? 'Showing pending only — click again to show all' : 'Showing all transactions', 'info');
   };
 
   // ── View transaction detail (real modal, not a toast) ──────────────────

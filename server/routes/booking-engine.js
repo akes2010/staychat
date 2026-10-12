@@ -14,6 +14,7 @@
 
 const express = require('express');
 const db = require('../db/connection');
+const { fetchLiveRates, symbolToCode, detectGuestCurrencyByCountry, symbolFor } = require('../utils/exchange-rates');
 const qrcode = require('qrcode-generator');
 const { requireAuth, resolveTenant, requireTenant } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
@@ -66,6 +67,60 @@ router.get('/hotels', (req, res) => {
     ORDER BY t.name
   `).all();
   res.json(rows);
+});
+
+// ── Guest currency detection + conversion (PUBLIC, no auth) ────────────────
+// Guests see the hotel's real charge currency, plus an auto-detected home-
+// currency view so they can pay confidently in what they know.
+//
+// Detection priority (strongest first):
+//   1. CF-IPCountry / X-Country-Code — set by Cloudflare & most edge/CDN
+//      hosts (Truehost, Vercel, Netlify). Correct per-visitor, zero cost.
+//   2. Explicit ?country= — the currency selector on the booking page.
+//   3. Accept-Language region ("en-NG" → NG) — best-effort fallback.
+// The booking flow itself is ALWAYS charged in the hotel's currency; the
+// converted figure is a display aid priced from live daily rates.
+router.get('/guest-currency', async (req, res) => {
+  const subdomain = resolveSubdomain(req);
+  if (!subdomain) return res.status(400).json({ error: 'subdomain is required' });
+  const tenant = db.prepare(`SELECT * FROM tenants WHERE subdomain = ? AND status IN ('active','trial')`).get(String(subdomain).toLowerCase());
+  if (!tenant) return res.status(404).json({ error: 'Hotel not found' });
+
+  const hotelCode = symbolToCode(tenant.currency || '$');
+  const edgeCountry = req.headers['cf-ipcountry'] || req.headers['x-country-code'] || null;
+  const lang = String(req.headers['accept-language'] || '');
+  const langRegion = (lang.match(/-([A-Z]{2})(?=,|;|$)/i) || [])[1] || null;
+  const detected = detectGuestCurrencyByCountry(edgeCountry || req.query.country || langRegion);
+
+  // Rates: use the tenant's stored live rates (fetched by Settings → refresh
+  // or the boot scheduler); if missing/stale (>24h) try a live refresh.
+  let rates = tenant.exchange_rates ? JSON.parse(tenant.exchange_rates) : {};
+  let updatedAt = tenant.exchange_rates_updated_at || null;
+  const stale = !updatedAt || (Date.now() - new Date(updatedAt + 'Z').getTime() > 864e5);
+  if (stale) {
+    try {
+      rates = await fetchLiveRates();
+      db.prepare(`UPDATE tenants SET exchange_rates = ?, exchange_rates_updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(rates), tenant.id);
+      updatedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    } catch (e) { /* keep last-known rates; they're still far better than 1:1 */ }
+  }
+
+  const requested = req.query.currency ? String(req.query.currency).toUpperCase() : null;
+  const valid = requested && (rates[requested] || requested === hotelCode || requested === 'USD') ? requested : null;
+  const displayCode = valid || detected || hotelCode;
+  const rate = displayCode === hotelCode ? 1 : rates[displayCode] || (displayCode === 'USD' ? 1 : null);
+
+  res.json({
+    hotelCurrency: hotelCode,           // what the folio is charged in
+    hotelSymbol: tenant.currency || '$',
+    detectedCountry: edgeCountry || null,
+    detectedCurrency: detected,
+    displayCurrency: displayCode,       // what prices are SHOWN in
+    displaySymbol: symbolFor(displayCode),
+    rate: rate,                          // 1 USD = rate display
+    ratesUpdatedAt: updatedAt,
+    converted: rate != null,             // false = show hotel currency as-is
+  });
 });
 
 // GET /api/booking-engine/config?subdomain= — branding for the widget

@@ -83,6 +83,11 @@ a{color:inherit;text-decoration:none}
 .icon-btn .notif-dot{position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:99px;background:var(--error);border:2px solid var(--surface)}
 .topbar-search{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-full);padding:6px 14px;flex:1;max-width:280px}
 .topbar-search input{background:none;border:none;outline:none;font-size:13px;color:var(--text);width:100%}
+.search-row{display:block;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--border);padding:10px 14px;font-size:13px;color:var(--text2);cursor:pointer}
+.search-row:hover{background:var(--surface2);color:var(--text)}
+.search-row b{color:var(--p-light);margin-right:6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.search-row:last-child{border-bottom:none}
+.search-empty{padding:14px;font-size:13px;color:var(--text3);text-align:center}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;transition:box-shadow .2s,border-color .2s}
 .card:hover{box-shadow:var(--shadow)}
 .card.clickable{cursor:pointer}

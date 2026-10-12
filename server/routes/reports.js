@@ -66,7 +66,55 @@ router.get('/types', (req, res) => {
   ]);
 });
 
-router.get('/:type', (req, res) => {
+// ── CSV helpers ──────────────────────────────────────────────────────
+// Escapes a value for RFC-4180 CSV: quotes doubled, commas/quotes/newlines
+// wrapped. Numbers, booleans and null pass through as plain text.
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function csvRow(cells) { return cells.map(csvCell).join(','); }
+
+// Flattens one report row for CSV: every column the JSON endpoint returns,
+// with nested objects serialized as JSON so no data is silently dropped.
+function rowCells(row) {
+  const keys = Object.keys(row).sort((a, b) => (a === 'id' ? -1 : b === 'id' ? 1 : 0));
+  return keys.map(k => {
+    let v = row[k];
+    if (v && typeof v === 'object') try { v = JSON.stringify(v); } catch (e) { v = String(v); }
+    return v;
+  });
+}
+
+// GET /api/reports/:type/csv — the same report as a real CSV download.
+// Same permission, same data path, so what you see on screen is exactly
+// what lands in the file — no separate "export" logic to drift out of sync.
+router.get('/:type/csv', (req, res) => {
+  req.params.type = req.params.type.replace(/\.csv$/i, '');
+  // Reuse the JSON handler by faking a JSON capture, so both endpoints stay
+  // one implementation.
+  const fakeRes = {
+    status(code) { this._code = code; return this; },
+    json(payload) { this._payload = payload; return this; },
+  };
+  runReport(req, fakeRes, () => {
+    if (fakeRes._code) return res.status(fakeRes._code).json(fakeRes._payload);
+    const { rows } = fakeRes._payload;
+    const header = rows.length ? Object.keys(rows[0]).sort((a, b) => (a === 'id' ? -1 : b === 'id' ? 1 : 0)) : [];
+    const lines = [header.length ? csvRow(header) : 'no data'];
+    rows.forEach(r => lines.push(csvRow(rowCells(r))));
+    const csv = lines.join('\r\n') + '\r\n';
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="staychat-' + req.params.type + '-' + new Date().toISOString().slice(0, 10) + '.csv"');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(csv);
+  });
+});
+
+// The shared report engine — extracted from the JSON handler below so the CSV
+// endpoint can run the exact same queries.
+function runReport(req, res, done) {
   const { period, date, from, to } = req.query;
   const range = resolveRange(period || 'daily', date, from, to);
   const t = req.tenantId;
@@ -207,6 +255,10 @@ router.get('/:type', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to generate report: ' + err.message });
   }
-});
+  if (done) done();
+}
+
+// GET /api/reports/:type — the JSON report the Reports page renders.
+router.get('/:type', (req, res) => { runReport(req, res); });
 
 module.exports = router;

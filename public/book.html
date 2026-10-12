@@ -104,6 +104,63 @@
     let mode = 'rooms';
     let facilityPick = null;
     let CURRENCY = '$';
+    let CURRENCY_VIEW = null; // { displayCode, displaySymbol, rate, hotelCode } — null = hotel currency only
+    let LAST_ROOMS = [], LAST_FACS = null, LAST_FAC_META = null;
+
+    const sym = c => (c === 'USD' ? '$' : c === 'EUR' ? '€' : c === 'GBP' ? '£' : c === 'NGN' ? '₦' : c === 'GHS' ? 'GH₵' : c === 'KES' ? 'KSh' : c === 'ZAR' ? 'R' : c === 'CAD' ? 'C$' : c === 'AUD' ? 'A$' : c === 'INR' ? '₹' : c === 'AED' ? 'د.إ' : c === 'ZAR' ? 'R' : c + ' ');
+    // If a converted view is active, show "≈ 153,000 ₦ · hotel charges $100" style pair.
+    function moneyHtml(hotelSymbol, hotelAmount) {
+      if (!CURRENCY_VIEW || CURRENCY_VIEW.rate == null || CURRENCY_VIEW.displayCode === CURRENCY_VIEW.hotelCode) return hotelSymbol + ' ' + Number(hotelAmount).toLocaleString();
+      const conv = hotelAmount * CURRENCY_VIEW.rate;
+      return '<span title="Charged in ' + CURRENCY_VIEW.hotelCode + '">' + CURRENCY_VIEW.displaySymbol + ' ' + Math.round(conv).toLocaleString() +
+             ' <small style="opacity:.75;font-size:.85em">(≈ ' + hotelSymbol + Number(hotelAmount).toLocaleString() + ' charged)</small></span>';
+    }
+
+    // Country → currency options for the manual selector (auto-detect runs first).
+    const CURRENCY_OPTS = [['USD','$ US Dollar'],['EUR','€ Euro'],['GBP','£ British Pound'],['NGN','₦ Nigerian Naira'],['GHS','GH₵ Ghanaian Cedi'],['KES','KSh Kenyan Shilling'],['ZAR','R South African Rand'],['CAD','C$ Canadian Dollar'],['AUD','A$ Australian Dollar'],['INR','₹ Indian Rupee'],['AED','د.إ UAE Dirham'],['JPY','¥ Japanese Yen']];
+
+    async function initCurrencyView() {
+      try {
+        const r = await fetch('/api/booking-engine/guest-currency?subdomain=' + encodeURIComponent(SUBDOMAIN));
+        if (!r.ok) return;
+        const c = await r.json();
+        CURRENCY_VIEW = { hotelCode: c.hotelCurrency, displayCode: c.displayCurrency, displaySymbol: c.displaySymbol, rate: c.rate, hotelSymbol: c.hotelSymbol };
+        // Selector with the detected currency preselected.
+        const sel = document.createElement('select');
+        sel.id = 'curSel'; sel.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font-size:13px';
+        sel.innerHTML = '<option value="">' + (c.converted ? '≈ Showing ' + c.displayCode + ' — auto-detected' : c.hotelCode + ' (hotel charges in this)') + '</option>' +
+          CURRENCY_OPTS.map(o => '<option value="' + o[0] + '"' + (o[0] === c.displayCurrency ? ' selected' : '') + '>' + o[1] + '</option>').join('') +
+          '<option value="' + c.hotelCurrency + '"' + (c.displayCurrency === c.hotelCurrency ? ' selected' : '') + '>' + c.hotelCode + ' — price as charged</option>';
+        sel.onchange = async () => {
+          const pick = sel.value;
+          try {
+            const rc = await fetch('/api/booking-engine/guest-currency?subdomain=' + encodeURIComponent(SUBDOMAIN) + '&currency=' + encodeURIComponent(pick));
+            const cc = await rc.json();
+            CURRENCY_VIEW = { hotelCode: cc.hotelCurrency, displayCode: cc.displayCurrency, displaySymbol: cc.displaySymbol, rate: cc.rate, hotelSymbol: cc.hotelSymbol };
+            rerenderPrices();
+          } catch (e) {}
+        };
+        $('h-name').parentElement.appendChild(sel);
+      } catch (e) { /* offline / rate API down — hotel currency renders unchanged */ }
+    }
+
+    function rerenderPrices() {
+      if (LAST_ROOMS.length) {
+        document.querySelectorAll('#rooms .room').forEach((el, i) => {
+          const rm = LAST_ROOMS[i]; if (!rm) return;
+          el.querySelector('.price').innerHTML = moneyHtml(CURRENCY, rm.total);
+          el.querySelector('.meta').innerHTML = (rm.type||'') + (rm.view?' · '+rm.view:'') + ' · ' + rm.nights + ' night' + (rm.nights===1?'':'s') + ' @ ' + moneyHtml(CURRENCY, rm.rate);
+        });
+      }
+      if (LAST_FACS) {
+        document.querySelectorAll('#facilities .room').forEach((el, i) => {
+          const fc = LAST_FACS[i]; if (!fc) return;
+          el.querySelector('.price').innerHTML = moneyHtml(CURRENCY, fc.total);
+        });
+      }
+      const done = $('d-summary');
+      if (done && done.dataset.total) done.innerHTML = done.dataset.summary.html;
+    }
 
     function setMode(m) {
       mode = m;
@@ -144,6 +201,7 @@
       } catch (e) { $('h-sub').textContent = 'Cannot reach the hotel booking service'; }
     }
     init();
+    initCurrencyView();
 
     function showErr(m){ const e=$('err'); e.textContent=m; e.style.display='block'; }
     function hideErr(){ $('err').style.display='none'; }
@@ -159,11 +217,12 @@
         const r = await fetch('/api/booking-engine/availability?' + q);
         const b = await r.json();
         if (!r.ok) throw new Error(b.error || 'Could not load availability');
+        LAST_ROOMS = b.rooms.map(rm => ({ roomId: rm.roomId, number: rm.number, type: rm.type, view: rm.view, nights: rm.nights, rate: rm.rate, total: rm.total }));
         $('rooms').innerHTML = b.rooms.length
           ? b.rooms.map(rm =>
               '<div class="room" data-id="' + rm.roomId + '">' +
-                '<div class="top"><span class="num">Room ' + rm.number + '</span><span class="price">' + rm.currency + rm.total + '</span></div>' +
-                '<div class="meta">' + (rm.type||'') + (rm.view?' · '+rm.view:'') + ' · ' + rm.nights + ' night' + (rm.nights===1?'':'s') + ' @ ' + rm.currency + rm.rate + '</div>' +
+                '<div class="top"><span class="num">Room ' + rm.number + '</span><span class="price">' + moneyHtml(rm.currency, rm.total) + '</span></div>' +
+                '<div class="meta">' + (rm.type||'') + (rm.view?' · '+rm.view:'') + ' · ' + rm.nights + ' night' + (rm.nights===1?'':'s') + ' @ ' + moneyHtml(rm.currency, rm.rate) + '</div>' +
               '</div>').join('')
           : '<p style="color:#64748b;font-size:14px;margin-top:14px">No rooms available for those dates — try different dates or call us.</p>';
         document.querySelectorAll('.room').forEach(el => {
@@ -204,9 +263,13 @@
             checks.push(Object.assign(f, { available: !!c.available, reason: c.reason || null }));
           } catch (e) { checks.push(Object.assign(f, { available: false, reason: 'Could not check availability' })); }
         }
-        const priceLabel = f => f.kind === 'hall'
-          ? (f.dayRate > 0 ? CURRENCY + f.dayRate + ' day' : CURRENCY + f.hourlyRate + '/hour')
-          : (f.pricePerPersonPerHour > 0 ? CURRENCY + f.pricePerPersonPerHour + '/person/hour' : 'Free');
+        LAST_FACS = checks.map(f => ({ name: f.name, total: f.kind === 'hall' ? (f.dayRate > 0 ? f.dayRate : f.hourlyRate) : (f.pricePerPersonPerHour || 0) }));
+        const priceLabel = f => {
+          const amt = f.kind === 'hall' ? (f.dayRate > 0 ? f.dayRate : f.hourlyRate) : (f.pricePerPersonPerHour || 0);
+          const unit = f.kind === 'hall' ? (f.dayRate > 0 ? ' day' : '/hour') : '/person/hour';
+          if (amt <= 0) return 'Free';
+          return moneyHtml(CURRENCY, amt) + '<small style="opacity:.75;font-size:.85em">' + unit + '</small>';
+        };
         $('facilities').innerHTML = all.length
           ? checks.map(f =>
               '<div class="room' + (!f.available ? '" style="opacity:.45;cursor:not-allowed' : '') + '" data-kind="' + f.kind + '" data-id="' + f.id + '" data-name="' + escapeA(f.name) + '" data-price="' + (f.kind === 'hall' ? (f.dayRate > 0 ? f.dayRate : f.hourlyRate) : (f.pricePerPersonPerHour || 0)) + '">' +

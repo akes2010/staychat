@@ -2,170 +2,219 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>StayChat OS — Run your hotel on WhatsApp</title>
-    <meta name="description" content="The all-in-one hotel management platform: AI WhatsApp receptionist, your own commission-free booking engine, guest Wi-Fi per booking, and 40+ integrations. Installable PWA, 14-day free trial.">
-    <link rel="manifest" href="/manifest.json"/>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
-    <meta name="theme-color" content="#0a1220"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StayChat OS — Run your hotel on WhatsApp</title>
+  <meta name="description" content="The all-in-one hotel management platform: AI WhatsApp receptionist, your own commission-free booking engine, guest Wi-Fi per booking, and 40+ integrations. Installable PWA, 14-day free trial.">
+  <link rel="manifest" href="/manifest.json"/>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
+  <meta name="theme-color" content="#006d2f"/>
   <style>
+    /* ══ Theme tokens — mirrors public/css/app.css so the landing page and
+       the signed-in app read as ONE system (green) ══ */
     :root {
-      --bg:#0a1220; --bg2:#0e1930; --surface:#121f36; --border:#1e2f4d;
-      --text:#e8eef8; --muted:#93a5c4; --p:#4f8cff; --p2:#7aa8ff;
-      --accent:#22d3a7; --warn:#fbbf24; --grad:linear-gradient(135deg,#4f8cff,#22d3a7);
+      --p:#006d2f; --p-light:#008a3b; --p-dark:#004d20;
+      --a:#25d366; --a-dim:#1db954;
+      --bg:#f0f4f8; --surface:#ffffff; --surface2:#f7f9fb; --surface3:#eef2f7;
+      --border:#e2e8f0; --border-dark:#cbd5e1;
+      --text:#0f172a; --text2:#475569; --text3:#94a3b8;
+      --grad:linear-gradient(135deg,#008a3b,#25d366);
+      --shadow:0 4px 16px rgba(0,0,0,.08),0 1px 4px rgba(0,0,0,.04);
+      --shadow-lg:0 20px 40px rgba(0,0,0,.12),0 4px 12px rgba(0,0,0,.06);
+      --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      --radius:10px; --radius-lg:14px; --radius-xl:20px;
     }
     * { margin:0; padding:0; box-sizing:border-box; }
     html { scroll-behavior:smooth; }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-           background:var(--bg); color:var(--text); line-height:1.6; overflow-x:hidden; }
+    body { font-family:var(--font); background:var(--bg); color:var(--text); line-height:1.6; overflow-x:hidden; }
     a { color:inherit; text-decoration:none; }
     .wrap { max-width:1140px; margin:0 auto; padding:0 24px; }
     section { padding:84px 0; }
     .kicker { display:inline-block; font-size:12px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase;
-              color:var(--p2); background:rgba(79,140,255,.1); border:1px solid rgba(79,140,255,.3);
+              color:var(--p-light); background:rgba(0,138,59,.08); border:1px solid rgba(0,138,59,.25);
               padding:6px 14px; border-radius:20px; margin-bottom:18px; }
     h2 { font-size:clamp(26px,4vw,38px); font-weight:800; letter-spacing:-.5px; margin-bottom:14px; }
-    .sub { color:var(--muted); font-size:16px; max-width:640px; }
+    .sub { color:var(--text2); font-size:16px; max-width:640px; }
     .center { text-align:center; }
     .center .sub { margin:0 auto; }
 
     /* nav */
-    nav { position:sticky; top:0; z-index:50; background:rgba(10,18,32,.85); backdrop-filter:blur(12px);
+    nav { position:sticky; top:0; z-index:50; background:rgba(255,255,255,.9); backdrop-filter:blur(12px);
           border-bottom:1px solid var(--border); }
     .nav-in { display:flex; align-items:center; justify-content:space-between; height:64px; }
-    .logo { font-weight:800; font-size:18px; display:flex; align-items:center; gap:8px; }
+    .logo { font-weight:800; font-size:18px; display:flex; align-items:center; gap:8px; color:var(--p-dark); }
     .logo .dot { width:10px; height:10px; border-radius:50%; background:var(--grad); }
-    .nav-links { display:flex; gap:26px; font-size:14px; color:var(--muted); }
-    .nav-links a:hover { color:var(--text); }
+    .nav-links { display:flex; gap:26px; font-size:14px; color:var(--text2); }
+    .nav-links a:hover { color:var(--p-dark); }
     .nav-cta { display:flex; gap:10px; }
-    .btn { display:inline-block; padding:10px 20px; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer; border:none; }
-    .btn-p { background:var(--grad); color:#06101f; }
-    .btn-p:hover { filter:brightness(1.1); }
-    .btn-o { border:1.5px solid var(--border); color:var(--text); background:transparent; }
-    .btn-o:hover { border-color:var(--p); }
-    .btn-lg { padding:14px 28px; font-size:16px; border-radius:12px; }
+    .btn { display:inline-block; padding:10px 20px; border-radius:var(--radius); font-weight:700; font-size:14px; cursor:pointer; border:none; }
+    .btn-p { background:var(--p); color:#fff; }
+    .btn-p:hover { background:var(--p-light); }
+    .btn-o { border:1.5px solid var(--border-dark); color:var(--text); background:transparent; }
+    .btn-o:hover { border-color:var(--p); color:var(--p-dark); }
+    .btn-lg { padding:14px 28px; font-size:16px; border-radius:var(--radius-lg); }
 
     /* hero */
-    .hero { padding:96px 0 70px; position:relative; }
+    .hero { padding:96px 0 70px; position:relative; overflow:hidden; }
     .hero::before { content:''; position:absolute; inset:0; pointer-events:none;
-      background:radial-gradient(600px 300px at 20% 0%, rgba(79,140,255,.14), transparent),
-                 radial-gradient(600px 300px at 85% 10%, rgba(34,211,167,.1), transparent); }
+      background:radial-gradient(700px 340px at 15% -5%, rgba(37,211,102,.14), transparent),
+                 radial-gradient(600px 300px at 88% 8%, rgba(0,138,59,.1), transparent); }
     .hero .wrap { position:relative; }
-    .hero h1 { font-size:clamp(34px,6vw,58px); font-weight:800; letter-spacing:-1.5px; line-height:1.08; max-width:760px; }
+    .hero h1 { font-size:clamp(34px,6vw,58px); font-weight:800; letter-spacing:-1.5px; line-height:1.08; max-width:780px; }
     .hero h1 .g { background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
-    .hero p.lead { color:var(--muted); font-size:clamp(15px,2vw,19px); max-width:620px; margin:20px 0 30px; }
+    .hero p.lead { color:var(--text2); font-size:clamp(15px,2vw,19px); max-width:640px; margin:20px 0 30px; }
     .hero-ctas { display:flex; gap:14px; flex-wrap:wrap; }
-    .hero-note { font-size:12px; color:var(--muted); margin-top:14px; }
+    .hero-note { font-size:12px; color:var(--text3); margin-top:14px; }
     .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:56px; }
-    .stat { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px 20px; }
+    .stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px 20px; box-shadow:var(--shadow); }
     .stat b { font-size:clamp(20px,3vw,28px); font-weight:800; display:block; background:var(--grad);
               -webkit-background-clip:text; background-clip:text; color:transparent; }
-    .stat span { font-size:12.5px; color:var(--muted); }
+    .stat span { font-size:12.5px; color:var(--text2); }
 
     /* features */
     .grid { display:grid; gap:16px; }
     .g3 { grid-template-columns:repeat(3,1fr); }
     .g2 { grid-template-columns:repeat(2,1fr); }
     .card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:24px;
-            transition:transform .15s, border-color .15s; }
-    .card:hover { transform:translateY(-3px); border-color:var(--p); }
+            transition:transform .15s, border-color .15s, box-shadow .15s; }
+    .card:hover { transform:translateY(-3px); border-color:var(--a); box-shadow:var(--shadow); }
     .card .ico { font-size:26px; margin-bottom:12px; }
     .card h3 { font-size:16.5px; font-weight:700; margin-bottom:8px; }
-    .card p { font-size:13.5px; color:var(--muted); }
+    .card p { font-size:13.5px; color:var(--text2); }
     .card ul { list-style:none; margin-top:10px; }
-    .card li { font-size:13px; color:var(--muted); padding-left:18px; position:relative; margin-bottom:5px; }
-    .card li::before { content:'✓'; position:absolute; left:0; color:var(--accent); font-weight:800; }
+    .card li { font-size:13px; color:var(--text2); padding-left:18px; position:relative; margin-bottom:5px; }
+    .card li::before { content:'✓'; position:absolute; left:0; color:var(--p-light); font-weight:800; }
 
     /* steps */
     .steps { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; counter-reset:step; margin-top:36px; }
-    .step { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:20px; position:relative; }
+    .step { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:20px; position:relative; box-shadow:var(--shadow); }
     .step::before { counter-increment:step; content:counter(step); position:absolute; top:-14px; left:18px;
-      width:28px; height:28px; border-radius:50%; background:var(--grad); color:#06101f; font-weight:800;
+      width:28px; height:28px; border-radius:50%; background:var(--grad); color:#fff; font-weight:800;
       display:flex; align-items:center; justify-content:center; font-size:14px; }
     .step h4 { font-size:14.5px; margin:8px 0 6px; }
-    .step p { font-size:12.5px; color:var(--muted); }
+    .step p { font-size:12.5px; color:var(--text2); }
+
+    /* ── comparison table ── */
+    .cmp-note { font-size:12.5px; color:var(--text3); margin-top:14px; }
+    .cmp-wrap { margin-top:40px; overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-xl);
+                background:var(--surface); box-shadow:var(--shadow); -webkit-overflow-scrolling:touch; }
+    table.cmp { width:100%; border-collapse:separate; border-spacing:0; min-width:880px; font-size:13.5px; }
+    .cmp th, .cmp td { padding:14px 14px; text-align:center; vertical-align:top; border-bottom:1px solid var(--border); }
+    .cmp thead th { background:var(--surface2); font-size:13px; font-weight:800; color:var(--text); border-bottom:2px solid var(--border-dark); padding-top:18px; }
+    .cmp thead th:first-child { text-align:left; min-width:170px; }
+    .cmp thead .sys-th { background:linear-gradient(180deg, rgba(37,211,102,.16), rgba(0,138,59,.06)); color:var(--p-dark); }
+    .cmp thead .sys-th .v { display:block; font-size:11px; font-weight:700; color:var(--p-light); margin-top:4px; }
+    .cmp td:first-child { text-align:left; font-weight:600; color:var(--text); }
+    .cmp td:first-child small { display:block; font-weight:400; font-size:11px; color:var(--text3); margin-top:2px; }
+    .cmp tbody tr:last-child td { border-bottom:none; }
+    .cmp .sys-col { background:rgba(37,211,102,.05); }
+    .cmp .yes { color:var(--p-light); font-weight:800; }
+    .cmp .no { color:var(--text3); }
+    .cmp .part { color:#b45309; font-weight:700; }
+    .cmp .price-cell { font-weight:700; white-space:nowrap; }
+    .cmp .price-cell small { display:block; font-weight:400; color:var(--text3); font-size:11px; white-space:normal; }
+    .cmp .best { font-weight:800; color:var(--p-dark); }
+    .legend { display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:var(--text2); margin-top:14px; }
+    .legend b { color:var(--p-light); } .legend .no { color:var(--text3); } .legend .part { color:#b45309; }
+
+    /* profile cards */
+    .prof { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-top:36px; }
+    .prof .card h3 .who { display:block; font-size:11.5px; font-weight:700; color:var(--p-light); letter-spacing:1px; text-transform:uppercase; margin:2px 0 8px; }
+    .prof .card .fit { margin-top:10px; font-size:12.5px; padding:8px 12px; border-radius:var(--radius);
+      background:rgba(0,138,59,.06); border:1px dashed rgba(0,138,59,.3); color:var(--text2); }
+    .prof .card .fit b { color:var(--p-dark); }
+    .prof .cons { margin-top:8px; }
+    .prof .cons li::before { content:'✗'; color:#b45309; }
 
     /* integrations */
     .int-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px; margin-top:36px; }
-    .int { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px; }
+    .int { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px; box-shadow:var(--shadow); }
     .int .h { display:flex; align-items:center; gap:10px; font-weight:700; font-size:14.5px; margin-bottom:6px; }
-    .int .n { font-size:11px; font-weight:800; color:#06101f; background:var(--grad); border-radius:12px; padding:2px 9px; }
-    .int p { font-size:12.5px; color:var(--muted); }
+    .int .n { font-size:11px; font-weight:800; color:#fff; background:var(--p-light); border-radius:12px; padding:2px 9px; }
+    .int p { font-size:12.5px; color:var(--text2); }
 
     /* pricing */
     .plans { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:40px; }
-    .plan { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:28px; position:relative; }
-    .plan.hot { border-color:var(--p); box-shadow:0 0 0 1px var(--p), 0 20px 50px rgba(79,140,255,.15); }
+    .plan { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:28px; position:relative; box-shadow:var(--shadow); }
+    .plan.hot { border-color:var(--p); box-shadow:0 0 0 1px var(--p), 0 20px 50px rgba(0,138,59,.15); }
     .plan .tag { position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--grad);
-                 color:#06101f; font-size:11px; font-weight:800; padding:4px 14px; border-radius:12px; letter-spacing:.5px; }
+                 color:#fff; font-size:11px; font-weight:800; padding:4px 14px; border-radius:12px; letter-spacing:.5px; }
     .plan h3 { font-size:17px; }
-    .plan .price { font-size:38px; font-weight:800; margin:10px 0 2px; }
-    .plan .price small { font-size:14px; color:var(--muted); font-weight:500; }
+    .plan .price { font-size:38px; font-weight:800; margin:10px 0 2px; color:var(--p-dark); }
+    .plan .price small { font-size:14px; color:var(--text3); font-weight:500; }
     .plan ul { list-style:none; margin:18px 0 22px; }
-    .plan li { font-size:13.5px; color:var(--muted); padding:5px 0 5px 24px; position:relative; }
-    .plan li::before { content:'✓'; position:absolute; left:2px; color:var(--accent); font-weight:800; }
+    .plan li { font-size:13.5px; color:var(--text2); padding:5px 0 5px 24px; position:relative; }
+    .plan li::before { content:'✓'; position:absolute; left:2px; color:var(--p-light); font-weight:800; }
     .plan .btn { width:100%; text-align:center; }
 
     /* faq */
     .faq { max-width:760px; margin:36px auto 0; }
     details { background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:10px; }
     summary { cursor:pointer; padding:16px 20px; font-weight:600; font-size:14.5px; list-style:none; display:flex; justify-content:space-between; align-items:center; }
-    summary::after { content:'+'; font-size:20px; color:var(--p2); }
+    summary::after { content:'+'; font-size:20px; color:var(--p-light); }
     details[open] summary::after { content:'–'; }
-    details .a { padding:0 20px 16px; font-size:13.5px; color:var(--muted); }
+    details .a { padding:0 20px 16px; font-size:13.5px; color:var(--text2); }
 
     /* cta band */
-    .band { background:linear-gradient(135deg,rgba(79,140,255,.12),rgba(34,211,167,.1)); border:1px solid var(--border);
+    .band { background:linear-gradient(135deg,rgba(0,138,59,.1),rgba(37,211,102,.14)); border:1px solid rgba(0,138,59,.3);
             border-radius:22px; padding:52px 40px; text-align:center; }
 
-    footer { border-top:1px solid var(--border); padding:34px 0; color:var(--muted); font-size:13px; }
+    footer { border-top:1px solid var(--border); padding:34px 0; color:var(--text2); font-size:13px; background:var(--surface); }
     .foot-in { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:center; }
 
     /* chat widget */
     .chat-fab { position:fixed; right:22px; bottom:22px; z-index:90; width:60px; height:60px; border-radius:50%;
-                border:none; background:var(--grad); color:#06101f; font-size:26px; cursor:pointer;
-                box-shadow:0 10px 30px rgba(79,140,255,.4); transition:transform .15s; }
+                border:none; background:var(--grad); color:#fff; font-size:26px; cursor:pointer;
+                box-shadow:0 10px 30px rgba(0,138,59,.4); transition:transform .15s; }
     .chat-fab:hover { transform:scale(1.07); }
     .chat-box { position:fixed; right:22px; bottom:94px; z-index:90; width:min(380px,calc(100vw - 32px));
-                height:min(560px,calc(100vh - 130px)); background:var(--bg2); border:1px solid var(--border);
+                height:min(560px,calc(100vh - 130px)); background:var(--surface); border:1px solid var(--border);
                 border-radius:18px; display:none; flex-direction:column; overflow:hidden;
-                box-shadow:0 30px 70px rgba(0,0,0,.5); }
+                box-shadow:var(--shadow-lg); }
     .chat-box.open { display:flex; }
-    .chat-head { padding:14px 16px; background:var(--surface); border-bottom:1px solid var(--border);
+    .chat-head { padding:14px 16px; background:var(--surface2); border-bottom:1px solid var(--border);
                  display:flex; align-items:center; gap:10px; }
     .chat-head .av { width:34px; height:34px; border-radius:50%; background:var(--grad); display:flex;
                      align-items:center; justify-content:center; font-size:17px; }
     .chat-head b { font-size:14px; display:block; }
-    .chat-head span { font-size:11px; color:var(--accent); }
+    .chat-head span { font-size:11px; color:var(--p-light); }
     .chat-body { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
     .msg { max-width:85%; padding:10px 13px; border-radius:14px; font-size:13.5px; white-space:pre-wrap; }
-    .msg.bot { background:var(--surface); border:1px solid var(--border); border-bottom-left-radius:4px; align-self:flex-start; }
+    .msg.bot { background:var(--surface3); border:1px solid var(--border); border-bottom-left-radius:4px; align-self:flex-start; }
     .msg.user { background:var(--p); color:#fff; border-bottom-right-radius:4px; align-self:flex-end; }
-    .msg.typing span { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--muted);
+    .msg.typing span { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--text3);
                        margin-right:3px; animation:blink 1.2s infinite; }
     .msg.typing span:nth-child(2){ animation-delay:.2s } .msg.typing span:nth-child(3){ animation-delay:.4s }
     @keyframes blink { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
     .chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 10px; }
     .chip { font-size:11.5px; padding:6px 11px; border-radius:14px; border:1px solid var(--border);
-            background:var(--surface); color:var(--muted); cursor:pointer; }
-    .chip:hover { border-color:var(--p); color:var(--text); }
-    .chat-in { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); background:var(--surface); }
-    .chat-in input { flex:1; background:var(--bg); border:1.5px solid var(--border); border-radius:10px;
+            background:var(--surface2); color:var(--text2); cursor:pointer; }
+    .chip:hover { border-color:var(--p); color:var(--p-dark); }
+    .chat-in { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); background:var(--surface2); }
+    .chat-in input { flex:1; background:var(--surface); border:1.5px solid var(--border); border-radius:10px;
                      color:var(--text); padding:10px 12px; font-size:13.5px; outline:none; }
     .chat-in input:focus { border-color:var(--p); }
-    .chat-in button { background:var(--grad); border:none; border-radius:10px; width:44px; font-size:17px; cursor:pointer; color:#06101f; }
+    .chat-in button { background:var(--grad); border:none; border-radius:10px; width:44px; font-size:17px; cursor:pointer; color:#fff; }
 
     @media (max-width:900px) {
       .g3 { grid-template-columns:repeat(2,1fr); }
       .steps { grid-template-columns:repeat(2,1fr); }
       .plans { grid-template-columns:1fr; }
+      .prof { grid-template-columns:1fr; }
       .nav-links { display:none; }
       .stats { grid-template-columns:repeat(2,1fr); }
+      .band { padding:38px 22px; }
     }
     @media (max-width:600px) {
       .g3, .g2, .steps { grid-template-columns:1fr; }
       section { padding:60px 0; }
       .nav-cta .btn-o { display:none; }
+      .hero { padding:64px 0 50px; }
+      .stats { grid-template-columns:1fr 1fr; }
+      /* on small screens the comparison becomes horizontally swipeable:
+         the sticky first column keeps row labels visible while swiping */
+      .cmp td:first-child, .cmp thead th:first-child { position:sticky; left:0; background:var(--surface); z-index:1; box-shadow:2px 0 4px rgba(15,23,42,.06); }
+      .cmp thead th:first-child { background:var(--surface2); }
     }
   </style>
 </head>
@@ -177,9 +226,9 @@
     <div class="nav-links">
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
+      <a href="#compare">Compare</a>
       <a href="#pricing">Pricing</a>
       <a href="/help.html">Help Center</a>
-      <a href="#faq">FAQ</a>
     </div>
     <div class="nav-cta">
       <button class="btn btn-o" id="installBtn" style="display:none" onclick="installApp()">📲 Install app</button>
@@ -241,7 +290,7 @@
   </div>
 </section>
 
-<section id="how" style="background:var(--bg2)">
+<section id="how" style="background:var(--surface2)">
   <div class="wrap">
     <div class="center"><span class="kicker">How it works</span>
       <h2>From link to check-in, in four steps</h2></div>
@@ -254,7 +303,209 @@
   </div>
 </section>
 
-<section id="integrations">
+<!-- ═══ COMPETITOR COMPARISON ═══ -->
+<section id="compare">
+  <div class="wrap">
+    <div class="center"><span class="kicker">How StayChat compares</span>
+      <h2>Why independent hotels pick StayChat over the big names</h2>
+      <p class="sub">Cloudbeds, Mews and OPERA were built for a pre-WhatsApp world — priced per module, per room and per app. StayChat was built for how your guests and your team already work: flat price, everything included, every feature real and live.</p>
+      <div class="legend">
+        <span><b>✓</b> included in the flat plan</span><span class="part">~ costs extra / partial / third-party add-on</span><span class="no">✗ not offered</span>
+      </div>
+    </div>
+
+    <div class="cmp-wrap">
+      <table class="cmp">
+        <thead>
+          <tr>
+            <th>What you compare</th>
+            <th class="sys-th">StayChat OS<span class="v">this page's platform</span></th>
+            <th>Cloudbeds</th>
+            <th>Mews</th>
+            <th>Oracle OPERA Cloud</th>
+            <th>Little Hotelier</th>
+            <th>eZee Absolute</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Built for<small>who it fits best</small></td>
+            <td class="sys-col"><b>WhatsApp-era independents — hotels that want everything in one flat plan</b></td>
+            <td>Pre-WhatsApp-era vendor stacking, add-on economics</td>
+            <td>Per-room metering for scaling groups</td>
+            <td>Enterprise chains with enterprise budgets</td>
+            <td>Sub-15-room owner-operators needing basic only</td>
+            <td>Price-first buyers in emerging markets</td>
+          </tr>
+          <tr>
+            <td>Entry pricing<small>published / reported, room-count dependent</small></td>
+            <td class="sys-col"><span class="price-cell best">$29/mo<small>flat plans — Starter 20 rooms, unlimited on Enterprise. 14-day trial, no card.</small></span></td>
+            <td><span class="price-cell">Quote-based<small>small properties commonly ~$100+/mo</small></span></td>
+            <td><span class="price-cell">Quote-based<small>≈$15–30 per room/mo, base from ~€300/mo</small></span></td>
+            <td><span class="price-cell">Quote-based<small>enterprise budgets only</small></span></td>
+            <td><span class="price-cell">~$109/mo<small>often plus a small booking fee</small></span></td>
+            <td><span class="price-cell">Quote-based<small>tiered by rooms; low cost per room</small></span></td>
+          </tr>
+          <tr>
+            <td>AI guest messaging on WhatsApp<small>guests chat where they already are — 24/7</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> built-in AI receptionist + shared inbox, reads live booking status, Wi-Fi and folio by tender code</td>
+            <td>~ extra add-on (Whistle) — per-user pricing</td>
+            <td>~ third-party marketplace apps</td>
+            <td><span class="no">✗</span> not native</td>
+            <td><span class="no">✗</span> not native</td>
+            <td><span class="no">✗</span> plain channel messenger only</td>
+          </tr>
+          <tr>
+            <td>Own booking engine, 0% commission<small>tender-code direct flow like an airline PNR</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> on EVERY plan incl. $29 Starter — QR slips, WhatsApp updates, spam caps, rooms + halls + pools</td>
+            <td>~ higher Marketing plan only</td>
+            <td>~ included but priced per room</td>
+            <td><span class="no">✗</span> separate licensed product</td>
+            <td>~ included, adds booking fees</td>
+            <td>~ included, higher tiers</td>
+          </tr>
+          <tr>
+            <td>Multi-currency for guests<small>auto currency detection by geolocation + live daily rates</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> guest sees own currency instantly (edge-detected), live USD rate store, hoodie-simple selector</td>
+            <td><span class="no">✗</span> hotel currency only</td>
+            <td><span class="no">✗</span> hotel currency only</td>
+            <td><span class="no">✗</span> hotel currency only</td>
+            <td><span class="no">✗</span> hotel currency only</td>
+            <td>~ multi-currency display, no geo auto-detect</td>
+          </tr>
+          <tr>
+            <td>Front desk, housekeeping, folios, group bookings</td>
+            <td class="sys-col"><span class="yes">✓</span> full lifecycle, balance-blocked checkout, audited</td>
+            <td><span class="yes">✓</span></td>
+            <td><span class="yes">✓</span></td>
+            <td><span class="yes">✓</span> deepest-in-class</td>
+            <td>~ simplified front desk only</td>
+            <td><span class="yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>POS charging to room folios<small>restaurant &amp; bar tickets land on the guest bill</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> built in — cash &amp; card settlements auto-post to the ledger, real typewriter-tested flow</td>
+            <td>~ needs Cloudbeds Payments + separate POS</td>
+            <td>~ POS partner integrations</td>
+            <td><span class="yes">✓</span> via licensed OPERA Simphony (extra)</td>
+            <td><span class="no">✗</span></td>
+            <td>~ POS module at higher tier</td>
+          </tr>
+          <tr>
+            <td>Double-entry accounting ledger<small>real trial balance, end-of-day closings per department</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> built in on Pro — every settlement posts debit/credit automatically</td>
+            <td>~ export to external tools only</td>
+            <td>~ export / Xero-type integrations</td>
+            <td>~ third-party back-office</td>
+            <td><span class="no">✗</span></td>
+            <td>~ basic</td>
+          </tr>
+          <tr>
+            <td>Guest Wi-Fi provisioned per booking<small>session opens at check-in, dies at checkout</small></td>
+            <td class="sys-col"><span class="yes">✓</span> UniFi, Meraki, MikroTik, Omada, Ruckus</td>
+            <td><span class="no">✗</span> not in scope</td>
+            <td><span class="no">✗</span> not in scope</td>
+            <td><span class="no">✗</span> not in scope</td>
+            <td><span class="no">✗</span> not in scope</td>
+            <td><span class="no">✗</span> not in scope</td>
+          </tr>
+          <tr>
+            <td>Room locks, IPTV, room automation, IoT<small>door access, in-room TV, welcome scenes</small></td>
+            <td class="sys-col"><span class="yes">✓</span> 49 integrations across 12 categories, probe-tested</td>
+            <td>~ marketplace-driven</td>
+            <td><span class="yes">✓</span> strong marketplace</td>
+            <td><span class="yes">✓</span> certified partner network</td>
+            <td><span class="no">✗</span> few integrations</td>
+            <td>~ channel/revenue focus</td>
+          </tr>
+          <tr>
+            <td>Halls, events &amp; pools sellable online<small>same tender-code flow, live slot conflict rejection</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> rooms + halls + pools on ONE booking page from $29</td>
+            <td>~ configured add-ons at extra cost</td>
+            <td>~ configured event spaces</td>
+            <td>~ event modules add cost</td>
+            <td><span class="no">✗</span></td>
+            <td>~ limited</td>
+          </tr>
+          <tr>
+            <td>Guest currency that follows the guest<small>geolocation detection, live daily rates, manual override</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> edge country detection → local currency instantly, live rate store refreshed per hotel, booking still charged in hotel currency</td>
+            <td><span class="no">✗</span> single hotel currency</td>
+            <td><span class="no">✗</span> single hotel currency</td>
+            <td><span class="no">✗</span> single hotel currency</td>
+            <td><span class="no">✗</span> single hotel currency</td>
+            <td>~ display-only, no geo detect</td>
+          </tr>
+          <tr>
+            <td>Real exports &amp; cross-module search<small>data you can take away, records you can find</small></td>
+            <td class="sys-col"><span class="yes">✓</span> every report downloads a real CSV; top-bar search jumps across bookings, guests, rooms and payments</td>
+            <td>~ limited export formats</td>
+            <td>~ reporting exports</td>
+            <td><span class="yes">✓</span> extensive</td>
+            <td><span class="no">✗</span> basic</td>
+            <td>~ basic exports</td>
+          </tr>
+          <tr>
+            <td>Installable app (PWA) with offline mode<small>works on the phone in your pocket — no app store</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> every plan, iOS &amp; Android home-screen, offline-tolerant</td>
+            <td>~ app-store mobile app</td>
+            <td>~ responsive web</td>
+            <td><span class="no">✗</span> desktop-first</td>
+            <td>~ mobile app</td>
+            <td>~ responsive web</td>
+          </tr>
+          <tr>
+            <td>Self-hosted / own-your-data option<small>your VPS, your Truehost box, your rules</small></td>
+            <td class="sys-col"><span class="yes">✓ BEST</span> one-command deploy on any VPS or cPanel host — own your database forever</td>
+            <td><span class="no">✗</span> SaaS only</td>
+            <td><span class="no">✗</span> SaaS only</td>
+            <td>~ heavy on-prem project</td>
+            <td><span class="no">✗</span> SaaS only</td>
+            <td><span class="no">✗</span> SaaS cloud</td>
+          </tr>
+          <tr>
+            <td>What a 20-room hotel actually pays<small>flat plan vs drifting stack of modules</small></td>
+            <td class="sys-col"><span class="yes">BEST VALUE</span> $29–$199 flat. Rooms, halls, pools, Wi-Fi, locks, IPTV, accounting — no per-module meter running</td>
+            <td>~ commonly $100+/mo before add-ons stack</td>
+            <td>~ $15–30/room/mo — a 20-room hotel is ≈$300–600/mo</td>
+            <td><span class="no">✗</span> enterprise quote, tens of thousands/yr</td>
+            <td>~ $109/mo + booking fees</td>
+            <td>~ low per-room, thin support</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cmp-note">Rows reflect what each vendor publishes today or what industry roundups consistently report (2025–2026); confirm specifics with each vendor before deciding. What sets StayChat apart: nothing in the StayChat column is a roadmap item — every ✓ above ships, works in real time, and is covered by automated browser, security and payment suites that run on every single commit.</p>
+
+    <div class="prof">
+      <div class="card"><div class="ico">🛏️</div><h3>vs Cloudbeds<span class="who">The vendor pile-up vs one flat platform</span></h3>
+        <p>Cloudbeds bundles PMS + channels + engine, then meters you per add-on: payments, marketing, messaging each stack onto quote-based pricing.</p>
+        <ul class="cons"><li>Small properties commonly $100+/mo before add-ons</li><li>WhatsApp AI, Wi-Fi and in-room tech are paid extras — or absent</li><li>No guest-geolocation currency display</li></ul>
+        <div class="fit"><b>StayChat beats it on:</b> flat $29–$199 pricing that already INCLUDES the AI WhatsApp receptionist, Wi-Fi provisioning, 49 in-room integrations, halls/pools and guest currency auto-detection. One login, one bill, no upsell ladder.</div>
+      </div>
+      <div class="card"><div class="ico">🏨</div><h3>vs Mews<span class="who">Per-room metering vs per-plan simplicity</span></h3>
+        <p>Mews is excellent design plus a deep marketplace — at ~$15–30/room/mo with a ~€300/mo base. A 20-room hotel pays roughly $300–600/mo, more with apps.</p>
+        <ul class="cons"><li>Cost climbs with every room you add</li><li>Real value requires adopting the whole paid ecosystem</li><li>Feature-heavy for a single property</li></ul>
+        <div class="fit"><b>StayChat beats it on:</b> the same modern cloud experience for a 100-room hotel at $79 flat — with built-in POS-on-folio, double-entry accounting and geolocation currency that Mews leaves to third-party apps.</div>
+      </div>
+      <div class="card"><div class="ico">🏢</div><h3>vs Oracle OPERA Cloud<span class="who">Enterprise weight vs a week-to-live alternative</span></h3>
+        <p>OPERA runs global chains — and costs and timelines to match. For a 10–100 room independent, most of its depth is shelf-ware you still pay for.</p>
+        <ul class="cons"><li>Enterprise-only quote, tens of thousands per year</li><li>Long specialist implementations</li><li>Guest WhatsApp AI absent; booking engine is a separate licensed product</li></ul>
+        <div class="fit"><b>StayChat delivers in days what OPERA delivers in quarters</b> for independents: full front desk, POS, accounting, Wi-Fi, locks, IPTV and a real instant booking page — at 1–3% of the budget.</div>
+      </div>
+      <div class="card"><div class="ico">🏡</div><h3>vs Little Hotelier<span class="who">Simplicity without the ceiling</span></h3>
+        <p>Little Hotelier is genuinely easy — and genuinely capped: ~$109/mo plus booking fees, thin depth, no POS-on-folio, no accounting, no in-room tech.</p>
+        <ul class="cons"><li>Growth stalls around ~15 rooms</li><li>Bookings carry fees on top of the subscription</li><li>No AI receptionist; guests beyond email get silence at 2am</li></ul>
+        <div class="fit"><b>StayChat beats it on:</b> identical simplicity for front-desk staff plus everything LH lacks — POS on folios, real double-entry accounting, Wi-Fi provisioning, halls &amp; pools on the booking page, and an AI receptionist answering guests instantly, from $29 flat with no booking fees.</div>
+      </div>
+      <div class="card" style="grid-column:1/-1;border-color:var(--p)"><div class="ico">✅</div><h3>vs eZee Absolute (and the rest of the value tier)<span class="who">Thin pricing, thinner product vs everything-included</span></h3>
+        <p>eZee and similar budget PMSs win the sticker price — then guests discover manual-only multi-currency, variable support quality and a dated interface. StayChat's $29 Starter includes the AI receptionist, geo-detected guest currency with live rates, halls and pools, the PWA and all 49 integrations on Pro at $79. No tier games — every published feature is shippable today, tested by automated browser and security suites on every commit.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="integrations" style="background:var(--surface2)">
   <div class="wrap">
     <div class="center"><span class="kicker">Integrations</span>
       <h2>49 services. 12 categories. Encrypted &amp; probe-tested.</h2>
@@ -273,14 +524,14 @@
   </div>
 </section>
 
-<section id="pricing" style="background:var(--bg2)">
+<section id="pricing">
   <div class="wrap">
     <div class="center"><span class="kicker">Pricing</span>
       <h2>Simple plans, no commission</h2>
       <p class="sub">Every plan includes the booking engine, WhatsApp channel and the installable app. 14-day trial on all tiers — no card required.</p>
       <div style="display:inline-flex;align-items:center;gap:10px;margin-top:18px;background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:6px 8px">
         <button id="cycleMonthly" class="btn btn-p" style="padding:7px 18px" onclick="setCycle('monthly')">Monthly</button>
-        <button id="cycleYearly" class="btn btn-o" style="padding:7px 18px;border:none" onclick="setCycle('yearly')">Yearly <span style="color:var(--accent)">· 2 months free</span></button>
+        <button id="cycleYearly" class="btn btn-o" style="padding:7px 18px;border:none" onclick="setCycle('yearly')">Yearly <span style="color:var(--p-light)">· 2 months free</span></button>
       </div>
     </div>
     <div class="plans" id="plansGrid">
@@ -303,21 +554,21 @@
     </div>
     <div class="card" style="margin-top:26px;padding:26px">
       <h3 style="font-size:16px;margin-bottom:6px">🧮 What are you paying your OTA today?</h3>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Drag the sliders — direct bookings through your own StayChat engine cost 0% commission.</p>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Drag the sliders — direct bookings through your own StayChat engine cost 0% commission.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px" id="calcWrap">
         <div>
-          <label style="font-size:12.5px;color:var(--muted)">Monthly direct bookings: <b id="bkLabel" style="color:var(--text)">40</b></label>
-          <input type="range" min="5" max="300" value="40" id="bkInput" oninput="updateCalc()" style="width:100%;accent-color:#4f8cff">
-          <label style="font-size:12.5px;color:var(--muted);display:block;margin-top:12px">Average booking value: <b id="avLabel" style="color:var(--text)">$180</b></label>
-          <input type="range" min="40" max="1000" step="10" value="180" id="avInput" oninput="updateCalc()" style="width:100%;accent-color:#4f8cff">
-          <label style="font-size:12.5px;color:var(--muted);display:block;margin-top:12px">OTA commission: <b id="cmLabel" style="color:var(--text)">15%</b></label>
-          <input type="range" min="5" max="25" value="15" id="cmInput" oninput="updateCalc()" style="width:100%;accent-color:#4f8cff">
+          <label style="font-size:12.5px;color:var(--text2)">Monthly direct bookings: <b id="bkLabel" style="color:var(--text)">40</b></label>
+          <input type="range" min="5" max="300" value="40" id="bkInput" oninput="updateCalc()" style="width:100%;accent-color:#008a3b">
+          <label style="font-size:12.5px;color:var(--text2);display:block;margin-top:12px">Average booking value: <b id="avLabel" style="color:var(--text)">$180</b></label>
+          <input type="range" min="40" max="1000" step="10" value="180" id="avInput" oninput="updateCalc()" style="width:100%;accent-color:#008a3b">
+          <label style="font-size:12.5px;color:var(--text2);display:block;margin-top:12px">OTA commission: <b id="cmLabel" style="color:var(--text)">15%</b></label>
+          <input type="range" min="5" max="25" value="15" id="cmInput" oninput="updateCalc()" style="width:100%;accent-color:#008a3b">
         </div>
-        <div style="background:rgba(34,211,167,.07);border:1px solid rgba(34,211,167,.25);border-radius:14px;padding:20px;text-align:center">
-          <div style="font-size:12px;color:var(--muted);letter-spacing:1.5px">OTA COMMISSION YOU LOSE / YEAR</div>
-          <div id="calcLoss" style="font-size:34px;font-weight:800;color:var(--accent);margin:8px 0">$12,960</div>
-          <div style="font-size:13px;color:var(--muted);margin-bottom:16px">vs. StayChat Pro at <b id="calcPlan" style="color:var(--text)">$79/mo ($948/yr)</b></div>
-          <div style="font-size:20px;font-weight:800">You keep <span id="calcSave" style="color:var(--accent)">$12,012</span></div>
+        <div style="background:rgba(37,211,102,.08);border:1px solid rgba(0,138,59,.3);border-radius:14px;padding:20px;text-align:center">
+          <div style="font-size:12px;color:var(--text2);letter-spacing:1.5px">OTA COMMISSION YOU LOSE / YEAR</div>
+          <div id="calcLoss" style="font-size:34px;font-weight:800;color:var(--p-dark);margin:8px 0">$12,960</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:16px">vs. StayChat Pro at <b id="calcPlan" style="color:var(--text)">$79/mo ($948/yr)</b></div>
+          <div style="font-size:20px;font-weight:800">You keep <span id="calcSave" style="color:var(--p-light)">$12,012</span></div>
           <a class="btn btn-p btn-lg" href="/signup.html?plan=pro" style="margin-top:16px">Start keeping it →</a>
         </div>
       </div>
@@ -325,17 +576,17 @@
   </div>
 </section>
 
-<section id="faq">
+<section id="faq" style="background:var(--surface2)">
   <div class="wrap">
     <div class="center"><span class="kicker">FAQ</span><h2>Questions, answered</h2></div>
     <div class="faq">
       <details><summary>Do guests need to pay online to book?</summary><div class="a">No. The booking engine is "reserve now, pay at the hotel" — guests leave a name and phone number and receive a tender code. Your desk confirms the booking, and payment happens at check-in through the normal folio flow. Deposits and online prepayments can be recorded when they arrive.</div></details>
       <details><summary>How does the tender code work?</summary><div class="a">Every online booking gets a short code like BE-7K2M9QX4 (no confusing characters, readable over the phone). The guest presents it at the desk, shows the QR-coded confirmation slip, or just says it to the AI receptionist on WhatsApp, which looks up the live status instantly.</div></details>
-      <details><summary>How do I connect WhatsApp (Meta Developer Console)?</summary><div class="a">Create a Business-type app at developers.facebook.com and add the WhatsApp product. Copy the Phone Number ID and a permanent System User access token, pick any Webhook Verify Token string, and copy the App Secret — paste all four into Settings → WhatsApp, which also shows your exact webhook URL (<code>/api/webhooks/whatsapp/&lt;your-subdomain&gt;</code>). Then in Meta → WhatsApp → Configuration, set that callback URL + verify token and subscribe to the "messages" field. The full step-by-step guide is in the <a href="/help.html" style="color:var(--p2)">Help Center</a> under "WhatsApp &amp; the AI receptionist".</div></details>
-      <details><summary>Who can see the Billing &amp; Plan page?</summary><div class="a">Only the hotel owner/admin. Staff roles never see plan, prices or payment history — enforced in the UI and on the server. The plan banner stays visible to everyone, but owners can grant billing access to a trusted manager via per-user permissions.</div></details>
+      <details><summary>Should I switch from Cloudbeds, Mews or Little Hotelier?</summary><div class="a">If your guests live on WhatsApp, per-module pricing is eating your margin, or you want Wi-Fi, locks and IPTV inside the PMS — yes. StayChat includes the AI receptionist, POS-on-folio, double-entry accounting, guest currency geo-detection and all bookings on a real, instant booking page at one flat price. If you run a large group that mainly resells through OTAs and needs deep channel management across dozens of properties, a channel-heavy vendor may still add value on top — StayChat's direct engine is built to reduce that dependence, not replicate it.</div></details>
+      <details><summary>How do I connect WhatsApp (Meta Developer Console)?</summary><div class="a">Create a Business-type app at developers.facebook.com and add the WhatsApp product. Copy the Phone Number ID and a permanent System User access token, pick any Webhook Verify Token string, and copy the App Secret — paste all four into Settings → WhatsApp, which also shows your exact webhook URL (<code>/api/webhooks/whatsapp/&lt;your-subdomain&gt;</code>). Then in Meta → WhatsApp → Configuration, set that callback URL + verify token and subscribe to the "messages" field. The full step-by-step guide is in the <a href="/help.html" style="color:var(--p-light)">Help Center</a> under "WhatsApp &amp; the AI receptionist".</div></details>
       <details><summary>Can I sell event halls and pool time?</summary><div class="a">Yes. Add halls (day or hourly rate) and pools (per person per hour) and a Facilities tab appears on your public booking page automatically. Time-window conflicts are rejected live, and confirmations work exactly like room bookings.</div></details>
       <details><summary>Can two hotels share one installation?</summary><div class="a">Yes — StayChat OS is multi-tenant by design. Tenant isolation is enforced in a single middleware chokepoint, so hotels can never read each other's bookings, guests or credentials. A platform operator (superadmin) manages the portfolio.</div></details>
-      <details><summary>Where can I find the full manual?</summary><div class="a">The <a href="/help.html" style="color:var(--p2)">Help Center</a> has the complete user manual (18 sections) and the full FAQ — searchable, and the same knowledge base that powers this page's assistant. Self-hosting guide: deploy/SETUP.md in the repo.</div></details>
+      <details><summary>Where can I find the full manual?</summary><div class="a">The <a href="/help.html" style="color:var(--p-light)">Help Center</a> has the complete user manual (18 sections) and the full FAQ — searchable, and the same knowledge base that powers this page's assistant. Self-hosting guide: deploy/SETUP.md in the repo.</div></details>
     </div>
   </div>
 </section>
@@ -387,7 +638,7 @@
         (hot ? '<div class="tag">MOST POPULAR</div>' : '') +
         '<h3>' + p.name + '</h3>' +
         '<div class="price">' + money(price) + '<small>' + per + '</small></div>' +
-        (p.maxRooms ? '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">Up to ' + p.maxRooms + ' rooms</div>' : '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">Unlimited rooms & properties</div>') +
+        (p.maxRooms ? '<div style="font-size:12px;color:var(--text3);margin-bottom:4px">Up to ' + p.maxRooms + ' rooms</div>' : '<div style="font-size:12px;color:var(--text3);margin-bottom:4px">Unlimited rooms & properties</div>') +
         '<ul>' + feats + '</ul>' +
         '<a class="btn ' + (hot ? 'btn-p' : 'btn-o') + '" href="/signup.html?plan=' + p.id + (cycle === 'yearly' ? '&cycle=yearly' : '') + '">Start free trial</a>' +
       '</div>';
@@ -497,7 +748,7 @@
     if (greeted) return;
     greeted = true;
     addMsg("Hi! I'm the StayChat assistant — trained on this platform's full knowledge base (the same one behind the Help Center). Ask me about the booking engine, tender codes, WhatsApp automation, Wi-Fi, integrations, pricing, permissions or self-hosting.", 'bot');
-    setChips(['What is StayChat OS?', 'How does the booking engine work?', 'Who can see the Billing page?', 'How much does it cost?']);
+    setChips(['What is StayChat OS?', 'How does the booking engine work?', 'How do you compare to Cloudbeds or Mews?', 'How much does it cost?']);
   }
   let sending = false;
   async function send(text) {

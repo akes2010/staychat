@@ -104,9 +104,10 @@
       <div>
         <div class="topbar-title" id="topbar-title">Dashboard</div>
       </div>
-      <div class="topbar-search">
+      <div class="topbar-search" style="position:relative">
         <span>🔍</span>
         <input placeholder="Search rooms, guests, orders…" id="global-search" oninput="globalSearch(this.value)"/>
+        <div id="searchResults" style="display:none;position:absolute;top:calc(100% + 6px);right:0;min-width:280px;max-height:320px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);z-index:60"></div>
       </div>
       <div class="topbar-actions">
         <button class="icon-btn" id="install-btn" style="display:none" onclick="PWA.promptInstall()" title="Install StayChat OS as an app">⬇️</button>

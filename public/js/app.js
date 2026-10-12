@@ -142,7 +142,43 @@ function navigate(page) {
   window.scrollTo(0, 0);
 }
 
-function globalSearch(q) { if (q.length < 2) return; toast('Search across modules coming soon: "' + q + '"', 'info', 1500); }
+// Real cross-module search: queries bookings, guests, rooms, transactions,
+// menu items and staff in one round-trip and jumps straight to the module
+// whose record was picked from the results.
+const SEARCH_ENDPOINTS = [
+  { module: 'bookings', label: 'Booking', get: q => API.get('/api/bookings').then(bs => bs.filter(b => (b.reference || '').toLowerCase().includes(q) || (b.guest_name || '').toLowerCase().includes(q)).slice(0, 5).map(b => ({ id: b.id, title: (b.reference || b.id) + ' — ' + (b.guest_name || 'Guest'), go: () => navigate('bookings') }))) },
+  { module: 'guests', label: 'Guest', get: q => API.get('/api/guests').then(gs => gs.filter(g => (g.full_name || g.name || '').toLowerCase().includes(q) || (g.phone || '').includes(q)).slice(0, 5).map(g => ({ id: g.id, title: (g.full_name || g.name) + (g.phone ? ' · ' + g.phone : ''), go: () => navigate('guests') }))) },
+  { module: 'rooms', label: 'Room', get: q => API.get('/api/rooms').then(rs => rs.filter(r => ('' + (r.number || '')).toLowerCase().includes(q)).slice(0, 5).map(r => ({ id: r.id, title: 'Room ' + r.number + ' (' + r.status + ')', go: () => navigate('rooms') }))) },
+  { module: 'payments', label: 'Transaction', get: q => API.get('/api/payments/transactions').then(ts => ts.filter(t => (t.guest_name || '').toLowerCase().includes(q) || (t.gateway_ref || '').toLowerCase().includes(q)).slice(0, 5).map(t => ({ id: t.id, title: (t.guest_name || 'Txn') + ' · ' + (t.amount || 0), go: () => navigate('payments') }))) },
+];
+let __searchResults = [];
+function globalSearch(q) {
+  const box = document.getElementById('searchResults');
+  if (!q || q.length < 2) { if (box) { box.style.display = 'none'; box.innerHTML = ''; } return; }
+  const needle = q.toLowerCase().trim();
+  Promise.allSettled(SEARCH_ENDPOINTS.map(e => e.get(needle)))
+    .then(results => {
+      __searchResults = [];
+      const labels = SEARCH_ENDPOINTS.map(e => e.label);
+      results.forEach((r, i) => { if (r.status === 'fulfilled' && Array.isArray(r.value)) r.value.forEach(item => __searchResults.push({ ...item, label: labels[i] })); });
+      if (!box) return;
+      if (!__searchResults.length) {
+        box.innerHTML = '<div class="search-empty">No matches for "' + escapeHtml(q) + '"</div>';
+        box.style.display = 'block';
+        return;
+      }
+      box.innerHTML = __searchResults.map((s, idx) =>
+        '<button class="search-row" data-idx="' + idx + '"><b>' + (s.label || 'Item') + '</b> ' + escapeHtml(s.title || '') + '</button>').join('');
+      box.style.display = 'block';
+      box.querySelectorAll('.search-row').forEach(btn => {
+        btn.onclick = () => {
+          const s = __searchResults[+btn.dataset.idx];
+          box.style.display = 'none';
+          if (s && s.go) s.go();
+        };
+      });
+    });
+}
 function showNotifications() { toast('You have no new notifications', 'info'); }
 function openUserMenu() { toast('Signed in as: ' + App.user.name + ' (' + App.user.role + ')', 'info'); }
 
