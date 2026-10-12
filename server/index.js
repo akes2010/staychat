@@ -126,12 +126,24 @@ const globalLimiter = rateLimit({
   // possible here: this limiter is mounted before auth, so req.user is unset.)
 });
 
-// Stricter limit for auth endpoints
+// Broad gate for the /api/auth/* family (login, refresh, register, forgot…).
+// The per-route limiters in routes/auth.js carry the real brute-force
+// protection with skipSuccessful/skipFailedRequests tuned per endpoint; this
+// one just stops a machine from sitting on the whole family. It used to be
+// 20/15min with no exemptions — every tab's session-restore refresh counted
+// against it, so a NAT'd office of ~10 staff tripped it at shift start and
+// got the SAME "console full of Not authenticated" lockout. Now: only
+// successful requests count (a flood of refused refreshes from dead sessions
+// can no longer eat the budget needed for real logins), and the ceiling
+// covers realistic multi-staff bursts. Brute force is still dead-ended by
+// loginLimiter (30 failed/15min) below.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  skipFailedRequests: true,
   message: { error: 'Too many authentication attempts. Please try again later.' },
 });
 
