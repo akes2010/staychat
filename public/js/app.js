@@ -344,4 +344,63 @@ function registerRealtimeHandlers() {
 
 window.addEventListener('DOMContentLoaded', () => {
   tryRestoreSession();
+  startStaleUiDetector();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STALE-UI DETECTOR
+// The SPA loads page modules once when the browser first fetched them; a
+// deploy that swaps the code on the server does NOT reload code inside a
+// session that never navigates away (an owner's desktop tab can stay open
+// for days). The detector records what the server SERVED at session start
+// (UI build stamp + boot id via /api/version) and quietly re-checks every
+// few minutes while the tab is open; on a mismatch it tells the user to
+// reload — with a one-click reload action so updates apply instantly.
+// ═══════════════════════════════════════════════════════════════════════════
+let __staleUiState = { served: null, checked: 0, warned: false };
+
+async function startStaleUiDetector() {
+  try {
+    const v = await API.get('/api/version');
+    __staleUiState.served = v.uiBuildStamp;
+    window.__serverBootId = v.bootId;
+    window.__serverUiStamp = v.uiBuildStamp;
+  } catch (e) { return; } // pointless without the endpoint; silent
+
+  // Re-check every 3 minutes; also re-check when the tab regains visibility
+  // (deploy happened while the desk was away — they should see it by their
+  // NEXT interaction, not later into a shift).
+  setInterval(checkStaleUi, 3 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkStaleUi();
+  });
+}
+
+async function checkStaleUi() {
+  __staleUiState.checked++;
+  let v;
+  try { v = await API.get('/api/version'); }
+  catch (e) { return; } // offline / server restarting — nothing to conclude
+  if (!v || !v.uiBuildStamp) return;
+
+  window.__serverBootId = v.bootId;
+  window.__serverUiStamp = v.uiBuildStamp;
+  // Filter out double-fire (visibility + timer in same moment)
+  if (__staleUiState.warned) return;
+
+  const fresh = v.uiBuildStamp !== __staleUiState.served;
+  const restarted = __staleUiState.served && v.bootId !== window.__serverBootId && fresh;
+  if (fresh || restarted) {
+    __staleUiState.warned = true;
+    const msg = '🆕 A new version of StayChat OS just went live. Your open page is still running the old UI — reload to get the latest fixes.';
+    toast(msg, 'info', 12000);
+    console.warn('[stale-ui]', 'served=' + __staleUiState.served, 'now=' + v.uiBuildStamp, restarted ? '(server restarted)' : '');
+    if (typeof openModal === 'function') {
+      openModal('New version available',
+        '<p style="font-size:14px;color:var(--text2);line-height:1.55">A new version of StayChat OS just went live. Your open page is still running the old interface — <b>reload now</b> to pick up the latest fixes and features.</p>' +
+        '<div style="background:var(--surface2);border-radius:var(--radius);padding:10px 12px;font-size:12px;color:var(--text3);margin-top:10px">Reload is safe: unsaved form data on ServeDesk pages is not stored anywhere else, and any half-typed registration is preserved by the draft system.</div>',
+        '<button class="btn outline" onclick="closeModal()">Later</button><button class="btn primary" onclick="window.location.reload()">Reload Now</button>'
+      );
+    }
+  }
+}

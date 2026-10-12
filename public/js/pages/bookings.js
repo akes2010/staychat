@@ -276,6 +276,7 @@ PAGES.bookings = function () {
         '<div class="form-group"><label class="form-label">First / Real Name</label><input class="form-input" id="nb-firstname" placeholder="e.g. Rotimi"/></div>' +
         '<div class="form-group"><label class="form-label">Phone Number</label><input class="form-input" id="nb-phone" placeholder="+234…"/></div>' +
         '<div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" type="email" id="nb-email" placeholder="name@example.com"/></div>' +
+        '<div id="nb-guest-history" style="grid-column:1/-1"></div>' +
         '<div class="form-group" style="grid-column:1/-1"><label class="form-label">Address</label><input class="form-input" id="nb-address" placeholder="Residential address"/></div>' +
         '<div class="form-group"><label class="form-label">Means of Identification</label><select class="form-select" id="nb-idtype">' + (window.ID_TYPES || []).map(t => '<option>' + t + '</option>').join('') + '</select></div>' +
         '<div class="form-group"><label class="form-label">ID Number</label><input class="form-input" id="nb-idnumber" placeholder="ID number"/></div>' +
@@ -332,6 +333,75 @@ PAGES.bookings = function () {
       body.addEventListener('input', saveDraft);
       body.addEventListener('change', saveDraft);
     }
+    hookReturningGuestAutofill();
+  }
+
+  // ── RETURNING-GUEST AUTOFILL ────────────────────────────────────────────
+  // Typing a phone number already known to the hotel fills THE WHOLE form
+  // (name, email, address, ID, country/state, next of kin) from the guest's
+  // last stay, with a small history strip. Never runs while any OTHER known
+  // field has content — the desk may be deliberately re-keying a returning
+  // guest whose details changed; the fill respects every field they've
+  // already typed and only fills BLANK ones.
+  let autofillLookingUp = false;
+  async function hookReturningGuestAutofill() {
+    const phoneEl = document.getElementById('nb-phone');
+    if (!phoneEl || phoneEl.dataset.autofillHooked) return;
+    phoneEl.dataset.autofillHooked = '1';
+    phoneEl.addEventListener('blur', onPhoneBlur);
+    phoneEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); onPhoneBlur(); } });
+  }
+
+  async function onPhoneBlur() {
+    if (autofillLookingUp) return;
+    const phoneEl = document.getElementById('nb-phone');
+    if (!phoneEl) return;
+    const digits = phoneEl.value.replace(/[^\d]/g, '');
+    if (digits.length < 7) return; // too short to match on
+
+    // Never overwrite data the desk has deliberately typed already.
+    const known = ['nb-surname','nb-firstname','nb-email','nb-address','nb-idnumber','nb-nok-name','nb-nok-phone']
+      .map(id => document.getElementById(id)).filter(Boolean)
+      .some(el => String(el.value).trim().length > 0);
+    if (known) return;
+
+    autofillLookingUp = true;
+    try {
+      const hit = await API.get('/api/bookings/returning-guest?phone=' + encodeURIComponent(phoneEl.value.trim()));
+      if (!hit || !hit.matched || !hit.guest) return;
+      const g = hit.guest;
+      const fill = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && val && !String(el.value).trim()) { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); }
+      };
+      fill('nb-surname', g.surname);
+      fill('nb-firstname', g.firstName);
+      fill('nb-email', g.email);
+      fill('nb-address', g.address);
+      fill('nb-idnumber', g.idNumber);
+      fill('nb-nok-name', g.nextOfKinName);
+      fill('nb-nok-phone', g.nextOfKinPhone);
+      // country then state/region (select per country, so set country first)
+      if (g.country) {
+        const cEl = document.getElementById('nb-country');
+        if (cEl && !cEl.value) { cEl.value = g.country; cEl.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (g.state) setTimeout(() => { const sEl = document.getElementById('nb-state'); if (sEl && !sEl.value) sEl.value = g.state; }, 30);
+      }
+      // Load the ID-type select to a named option value if the lookup has one
+      if (g.idType) { const itEl = document.getElementById('nb-idtype'); if (itEl && !itEl.value) itEl.value = g.idType; }
+
+      const anyField = ['nb-surname','nb-firstname'].some(id => (document.getElementById(id) || {}).value);
+      if (anyField) {
+        const hist = (hit.history || []).slice(0, 3).map(h =>
+          escapeHtml(h.reference) + ' · ' + escapeHtml(String(h.checkIn)) + '→' + escapeHtml(String(h.checkOut)) + ' · ' + statusBadge(h.status)).join('<br>');
+        toast('✅ Returning guest — filled from their last stay (' + (hit.stayCount || 1) + ' stay' + ((hit.stayCount || 1) === 1 ? '' : 's') + ')', 'success', 5000);
+        // A compact history strip in the form body — visibility, not decoration.
+        const strip = document.getElementById('nb-guest-history');
+        if (strip) strip.innerHTML = hist ? '<div style="background:var(--surface2);border-radius:var(--radius);padding:10px 12px;font-size:11.5px;color:var(--text3);margin:-4px 0 12px"><b style="color:var(--p)">Stay history:</b><br>' + hist + '</div>' : '';
+      }
+      saveDraft(); // the autofill is data too — persist it in the draft
+    } catch (err) { window.__autofillLastError = String(err && err.message || err); /* best-effort; never blocks form entry */ }
+    finally { autofillLookingUp = false; }
   }
 
   function stateFieldHTML(country) {

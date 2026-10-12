@@ -222,6 +222,44 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ── Stale-UI detector: /api/version ─────────────────────────────────────────
+// The app ships un-hashed JS filenames, so a staff browser that loaded the
+// page once can keep running OLD page code for as long as that session lives
+// (single-page navigation never refetches <script src> tags). This endpoint
+// stamps WHO the server is (boot id) and WHAT it serves (UI build stamp, a
+// cheap hash of the page-module code). The client caches the values it booted
+// with and asks this endpoint every few minutes; a mismatch means VM
+// operations swapped the code underneath the screen — tell the user plainly.
+const crypto = require('crypto');
+const fs = require('fs');
+let uiBuildStamp = null;
+function computeUiBuildStamp() {
+  if (uiBuildStamp) return uiBuildStamp;
+  try {
+    const hash = crypto.createHash('sha256');
+    fs.readdirSync(path.join(__dirname, '..', 'public', 'js', 'pages')).sort().forEach(f => {
+      hash.update(f).update(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'pages', f)));
+    });
+    hash.update(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'app.js')));
+    hash.update(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'ui.js')));
+    hash.update(fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'api.js')));
+    hash.update(fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html')));
+    uiBuildStamp = hash.digest('hex').slice(0, 12);
+  } catch (e) {
+    uiBuildStamp = 'unknown';
+  }
+  return uiBuildStamp;
+}
+const SERVER_BOOT_ID = 'boot_' + nanoid(10);
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: process.env.APP_VERSION || '1.0.0',
+    bootId: SERVER_BOOT_ID,
+    uiBuildStamp: computeUiBuildStamp(),
+    time: new Date().toISOString(),
+  });
+});
+
 // Detailed health check for load balancers
 app.get('/api/health/detailed', (req, res) => {
   const memUsage = process.memoryUsage();

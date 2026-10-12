@@ -56,6 +56,68 @@ router.get('/', (req, res) => {
   res.json(rows.map(serialize));
 });
 
+// GET /api/bookings/returning-guest?phone= — PEMBROKE-STYLE RETURNING-GUEST
+// LOOKUP for the reservation form's autofill. Given a phone number typed by
+// the desk, returns the most recent profile (from bookings, since that is the
+// bio-data the desk actually collected — guests table only mirrors a subset)
+// plus a tiny stay history, so one field-fill brings the whole known guest
+// back. Match is tolerant of format: E.164, local 080… and spaced digits all
+// resolve to the same guest because we compare on their LAST 10 digits.
+// READ deliberately open to bookings.manage (the desk owns this form).
+router.get('/returning-guest', (req, res) => {
+  const raw = String(req.query.phone || '');
+  const digits = raw.replace(/[^\d]/g, '');
+  const key = digits.length > 10 ? digits.slice(-10) : digits;
+  if (!key) return res.status(400).json({ error: 'phone is required' });
+
+  // All bookings for numbers whose last-10 digits match the typed key.
+  const rows = db.prepare('SELECT * FROM bookings WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 400').all(req.tenantId)
+    .filter(b => {
+      const bd = String(b.guest_phone || '').replace(/[^\d]/g, '');
+      const bk = bd.length > 10 ? bd.slice(-10) : bd;
+      return bk === key;
+    });
+  if (rows.length === 0) return res.json({ matched: false });
+
+  // Seeded/legacy bookings may only carry the composite guest_name ("Grace
+  // Okafor"), not the split surname/first_name columns. Split on the FIRST
+  // word so the form gets both parts regardless of which era wrote the row.
+  const withBio = rows.find(b => b.surname || b.first_name || b.address);
+  const latest = withBio ? withBio : rows.find(b => b.guest_name) || rows[0];
+  if (!latest.surname && !latest.first_name && latest.guest_name) {
+    const parts = String(latest.guest_name).trim().split(/\s+/);
+    if (parts.length > 1) { latest.first_name = parts.slice(0, -1).join(' '); latest.surname = parts[parts.length - 1]; }
+    else latest.surname = parts[0];
+  }
+  const roomsOf = (id) => db.prepare('SELECT room_number FROM booking_rooms WHERE booking_id = ?').all(id).map(r => r.room_number);
+  res.json({
+    matched: true,
+    guest: {
+      surname: latest.surname || null,
+      firstName: latest.first_name || null,
+      fullName: latest.guest_name || null,
+      phone: latest.guest_phone || raw || null,
+      email: latest.guest_email || null,
+      address: latest.address || null,
+      idType: latest.id_type || null,
+      idNumber: latest.id_number || null,
+      country: latest.country || null,
+      state: latest.state || null,
+      nextOfKinName: latest.next_of_kin_name || null,
+      nextOfKinPhone: latest.next_of_kin_phone || null,
+      guestId: latest.guest_id || null,
+    },
+    history: rows.slice(0, 5).map(b => ({
+      reference: b.reference,
+      checkIn: b.check_in, checkOut: b.check_out,
+      status: b.status,
+      rooms: roomsOf(b.id),
+      total: b.total_amount,
+    })),
+    stayCount: rows.length,
+  });
+});
+
 router.get('/:id', (req, res) => {
   const b = db.prepare('SELECT * FROM bookings WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!b) return res.status(404).json({ error: 'Booking not found' });
