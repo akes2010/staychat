@@ -99,9 +99,12 @@ router.post('/settle', requirePermission('payments.use'), (req, res) => {
 
     // 2) Settle every pending incidental transaction. The `status = 'pending'`
     // guard means a charge already collected by a concurrent settlement is skipped
-    // rather than being marked paid (and journalled) a second time.
+    // rather than being marked paid (and journalled) a second time. Charges get
+    // a stable idempotency stamp 'settle:<txnId>' — a retried settle request
+    // re-asserts the SAME stamp on each, so the UNIQUE index guarantees one
+    // settlement per charge no matter how many times the request replays.
     pending.forEach(t => {
-      const r = db.prepare(`UPDATE transactions SET status = 'completed', method = ? WHERE id = ? AND status = 'pending'`)
+      const r = db.prepare(`UPDATE transactions SET status = 'completed', method = ?, idempotency_key = 'settle:' || id WHERE id = ? AND status = 'pending'`)
         .run(method === 'cash' ? 'Cash' : method === 'card' ? 'Card' : t.method, t.id);
       if (r.changes === 0) return; // someone else settled this charge first
       settledTransactionIds.push(t.id);

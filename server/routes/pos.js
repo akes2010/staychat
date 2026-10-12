@@ -13,7 +13,7 @@ const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { broadcast } = require('../ws');
 const { requirePermission, hasPermission } = require('../utils/permissions');
-const { postEntry, getAccountByKey, ensureDefaultAccounts } = require('./accounting');
+const { postCharge } = require('../services/charges');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pos.use'));
@@ -266,12 +266,13 @@ router.post('/tickets/:id/checkout', (req, res) => {
   const outletLabel = t.outlet === 'bar' ? 'Bar' : 'Restaurant';
   const itemsSummary = items.map(i => i.qty + '× ' + i.name).join(', ');
 
-  // Close the ticket and write the transaction in ONE transaction, and let the
-  // UPDATE re-assert status='open'. Without this, two clicks on "Settle" (or a
-  // retried request) closed the ticket twice and produced two transactions for one
-  // sale — real money invented out of a double-submit.
-  const txnId = 'txn_' + nanoid(10);
+  // Close the ticket and post the charge through the ONE money pipeline in a
+  // single transaction, with the UPDATE re-asserting status='open'. The
+  // pipeline itself is idempotent ('pos:<ticketId>'), so even if a retried
+  // request slips past the status guard, the charge cannot be posted twice.
   let claimed = true;
+  let txn = null;
+  const txnId = 'txn_' + nanoid(10);
   db.transaction(() => {
     const r = db.prepare(`UPDATE pos_tickets SET status = 'closed', payment_method = ?, transaction_id = ?, guest_name = ?, room_number = ?, guest_id = ?,
                 booking_id = ?, discount_pct = ?, subtotal = ?, total = ?, closed_by = ?, closed_at = datetime('now'), updated_at = datetime('now')
@@ -279,32 +280,19 @@ router.post('/tickets/:id/checkout', (req, res) => {
       .run(paymentMethod, txnId, guestName, roomNumber, guestId, bookingId, discountPct, subtotal, total, req.user.name, t.id);
     if (r.changes === 0) { claimed = false; return; }
 
-    db.prepare(`INSERT INTO transactions (id, tenant_id, guest_name, room_number, description, amount, method, status, gateway_ref, booking_id, guest_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(txnId, req.tenantId, guestName || 'Walk-in Customer', roomNumber, outletLabel + ' POS — ' + itemsSummary,
-           total, methodLabel, isImmediate ? 'completed' : 'pending', 'POS-' + t.id.slice(4).toUpperCase(), bookingId, guestId || null);
+    const posted = postCharge(req.tenantId, {
+      source: 'pos', sourceId: t.id, idempotencyKey: 'pos:' + t.id,
+      amount: total, method: methodLabel,
+      description: outletLabel + ' POS — ' + itemsSummary,
+      bookingId, guestId, roomNumber, guestName: guestName || 'Walk-in Customer',
+      outlet: t.outlet, gatewayRef: 'POS-' + t.id.slice(4).toUpperCase(),
+      immediate: isImmediate, createdBy: req.user.name,
+    });
+    txn = posted.transaction;
   })();
   if (!claimed) return res.status(409).json({ error: 'This ticket has already been settled' });
 
   const updated = db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(t.id);
-  const txn = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txnId);
-
-  // Auto-post the double-entry journal for this sale: debit cash/AR, credit revenue.
-  try {
-    ensureDefaultAccounts(req.tenantId);
-    const revenueAccount = getAccountByKey(req.tenantId, t.outlet === 'bar' ? 'bar_revenue' : 'restaurant_revenue');
-    const debitAccount = getAccountByKey(req.tenantId,
-      paymentMethod === 'room_charge' ? 'ar_room' :
-      paymentMethod === 'customer_bill' ? 'ar_customer' :
-      paymentMethod === 'group_account' ? 'ar_group' : 'cash');
-    if (revenueAccount && debitAccount) {
-      postEntry(req.tenantId, {
-        date: new Date().toISOString().slice(0, 10), reference: 'POS-' + t.id.slice(4).toUpperCase(),
-        description: outletLabel + ' sale — ' + (guestName || 'Walk-in Customer'), source: 'pos', sourceId: t.id, createdBy: req.user.name,
-        lines: [{ accountId: debitAccount.id, debit: total, memo: methodLabel }, { accountId: revenueAccount.id, credit: total, memo: itemsSummary }],
-      });
-    }
-  } catch (e) { /* accounting postings must never block a sale from completing */ }
 
   audit(req, 'pos.ticket_checkout', 'pos_ticket', t.id, { paymentMethod, total });
   broadcast(req.tenantId, 'pos.ticket.closed', serialize(updated));

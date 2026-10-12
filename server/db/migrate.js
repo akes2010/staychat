@@ -900,6 +900,15 @@ function migrate() {
   const txnCols = db.prepare("PRAGMA table_info(transactions)").all().map(c => c.name);
   if (!txnCols.includes('booking_id')) db.exec("ALTER TABLE transactions ADD COLUMN booking_id TEXT REFERENCES bookings(id) ON DELETE SET NULL");
   if (!txnCols.includes('guest_id')) db.exec("ALTER TABLE transactions ADD COLUMN guest_id TEXT REFERENCES guests(id) ON DELETE SET NULL");
+  // Unified money pipeline (server/services/charges.js):
+  //   idempotency_key — globally unique posting key (source + source row id).
+  //     The UNIQUE index below is what makes duplicate charges structurally
+  //     impossible, not just unlikely: a retried request or double-click
+  //     returns the ORIGINAL transaction row.
+  //   source          — which pipeline produced the money (booking, order,
+  //     pos, misc_service, pool, hall). Drives revenue distribution.
+  if (!txnCols.includes('idempotency_key')) db.exec("ALTER TABLE transactions ADD COLUMN idempotency_key TEXT");
+  if (!txnCols.includes('source')) db.exec("ALTER TABLE transactions ADD COLUMN source TEXT");
   const posCols3 = db.prepare("PRAGMA table_info(pos_tickets)").all().map(c => c.name);
   if (!posCols3.includes('booking_id')) db.exec("ALTER TABLE pos_tickets ADD COLUMN booking_id TEXT REFERENCES bookings(id) ON DELETE SET NULL");
   if (!posCols3.includes('cashier_name')) db.exec("ALTER TABLE pos_tickets ADD COLUMN cashier_name TEXT");
@@ -1021,6 +1030,15 @@ function migrate() {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_txn_tenant_gateway_ref ON transactions(tenant_id, gateway_ref) WHERE gateway_ref IS NOT NULL');
   } catch (e) {
     console.warn('⚠️ Could not enforce unique gateway reference per transaction:', e.message);
+  }
+
+  // One posting per pipeline idempotency key — the structural guarantee behind
+  // server/services/charges.js. Backfilled rows (pre-pipeline data) keep NULL
+  // and don't participate in the index.
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_txn_idempotency_key ON transactions(idempotency_key) WHERE idempotency_key IS NOT NULL');
+  } catch (e) {
+    console.warn('⚠️ Could not enforce unique idempotency key:', e.message);
   }
 
   // ══════════════════════════════════════════════════════════

@@ -9,6 +9,7 @@ const { requireAuth, resolveTenant, requireTenant, audit } = require('../middlew
 const { hasPermission, requirePermission } = require('../utils/permissions');
 const { broadcast } = require('../ws');
 const { effectiveRate } = require('./room-setup');
+const { postCharge, recordPayment } = require('../services/charges');
 const { resolveOutstanding } = require('../utils/balance');
 const { postEntry, getAccountByKey, ensureDefaultAccounts } = require('./accounting');
 const wifi = require('../services/wifi');
@@ -62,6 +63,28 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/bookings — create a reservation. roomIds: string[] (1 = normal booking, 2+ = group).
+//
+// DOUBLE-REGISTRATION PROOF: the payload is fingerprinted (guest + dates +
+// rooms + reference override) and, if the DESK (not the engine) created the
+// identical registration moments before, the original booking is returned
+// with 200 instead of minting a second one. A guest arriving twice on the
+// desk's books is a real complaint-class failure this kills at the source.
+// A client can also pass `idempotencyKey` (e.g. the browser tab's submit
+// token) for explicit intent-level dedupe.
+function registrationFingerprint(body, resolvedRooms) {
+  const crypto = require('crypto');
+  const norm = {
+    name: String(body.guestName || [body.firstName, body.surname].filter(Boolean).join(' ')).trim().toLowerCase(),
+    phone: String(body.guestPhone || '').replace(/[^\d]/g, '').slice(-10),
+    in: body.checkIn, out: body.checkOut,
+    rooms: resolvedRooms.map(r => r.id).sort(),
+    group: !!body.isGroup,
+    externalRef: body.externalRef || null,
+    clientKey: body.idempotencyKey || null,
+  };
+  return 'reg-' + crypto.createHash('sha256').update(JSON.stringify(norm)).digest('hex').slice(0, 32);
+}
+
 router.post('/', requirePermission('bookings.manage'), (req, res) => {
   const {
     guestName, surname, firstName, guestPhone, guestEmail, guestId, address, idType, idNumber, country, state,
@@ -85,6 +108,27 @@ router.post('/', requirePermission('bookings.manage'), (req, res) => {
   // below (findConflict) — checking here only gives a fast, cheap rejection before
   // the pricing work. The in-transaction re-check is the one that actually prevents
   // two concurrent requests from both booking the same room.
+  //
+  // Same-registration dedupe runs FIRST: an identical desk registration
+  // (same guest ± case, dates and room set) created moments before returns
+  // the original booking instead of failing on the overlap check it now
+  // conflicts with. 'engine' source is excluded — a guest re-submitting on
+  // the public page is a NEW intent and must create a new tender-code request.
+  if ((source || 'direct') !== 'engine') {
+    const dup = db.prepare(`
+      SELECT b.* FROM bookings b
+      JOIN booking_rooms br ON br.booking_id = b.id
+      WHERE b.tenant_id = ? AND b.source != 'engine'
+        AND b.status IN ('confirmed','checked_in')
+        AND b.check_in = ? AND b.check_out = ? AND b.guest_name = ? COLLATE NOCASE
+        AND br.room_id IN (${rooms.map(() => '?').join(',')})
+      ORDER BY b.created_at DESC LIMIT 1
+    `).get(req.tenantId, checkIn, checkOut, resolvedGuestName, ...rooms.map(r => r.id));
+    if (dup) {
+      audit(req, 'booking.dedupe', 'booking', dup.id);
+      return res.status(200).json({ ...serialize(dup), duplicate: true });
+    }
+  }
   const findConflict = () => db.prepare(`
     SELECT br.room_number FROM booking_rooms br
     JOIN bookings b ON b.id = br.booking_id
@@ -204,36 +248,22 @@ router.post('/', requirePermission('bookings.manage'), (req, res) => {
     const insertRoom = db.prepare('INSERT INTO booking_rooms (id, tenant_id, booking_id, room_id, room_number, rate, occupant_name) VALUES (?,?,?,?,?,?,?)');
     roomTotals.forEach(rt => insertRoom.run('bkr_' + nanoid(10), req.tenantId, id, rt.room.id, rt.room.number, rt.rate, null));
 
-    // Record payment if collected
+    // Record payment if collected — through the ONE money pipeline
+    // (services/charges.js): idempotent, ledger-real, room_revenue attributed.
+    // The idempotency key is the booking's own reference, so a retried
+    // "create booking with payment" request can never double-charge the guest.
     if (paymentAmount > 0 && paymentMethod) {
-      const txnId = 'txn_' + nanoid(10);
       const methodLabel = paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1);
       const firstRoomNumber = isGroup ? null : roomTotals[0].room.number;
       const label = depositRequested > 0 && payAmount <= 0 ? 'Booking deposit — ' : 'Booking payment — ';
-      db.prepare(`INSERT INTO transactions (id, tenant_id, guest_name, room_number, description, amount, method, status, gateway_ref, booking_id, guest_id)
-                  VALUES (?,?,?,?,?,?,?, 'completed', ?,?,?)`)
-        .run(txnId, req.tenantId, resolvedGuestName, firstRoomNumber, label + reference,
-             paymentAmount, methodLabel, 'BOOK-' + txnId.slice(4).toUpperCase(), id, resolvedGuestId);
-
-      db.prepare('UPDATE bookings SET paid_amount = paid_amount + ? WHERE id = ?').run(paymentAmount, id);
-      paymentTxn = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txnId);
-
-      // Post the double-entry journal (non-fatal)
-      try {
-        ensureDefaultAccounts(req.tenantId);
-        const debitAccount = getAccountByKey(req.tenantId, paymentMethod === 'cash' ? 'cash' : 'bank');
-        const roomRevenue = getAccountByKey(req.tenantId, 'room_revenue');
-        if (debitAccount && roomRevenue) {
-          postEntry(req.tenantId, {
-            date: new Date().toISOString().slice(0, 10), reference, description: 'Booking payment — ' + resolvedGuestName,
-            source: 'booking', sourceId: id, createdBy: req.user.name,
-            lines: [
-              { accountId: debitAccount.id, debit: paymentAmount, memo: methodLabel },
-              { accountId: roomRevenue.id, credit: paymentAmount, memo: 'Room booking' }
-            ],
-          });
-        }
-      } catch (e) { /* accounting postings must never block a booking from completing */ }
+      const posted = recordPayment(req.tenantId, {
+        source: 'booking', sourceId: id, idempotencyKey: 'booking-payment:' + id,
+        amount: paymentAmount, method: methodLabel,
+        description: label + reference,
+        bookingId: id, guestId: resolvedGuestId, roomNumber: firstRoomNumber,
+        guestName: resolvedGuestName, createdBy: req.user.name,
+      });
+      paymentTxn = posted.transaction;
     }
   });
   try { doCreate(); }

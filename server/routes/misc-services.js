@@ -8,7 +8,7 @@ const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 const { broadcast } = require('../ws');
-const { postEntry, getAccountByKey, ensureDefaultAccounts } = require('./accounting');
+const { postCharge } = require('../services/charges');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('orders.manage'));
@@ -102,6 +102,7 @@ router.post('/orders/:id/complete', (req, res) => {
   const methodLabel = METHOD_LABELS[paymentMethod];
   const isImmediate = IMMEDIATE_METHODS.includes(paymentMethod);
   let claimed = true;
+  let txn = null;
 
   db.transaction(() => {
     const r = db.prepare(`UPDATE misc_service_orders SET status = 'completed', payment_method = ?, transaction_id = ?, completed_at = datetime('now')
@@ -109,32 +110,32 @@ router.post('/orders/:id/complete', (req, res) => {
       .run(paymentMethod, txnId, order.id);
     if (r.changes === 0) { claimed = false; return; }
 
-    db.prepare(`INSERT INTO transactions (id, tenant_id, guest_name, room_number, description, amount, method, status, gateway_ref)
-                VALUES (?,?,?,?,?,?,?,?,?)`)
-      .run(txnId, req.tenantId, order.guest_name || 'Walk-in Customer', order.room_number, 'Service: ' + order.service_name,
-           order.total, methodLabel, isImmediate ? 'completed' : 'pending', 'SVC-' + order.id.slice(6).toUpperCase());
-
-    // Mirror the POS pattern so misc-service revenue actually reaches the ledger —
-    // the misc_revenue account existed but nothing ever posted to it.
-    try {
-      ensureDefaultAccounts(req.tenantId);
-      const revenue = getAccountByKey(req.tenantId, 'misc_revenue');
-      const debit = getAccountByKey(req.tenantId,
-        paymentMethod === 'room_charge' ? 'ar_room' : paymentMethod === 'customer_bill' ? 'ar_customer' : 'cash');
-      if (revenue && debit && order.total > 0) {
-        postEntry(req.tenantId, {
-          date: new Date().toISOString().slice(0, 10), reference: 'SVC-' + order.id.slice(6).toUpperCase(),
-          description: 'Service — ' + order.service_name, source: 'misc_service', sourceId: order.id, createdBy: req.user.name,
-          lines: [{ accountId: debit.id, debit: order.total, memo: methodLabel }, { accountId: revenue.id, credit: order.total, memo: order.service_name }],
-        });
-      }
-    } catch (e) { /* accounting postings must never block a service from completing */ }
+    // Resolve this room's ACTIVE booking so a room-posted service lands on the
+    // guest's BOOKING folio (charges keyed only by room_number are invisible to
+    // /api/bookings/:id/folio and to booking-scoped settlement).
+    let bookingId = null, guestId = null;
+    if (order.room_number) {
+      const bn = db.prepare('SELECT id FROM rooms WHERE tenant_id = ? AND number = ?').get(req.tenantId, order.room_number);
+      const active = bn ? db.prepare(`SELECT b.id, b.guest_id FROM booking_rooms br JOIN bookings b ON b.id = br.booking_id
+        WHERE br.room_id = ? AND b.tenant_id = ? AND b.status = 'checked_in'`).get(bn.id, req.tenantId) : null;
+      if (active) { bookingId = active.id; guestId = active.guest_id; }
+    }
+    // ONE money pipeline: idempotent posting, misc_revenue attribution,
+    // debit side chosen from the payment method (room folio → ar_room,
+    // customer bill → ar_customer, cash/card → cash/bank).
+    const posted = postCharge(req.tenantId, {
+      source: 'misc_service', sourceId: order.id, idempotencyKey: 'misc-service:' + order.id,
+      amount: order.total, method: methodLabel,
+      description: 'Service: ' + order.service_name,
+      bookingId, guestId,
+      roomNumber: order.room_number, guestName: order.guest_name || 'Walk-in Customer',
+      gatewayRef: 'SVC-' + order.id.slice(6).toUpperCase(), immediate: isImmediate,
+      createdBy: req.user.name,
+    });
+    txn = posted.transaction;
   })();
 
   if (!claimed) return res.status(409).json({ error: 'This service order has already been completed and charged' });
-
-  const updated = db.prepare('SELECT * FROM misc_service_orders WHERE id = ?').get(order.id);
-  const txn = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txnId);
   audit(req, 'miscorder.complete', 'misc_service_order', order.id, { paymentMethod, amount: order.total });
   broadcast(req.tenantId, 'miscorder.updated', updated);
   if (!isImmediate) broadcast(req.tenantId, 'payment.created', txn);

@@ -5,7 +5,7 @@ const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 const { broadcast } = require('../ws');
-const { postEntry, getAccountByKey, ensureDefaultAccounts } = require('./accounting');
+const { postCharge } = require('../services/charges');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('orders.manage'));
@@ -63,27 +63,27 @@ router.patch('/:id/status', (req, res) => {
     if (r.changes === 0) return; // already in that state — nothing to post
 
     if (status === 'delivered' && !order.paid && order.total > 0) {
-      const txnId = 'txn_' + nanoid(10);
       const itemsSummary = JSON.parse(order.items || '[]').map(i => i.qty + '× ' + i.name).join(', ');
-      db.prepare(`INSERT INTO transactions (id, tenant_id, guest_name, room_number, description, amount, method, status, gateway_ref)
-                  VALUES (?,?,?,?,?,?, 'Room Charge', 'pending', ?)`)
-        .run(txnId, req.tenantId, order.guest_name || 'Guest', order.room_number,
-             'Room Service — ' + (itemsSummary || 'order'), order.total, 'RS-' + order.id.slice(6).toUpperCase());
+      // Resolve this room's ACTIVE booking so the charge lands on that folio —
+      // /api/bookings/:id/folio and settle both key on booking_id, so a charge
+      // with only a room_number would be invisible to the booking lifecycle.
+      const bn = db.prepare('SELECT id, number FROM rooms WHERE tenant_id = ? AND number = ?').get(req.tenantId, order.room_number);
+      const active = bn ? db.prepare(`SELECT b.id, b.guest_id FROM booking_rooms br JOIN bookings b ON b.id = br.booking_id
+        WHERE br.room_id = ? AND b.tenant_id = ? AND b.status = 'checked_in'`).get(bn.id, req.tenantId) : null;
+      // ONE money pipeline: idempotent (delivery retry posts once), ledger-real
+      // (restaurant_revenue), folio-visible (pending Room Charge → settled at
+      // checkout via /api/payments/settle).
+      const posted = postCharge(req.tenantId, {
+        source: 'order', sourceId: order.id, idempotencyKey: 'order:' + order.id,
+        amount: order.total, method: 'Room Charge',
+        description: 'Room Service — ' + (itemsSummary || 'order'),
+        bookingId: active ? active.id : null,
+        guestId: active ? active.guest_id : null,
+        roomNumber: order.room_number, guestName: order.guest_name || 'Guest',
+        gatewayRef: 'RS-' + order.id.slice(6).toUpperCase(), createdBy: req.user.name,
+      });
       db.prepare('UPDATE orders SET paid = 1 WHERE id = ?').run(order.id); // 'paid' = posted to folio
-      txn = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txnId);
-
-      try {
-        ensureDefaultAccounts(req.tenantId);
-        const ar = getAccountByKey(req.tenantId, 'ar_room');
-        const revenue = getAccountByKey(req.tenantId, 'restaurant_revenue');
-        if (ar && revenue) {
-          postEntry(req.tenantId, {
-            date: new Date().toISOString().slice(0, 10), reference: 'RS-' + order.id.slice(6).toUpperCase(),
-            description: 'Room service — Room ' + order.room_number, source: 'order', sourceId: order.id, createdBy: req.user.name,
-            lines: [{ accountId: ar.id, debit: order.total, memo: 'Room Charge' }, { accountId: revenue.id, credit: order.total, memo: itemsSummary }],
-          });
-        }
-      } catch (e) { /* accounting postings must never block an order from being delivered */ }
+      txn = posted.transaction;
     }
   })();
 
