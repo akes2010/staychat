@@ -127,11 +127,14 @@ PAGES.bookings = function () {
   // ── New reservation (single or group) ───────────────────────────────────
   let selectedRoomIds = [];
   let selectedPayMethod = null;
+  // Exposed read-only for tests/extension hooks (mutations go through __toggleRoomPick).
 
   window.__openNewBooking = () => {
     selectedRoomIds = [];
     selectedPayMethod = null;
     const available = state.rooms.filter(r => r.status === 'available');
+    // Exposed for tests/extension hooks: the list the modal is showing.
+    window.__bookingAvailableRooms = available;
     renderBookingForm(available);
   };
 
@@ -155,13 +158,51 @@ PAGES.bookings = function () {
     (selectedPayMethod ? '<div class="form-group" style="margin-bottom:10px"><label class="form-label">Amount Paid Now ($)</label><input class="form-input" type="number" min="0" id="nb-payamount" value="' + escapeHtml(payAmount || '0') + '"/></div>' : '');
   }
 
-  function renderBookingForm(availableRooms) {
+  // ── FORM-STATE SNAPSHOT (the duplicate-form bug fix) ────────────────────
+  // Clicking a room or toggling Group mode used to REBUILD the whole modal
+  // (renderBookingForm → openModal → fresh DOM), wiping every field the desk
+  // had already typed and turning the continuation of the same form into a
+  // confusing second empty form. Now every re-render first SNAPS the current
+  // DOM values, then re-applies them after the swap. Typed data and keyboard
+  // focus survive exactly as the desk left them.
+  const NB_FIELDS = ['nb-surname','nb-firstname','nb-phone','nb-email','nb-address','nb-idnumber',
+    'nb-nok-name','nb-nok-phone','nb-checkin','nb-checkout','nb-adults','nb-children',
+    'nb-groupname','nb-payamount','nb-extref','nb-notes'];
+  const NB_SELECTS = ['nb-idtype','nb-country','nb-source'];
+  let nbFocusId = null; // element about to lose focus on a room/group re-render
+
+  function snapshotBookingForm() {
+    const active = document.activeElement;
+    nbFocusId = (active && active.id && active.id.startsWith('nb-')) ? active.id : null;
+    const v = {}, s = {}, c = {};
+    NB_FIELDS.forEach(id => { const e = document.getElementById(id); if (e) v[id] = e.value; });
+    NB_SELECTS.forEach(id => { const e = document.getElementById(id); if (e) s[id] = e.value; });
+    // individual-selects hidden behind source/group switches are captured live too
+    const gst = document.getElementById('nb-state'); if (gst) s['nb-state'] = gst.value;
+    c['nb-group-toggle'] = !!document.getElementById('nb-group-toggle')?.checked;
+    c['nb-prepaid'] = !!document.getElementById('nb-prepaid')?.checked;
+    return { v, s, c };
+  }
+
+  function applyBookingFormSnap(snap) {
+    if (!snap) return;
+    NB_FIELDS.forEach(id => { const e = document.getElementById(id); if (e && snap.v[id] !== undefined) e.value = snap.v[id]; });
+    NB_SELECTS.forEach(id => { const e = document.getElementById(id); if (e && snap.s[id] !== undefined) e.value = snap.s[id]; });
+    const gst = document.getElementById('nb-state'); if (gst && snap.s['nb-state'] !== undefined) gst.value = snap.s['nb-state'];
+    const gt = document.getElementById('nb-group-toggle'); if (gt) gt.checked = snap.c['nb-group-toggle'];
+    const pp = document.getElementById('nb-prepaid'); if (pp) pp.checked = snap.c['nb-prepaid'];
+    // Restore keyboard focus so typing continues mid-field after a room click.
+    if (nbFocusId) { const fe = document.getElementById(nbFocusId); if (fe) { try { fe.focus(); } catch (e) { /* non-focusable */ } } }
+    nbFocusId = null;
+  }
+
+  function renderBookingForm(availableRooms, snap) {
     const isGroup = selectedRoomIds.length > 1 || document.getElementById('nb-group-toggle')?.checked;
-    const country = document.getElementById('nb-country')?.value || '';
-    const source = document.getElementById('nb-source')?.value || 'direct';
-    const payAmount = document.getElementById('nb-payamount')?.value || '0';
-    const extRef = document.getElementById('nb-extref')?.value || '';
-    const prepaid = document.getElementById('nb-prepaid')?.checked || false;
+    const country = (snap && snap.s['nb-country']) || document.getElementById('nb-country')?.value || '';
+    const source = (snap && snap.s['nb-source']) || document.getElementById('nb-source')?.value || 'direct';
+    const payAmount = (snap && snap.v['nb-payamount']) || document.getElementById('nb-payamount')?.value || '0';
+    const extRef = (snap && snap.v['nb-extref']) || document.getElementById('nb-extref')?.value || '';
+    const prepaid = (snap && snap.c['nb-prepaid']) || document.getElementById('nb-prepaid')?.checked || false;
     openModal('New Reservation',
       '<div class="form-group" style="margin-bottom:14px;display:flex;align-items:center;gap:10px">' +
         '<label class="toggle"><input type="checkbox" id="nb-group-toggle" ' + (isGroup ? 'checked' : '') + ' onchange="window.__toggleGroupMode()"/><span class="toggle-slider"></span></label>' +
@@ -218,6 +259,10 @@ PAGES.bookings = function () {
       '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__submitBooking()">Create Reservation</button>',
       { wide: true }
     );
+    // Re-apply every typed value + keyboard focus the desk already had. This is
+    // the fix for the continuation bug: the room pick / group toggle happens
+    // MID-FORM, and the desk keeps typing exactly where they left off.
+    applyBookingFormSnap(snap);
   }
 
   function stateFieldHTML(country) {
@@ -243,14 +288,20 @@ PAGES.bookings = function () {
     const wrap = document.getElementById('nb-ota-wrap');
     if (wrap) wrap.innerHTML = source === 'ota' ? otaSectionHTML('', false) : '';
   };
-  window.__toggleGroupMode = () => { if (!document.getElementById('nb-group-toggle').checked) selectedRoomIds = selectedRoomIds.slice(0, 1); renderBookingForm(state.rooms.filter(r => r.status === 'available')); };
+  // Group toggle and room picks re-render the SAME form — snapshotting first so
+  // every typed field, select choice and the focused field survive the swap.
+  window.__toggleGroupMode = () => {
+    if (!document.getElementById('nb-group-toggle').checked) selectedRoomIds = selectedRoomIds.slice(0, 1);
+    renderBookingForm(state.rooms.filter(r => r.status === 'available'), snapshotBookingForm());
+  };
   window.__toggleRoomPick = (roomId) => {
     const isGroup = document.getElementById('nb-group-toggle')?.checked;
     if (!isGroup) { selectedRoomIds = selectedRoomIds.includes(roomId) ? [] : [roomId]; }
     else {
       selectedRoomIds = selectedRoomIds.includes(roomId) ? selectedRoomIds.filter(id => id !== roomId) : [...selectedRoomIds, roomId];
     }
-    renderBookingForm(state.rooms.filter(r => r.status === 'available'));
+    Object.defineProperty(window, '__bookingSelectedRoomIds', { value: selectedRoomIds.slice(), configurable: true, writable: true });
+    renderBookingForm(state.rooms.filter(r => r.status === 'available'), snapshotBookingForm());
   };
 
   window.__submitBooking = async () => {
