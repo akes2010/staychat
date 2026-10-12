@@ -9,6 +9,27 @@ const API = (() => {
   // hard for a while; show the user a clear message instead of a blank console.
   let refreshBackoffUntil = 0;
 
+  // ── Dead-session handoff ──────────────
+  // If a 401 survives even after a (declined) refresh, the refresh cookie is
+  // gone/revoked: the shell is “half-alive” — it still shows App.user, so the
+  // user stares at a dataless console saying 'Not authenticated' with no way
+  // forward. Hand off to the login screen instead, at most once per 30s so a
+  // burst of parallel calls doesn't spam the toast.
+  function handoffToLogin() {
+    if (handoffToLogin._until && Date.now() < handoffToLogin._until) return;
+    handoffToLogin._until = Date.now() + 30 * 1000;
+    const A = window.App;
+    if (!A || !A.user) return;
+    A.user = null; A.tenantId = null; A.tenant = null;
+    A.permissions = []; A.accessToken = null; A.entitlements = null;
+    const appEl = document.getElementById('app');
+    if (appEl) appEl.classList.remove('visible');
+    const authEl = document.getElementById('auth-screen');
+    if (authEl) authEl.style.display = '';
+    if (typeof WSClient !== 'undefined') WSClient.disconnect();
+    if (typeof toast === 'function') toast('Your session has expired — please sign in again.', 'warn', 12000);
+  }
+
   async function request(method, path, body, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
     const qs = opts.tenantId ? `${path.includes('?') ? '&' : '?'}tenantId=${encodeURIComponent(opts.tenantId)}` : '';
@@ -36,6 +57,9 @@ const API = (() => {
         } catch (e) { /* non-fatal */ }
         return request(method, path, body, { ...opts, _isRetry: true });
       }
+      // Refresh could not recover the session → truly dead. Return to login
+      // instead of leaving a shell that renders pages full of 401s.
+      handoffToLogin();
     }
 
     let data = null;
