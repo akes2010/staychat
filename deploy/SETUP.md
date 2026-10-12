@@ -94,14 +94,25 @@ With neither configured, email stays in no-op mode (logged, never an error).
 ## 5. Automate plan payments (Super Admin only)
 
 1. Log in as `superadmin@staychat.io` → **Super Admin → Billing & Approvals**.
-2. Paste your **Stripe secret key** (`sk_live_…`, plus the `whsec_…` webhook
-   secret) or **Paystack secret key** → Save.
-3. Register the webhook with the gateway (URLs are displayed on that page):
+2. Paste any of the gateway keys you use → Save (all stored AES-256-GCM
+   encrypted; the page never shows a full key back):
+   - **Stripe** `sk_live_…` + `whsec_…` webhook secret
+   - **Paystack** `sk_live_…`
+   - **Flutterwave** `FLWSECK-…` + its `verif-hash` webhook secret
+   - **OPay** merchant secret key
+   - **Payoneer / Airtm / Cryptocurrency** — shared settlement webhook secret
+3. Register the webhook(s) with the gateway (all URLs display on that page):
    - Stripe: `https://staychat.akmustech.com/api/webhooks/platform/stripe`
      (event: `checkout.session.completed`)
    - Paystack: `https://staychat.akmustech.com/api/webhooks/platform/paystack`
-4. From then on, hotels pay via hosted checkout and their subscription
-   activates **automatically**. Manual `SC-` approvals still work as fallback.
+   - Flutterwave: `https://staychat.akmustech.com/api/webhooks/platform/flutterwave`
+   - OPay: `https://staychat.akmustech.com/api/webhooks/platform/opay`
+   - Payoneer/Airtm/Crypto (shared settlement endpoint):
+     `https://staychat.akmustech.com/api/webhooks/platform/manual`
+4. Stripe/Paystack/Flutterwave/OPay run full hosted checkout and subscriptions
+   activate **automatically**. Payoneer/Airtm/Crypto confirm real transfers
+   through the settlement webhook (or the manual `SC-` approval flow, which
+   always remains as fallback).
 
 ## 6. Connect WhatsApp (optional, per hotel)
 

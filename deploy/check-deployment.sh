@@ -102,9 +102,10 @@ fi
 section "Automated payments"
 if docker exec staychat node -e "
   const s = require('./server/services/platform-settings');
-  process.exit(s.has('stripe_secret_key') || s.has('paystack_secret_key') ? 0 : 1);
+  const auto = ['stripe_secret_key','paystack_secret_key','flutterwave_secret_key','opay_secret_key','payoneer_client_secret','airtm_api_token'];
+  process.exit(auto.some(k => s.has(k)) ? 0 : 1);
 " >/dev/null 2>&1; then
-  ok "platform gateway key configured — subscriptions auto-approve"
+  ok "at least one platform gateway configured — hosted checkout / settlement live"
 else
   warn "no gateway key yet — plan requests use the manual SC- approval flow (Super Admin → Billing & Approvals)"
 fi

@@ -275,11 +275,35 @@ PAGES.settings = function () {
   function val(id) { const e = document.getElementById(id); return e ? e.value : undefined; }
   function checked(id) { const e = document.getElementById(id); return e ? e.checked : undefined; }
 
+  // Factory reset is the most destructive action in the system (it deletes
+  // every room/guest/booking). A confirm-click alone is too easy to hit on
+  // autopilot — require the operator to TYPE the hotel name to arm the button.
   window.__doFactoryReset = () => {
-    confirmAction('This will erase all operational data permanently. Are you absolutely sure?', async () => {
-      try { await API.post('/api/settings/factory-reset', {}); toast('Factory reset done', 'warn'); navigate('dashboard'); }
-      catch (err) { toast(err.message, 'error'); }
-    });
+    const hotel = settings.name || '';
+    openModal('⚠️ Factory Reset — delete ALL operational data',
+      '<div class="alert error" style="margin-bottom:14px"><b>Permanently erases</b> every room, guest, booking, order, ledger entry and closing for <b>' + escapeHtml(hotel) + '</b>. The hotel profile and logins stay. This cannot be undone.</div>' +
+      '<div class="form-group"><label class="form-label">Type the hotel name to enable deletion: <b>' + escapeHtml(hotel) + '</b></label>' +
+      '<input class="form-input" id="freset-confirm" autocomplete="off"/></div>',
+      '<button class="btn outline" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn danger" id="freset-go" disabled onclick="window.__executeFactoryReset()" style="opacity:.5;cursor:not-allowed">Delete everything</button>' +
+      (function(){
+        setTimeout(function(){
+          const inp = document.getElementById('freset-confirm');
+          const go = document.getElementById('freset-go');
+          if (inp && go) inp.addEventListener('input', function(){
+            const match = inp.value.trim().toLowerCase() === hotel.trim().toLowerCase();
+            go.disabled = !match;
+            go.style.opacity = match ? '1' : '.5';
+            go.style.cursor = match ? 'pointer' : 'not-allowed';
+          });
+        }, 50);
+        return '';
+      })(),
+      { wide: false });
+  };
+  window.__executeFactoryReset = async () => {
+    try { await API.post('/api/settings/factory-reset', { confirmHotelName: settings.name }); toast('Factory reset done — re-seed to restore demo data', 'warn'); closeModal(); navigate('dashboard'); }
+    catch (err) { toast(err.message, 'error'); }
   };
 
   load();

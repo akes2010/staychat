@@ -215,6 +215,10 @@ router.post('/register', registerLimiter, async (req, res) => {
     ensurePlansSeeded();
     db.prepare(`INSERT INTO booking_engine_config (tenant_id, enabled) VALUES (?, 1)
                 ON CONFLICT(tenant_id) DO UPDATE SET enabled = 1`).run(tenantId);
+    // Starter inventory so the trial is instantly OPERABLE, not an empty shell:
+    // a floor, room categories with tiered rates, and 8 real rooms (2 suites,
+    // 4 standard, 2 deluxe) the desk can book, check in and settle today.
+    seedStarterWorkspace(tenantId);
     billing.logEvent(tenantId, 'trial.started', '14-day trial of the ' + requestedPlan + ' plan started (ends ' + trialEndsAt + ')');
 
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
@@ -237,6 +241,25 @@ router.post('/register', registerLimiter, async (req, res) => {
     res.status(500).json({ error: 'Could not create your account. Please try again.' });
   }
 });
+
+function seedStarterWorkspace(tenantId) {
+  const floorId = 'flr_' + nanoid(10);
+  db.prepare('INSERT INTO floors (id, tenant_id, name, number) VALUES (?,?,?,?)')
+    .run(floorId, tenantId, 'Ground Floor', 1);
+  const insCat = db.prepare('INSERT INTO room_categories (id, tenant_id, name, description, weekday_rate, weekend_rate, holiday_rate, festive_rate, capacity, amenities, active) VALUES (?,?,?,?,?,?,?,?,?,?,1)');
+  const catStd = 'cat_' + nanoid(10), catDlx = 'cat_' + nanoid(10), catSui = 'cat_' + nanoid(10);
+  insCat.run(catStd, tenantId, 'Standard Room', 'Cozy standard double', 35, 42, 50, 50, 2, '["AC","WiFi","TV"]');
+  insCat.run(catDlx, tenantId, 'Deluxe Room', 'Larger room, city view', 55, 65, 75, 75, 3, '["AC","WiFi","TV","Mini bar"]');
+  insCat.run(catSui, tenantId, 'Executive Suite', 'Living area + bedroom', 85, 100, 115, 115, 4, '["AC","WiFi","TV","Mini bar","Lounge"]');
+  const insRoom = db.prepare('INSERT INTO rooms (id, tenant_id, number, type, view, floor, rate, capacity, status, amenities, floor_id, category_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+  const rooms = [
+    ['101','Standard','Courtyard','Standard',35,2,catStd], ['102','Standard','Courtyard','Standard',35,2,catStd],
+    ['103','Standard','Parking','Standard',35,2,catStd], ['104','Standard','Parking','Standard',35,2,catStd],
+    ['105','Deluxe','City','Deluxe',55,3,catDlx], ['106','Deluxe','City','Deluxe',55,3,catDlx],
+    ['201','Suite','Poolside','Executive',85,4,catSui], ['202','Suite','Poolside','Executive',85,4,catSui],
+  ];
+  rooms.forEach(r => insRoom.run('room_' + nanoid(10), tenantId, r[0], r[1], r[2], r[3], r[4], r[5], 'available', '["AC","WiFi"]', floorId, r[6]));
+}
 
 // POST /api/auth/login
 router.post('/login', loginLimiter, async (req, res) => {

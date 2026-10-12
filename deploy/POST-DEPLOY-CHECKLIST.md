@@ -32,10 +32,16 @@ any time, exit 0 = healthy). The manual steps below complement it.
 
 ## First day
 
-- [ ] **Payments**: Super Admin → Billing & Approvals → paste your Stripe or
-      Paystack key → Save → register the webhook URL shown there with the
-      gateway → make a £/$1 test plan request → pay via hosted checkout →
-      subscription activates with `approvedBy auto:…` (no manual click)
+- [ ] **Payments**: Super Admin → Billing & Approvals → paste the key(s) for
+      the gateway(s) you actually use (Stripe, Paystack, Flutterwave, OPay —
+      plus Payoneer / Airtm / Crypto settlement secrets if you take those) →
+      Save → register the webhook URL shown there with the gateway → make a
+      $1 test plan request → pay via hosted checkout → subscription activates
+      with `approvedBy auto:…` (no manual click)
+- [ ] **Wi-Fi link (optional)**: Settings → Integrations → Internet → connect
+      your UniFi/MikroTik/Omada/Meraki/Ruckus controller, mark the guest SSID,
+      Test Connection → check-in then provisions guest Wi-Fi automatically
+      (Helper: Help Center → "Internet / ISP link & Wi-Fi management")
 - [ ] **Renewal reminder path**: the scheduler runs hourly; to preview the
       in-app banner, Billing & Plan shows the 🔔 renewal card in the final
       week of any active subscription (emails go out at 7 days and 1 day)

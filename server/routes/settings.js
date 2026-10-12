@@ -211,6 +211,15 @@ router.post('/whatsapp/test', requireRole('hotel_admin', 'superadmin'), async (r
 
 router.post('/factory-reset', requireRole('hotel_admin', 'superadmin'), (req, res) => {
   const tid = req.tenantId;
+  // Require the hotel's CURRENT NAME as a typed confirmation — the client must
+  // echo exactly what is stored. This componentizes the human-in-the-loop so
+  // an autopilot confirm-click (or a mistyped intent) can never wipe a hotel
+  // on its own: a caller who hasn't round-tripped /api/settings can't pass.
+  const typed = String((req.body || {}).confirmHotelName || '').trim().toLowerCase();
+  const expected = String(req.tenant.name || '').trim().toLowerCase();
+  if (!expected || typed !== expected) {
+    return res.status(400).json({ error: 'Confirmation mismatch — type the hotel name exactly to factory reset' });
+  }
   const tables = ['rooms','guests','bookings','orders','menu_items','staff','maintenance_requests','conversations','messages','transactions','pos_tickets','pool_bookings','hall_bookings','halls','floors','room_categories','holidays','shifts','attendance','pools','misc_services','misc_service_orders','printers','ai_configs','vouchers','journal_lines','journal_entries','accounts','eod_closings'];
   const txn = db.transaction(() => {
     tables.forEach(t => db.prepare(`DELETE FROM ${t} WHERE tenant_id = ?`).run(tid));
