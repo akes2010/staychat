@@ -323,7 +323,6 @@ PAGES.bookings = function () {
       '<div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.03em;margin:6px 0 8px">Payment (optional)</div>' +
       '<div id="nb-pay-wrap">' + paySectionHTML(payAmount) + '</div>' +
       '<div class="form-group"><label class="form-label">Notes</label><input class="form-input" id="nb-notes" placeholder="Special requests…"/></div>' +
-      (selectedRoomIds.length > 0 ? '<div style="margin-top:10px;font-size:12px;color:var(--text3)">' + selectedRoomIds.length + ' room' + (selectedRoomIds.length === 1 ? '' : 's') + ' selected &middot; will be billed to the ' + (isGroup ? 'group account' : 'individual guest') + '</div>' : ''),
       '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__submitBooking()">Create Reservation</button>',
       { wide: true }
     );
@@ -359,6 +358,9 @@ PAGES.bookings = function () {
       body.addEventListener('change', saveDraft);
     }
     hookReturningGuestAutofill();
+    // Selection line is created lazily by room picks; draw it once on open so
+    // resumed drafts show their count immediately.
+    updateSelectionLine();
   }
 
   // ── RETURNING-GUEST AUTOFILL ────────────────────────────────────────────
@@ -458,6 +460,46 @@ PAGES.bookings = function () {
     if (!document.getElementById('nb-group-toggle').checked) selectedRoomIds = selectedRoomIds.slice(0, 1);
     renderBookingForm(state.rooms.filter(r => r.status === 'available'), snapshotBookingForm());
   };
+  // Room picks no longer re-render the whole modal — that full innerHTML swap
+  // made the form flicker/shake on every click (parse + relayout of a tall
+  // form, scrollbar jump). The modal only changes in exactly three spots:
+  // a room tile's highlight, the “N room(s) selected…” line, and nothing
+  // else. Update those in place; the form never moves.
+  function refreshRoomPickVisuals() {
+    const grid = document.getElementById('nb-room-grid');
+    if (grid) {
+      const rooms = window.__bookingAvailableRooms || [];
+      const byId = Object.fromEntries(rooms.map(r => [r.id, r]));
+      [...grid.children].forEach(tile => {
+        const m = (tile.getAttribute('onclick') || '').match(/__toggleRoomPick\('([^']+)'\)/);
+        if (!m) return;
+        const sel = selectedRoomIds.includes(m[1]);
+        tile.style.borderColor = sel ? 'var(--p)' : 'var(--border)';
+        tile.style.background = sel ? 'linear-gradient(135deg,#e8f5e9,#d4ecd4)' : 'var(--surface)';
+      });
+    }
+    updateSelectionLine();
+    try { saveDraft(); } catch (e) {}
+  }
+
+  // The selection summary lives at the very end of the form body; keep one
+  // element and rewrite its text (never insert/remove — avoids layout jumps).
+  function updateSelectionLine() {
+    const body = document.querySelector('#modal .modal-body');
+    if (!body) return;
+    let line = document.getElementById('nb-selection-line');
+    const isGroup = document.getElementById('nb-group-toggle')?.checked;
+    if (!line) {
+      line = document.createElement('div');
+      line.id = 'nb-selection-line';
+      line.style.cssText = 'margin-top:10px;font-size:12px;color:var(--text3)';
+      body.appendChild(line);
+    }
+    line.innerHTML = selectedRoomIds.length > 0
+      ? selectedRoomIds.length + ' room' + (selectedRoomIds.length === 1 ? '' : 's') + ' selected &middot; will be billed to the ' + (isGroup ? 'group account' : 'individual guest')
+      : '';
+  }
+
   window.__toggleRoomPick = (roomId) => {
     const isGroup = document.getElementById('nb-group-toggle')?.checked;
     if (!isGroup) { selectedRoomIds = selectedRoomIds.includes(roomId) ? [] : [roomId]; }
@@ -465,7 +507,9 @@ PAGES.bookings = function () {
       selectedRoomIds = selectedRoomIds.includes(roomId) ? selectedRoomIds.filter(id => id !== roomId) : [...selectedRoomIds, roomId];
     }
     Object.defineProperty(window, '__bookingSelectedRoomIds', { value: selectedRoomIds.slice(), configurable: true, writable: true });
-    renderBookingForm(state.rooms.filter(r => r.status === 'available'), snapshotBookingForm());
+    // Individual→group and back can change which rooms are allowed to be
+    // selected; keep the list legal without re-rendering the modal.
+    refreshRoomPickVisuals();
   };
 
   window.__submitBooking = async () => {
