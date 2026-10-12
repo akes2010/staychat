@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Setup Guide — StayChat OS</title>
+  <meta name="description" content="Step-by-step StayChat OS setup: connect WhatsApp with Meta, customise the hotel to your preferences, and run day-to-day front-desk operations.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+  <meta name="theme-color" content="#006d2f"/>
+  <style>
+    :root {
+      --p:#006d2f; --p-light:#008a3b; --p-dark:#004d20;
+      --a:#25d366;
+      --bg:#f0f4f8; --surface:#ffffff; --surface2:#f7f9fb;
+      --border:#e2e8f0; --border-dark:#cbd5e1;
+      --text:#0f172a; --text2:#475569; --text3:#94a3b8;
+      --grad:linear-gradient(135deg,#008a3b,#25d366);
+      --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.65}
+    a{color:var(--p-light);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .wrap{max-width:880px;margin:0 auto;padding:0 22px}
+    header.top{background:linear-gradient(135deg,#004d20,#008a3b);color:#fff;padding:48px 0 40px}
+    header.top .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+    .logo{font-weight:800;font-size:18px;display:flex;align-items:center;gap:8px;color:#fff}
+    .logo .dot{width:10px;height:10px;border-radius:50%;background:#fff;opacity:.85}
+    h1{font-size:clamp(26px,4.5vw,40px);font-weight:800;letter-spacing:-.5px;margin:24px 0 10px}
+    header.top p.sub{color:rgba(255,255,255,.82);font-size:16px;max-width:620px}
+    .part-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:26px}
+    .part-btn{color:#fff;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:8px 18px;font-size:13px;font-weight:700;text-decoration:none}
+    .part-btn:hover{background:rgba(255,255,255,.22);text-decoration:none}
+    nav.toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 22px;margin:-28px auto 0;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+    nav.toc b{display:block;font-size:13px;color:var(--p-dark);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
+    nav.toc a{display:inline-block;margin:3px 6px 3px 0;font-size:13.5px}
+    section{padding:52px 0;border-bottom:1px solid var(--border)}
+    section:last-of-type{border-bottom:none}
+    .part-tag{display:inline-block;font-size:11.5px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#fff;padding:6px 14px;border-radius:20px;margin-bottom:14px;background:var(--grad)}
+    h2{font-size:clamp(22px,3.2vw,30px);font-weight:800;letter-spacing:-.4px;margin-bottom:8px}
+    p.lead{color:var(--text2);font-size:15.5px;max-width:640px;margin-bottom:28px}
+    .step{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 24px;margin-bottom:16px;position:relative;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+    .step .n{position:absolute;top:-14px;left:20px;width:30px;height:30px;border-radius:50%;background:var(--grad);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px}
+    .step h3{font-size:16px;font-weight:800;margin:6px 0 8px;padding-left:6px}
+    .step p,.step li{font-size:13.5px;color:var(--text2)}
+    .step ul,.step ol{margin:8px 0 4px 22px}
+    .step li{margin-bottom:5px}
+    .step code, .tip code{background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:12.5px;font-family:'JetBrains Mono',monospace;color:var(--p-dark)}
+    .tip{background:rgba(37,211,102,.07);border:1px solid rgba(0,138,59,.25);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--text2);margin-top:12px}
+    .tip b{color:var(--p-dark)}
+    .warn{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;font-size:13px;color:#92400e;margin-top:12px}
+    .warn b{color:#b45309}
+    kbd{background:var(--surface2);border:1px solid var(--border-dark);border-bottom-width:2px;border-radius:5px;padding:0 6px;font-size:12px;font-family:monospace}
+    table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:13px;margin-top:14px}
+    th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--border)}
+    th{background:var(--surface2);font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--p-dark)}
+    td:first-child{font-weight:700;white-space:nowrap}
+    tr:last-child td{border-bottom:none}
+    footer{border-top:1px solid var(--border);background:var(--surface);padding:30px 0;color:var(--text2);font-size:13px;text-align:center}
+    @media(max-width:600px){ .wrap{padding:0 16px} section{padding:40px 0} .step{padding:18px 18px 18px 20px} nav.toc{margin-top:-22px} }
+  </style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="/landing.html"><span class="dot"></span>StayChat OS</a>
+    <a href="/help.html" style="color:#fff;font-size:13.5px;font-weight:600">Full manual ↗</a>
+  </div>
+  <div class="wrap">
+    <h1>Set up your hotel in one afternoon</h1>
+    <p class="sub">Three parts: connect WhatsApp through Meta, customise everything to your hotel's preferences, then run the front desk day to day. Follow the steps in order — each one takes minutes.</p>
+    <div class="part-btns">
+      <a class="part-btn" href="#part1">Part 1 · WhatsApp &amp; Meta</a>
+      <a class="part-btn" href="#part2">Part 2 · Customise</a>
+      <a class="part-btn" href="#part3">Part 3 · Daily operations</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="toc">
+    <b>Jump to any step</b>
+    <a href="#p1s1">1.1 Meta app</a>
+    <a href="#p1s2">1.2 Credentials</a>
+    <a href="#p1s3">1.3 Webhook</a>
+    <a href="#p1s4">1.4 Test connection</a>
+    <a href="#p1s5">1.5 AI tone</a>
+    <a href="#p2s1">2.1 Hotel profile</a>
+    <a href="#p2s2">2.2 Rooms &amp; rates</a>
+    <a href="#p2s3">2.3 Floors &amp; categories</a>
+    <a href="#p2s4">2.4 Payment methods</a>
+    <a href="#p2s5">2.5 Staff accounts</a>
+    <a href="#p2s6">2.6 Booking engine</a>
+    <a href="#p2s7">2.7 Integrations</a>
+    <a href="#p2s8">2.8 Currency</a>
+    <a href="#p3s1">3.1 Morning</a>
+    <a href="#p3s2">3.2 Bookings arrive</a>
+    <a href="#p3s3">3.3 Check-in</a>
+    <a href="#p3s4">3.4 During stay</a>
+    <a href="#p3s5">3.5 Checkout &amp; settle</a>
+    <a href="#p3s6">3.6 Closing day</a>
+    <a href="#p3s7">3.7 Weekly</a>
+  </nav>
+</div>
+
+<div class="wrap">
+
+<!-- ═══ PART 1 ═══ -->
+<section id="part1">
+  <span class="part-tag">Part 1</span>
+  <h2>Connect WhatsApp with Meta</h2>
+  <p class="lead">The AI receptionist and all guest messaging run on the official WhatsApp Business Cloud API. You'll create a free Meta developer app, copy four credentials into StayChat, and point Meta's webhook at your hotel.</p>
+
+  <div class="step" id="p1s1"><span class="n">1</span>
+    <h3>Create the Meta app</h3>
+    <ol>
+      <li>Log in at <a href="https://developers.facebook.com" target="_blank" rel="noopener">developers.facebook.com</a> with the Facebook account that owns your business.</li>
+      <li>Click <b>My Apps → Create App</b>.</li>
+      <li>Choose <b>Business</b> as the app type, give it a name (e.g. <i>Grand Resort Reception</i>). Use the default case-sensitive ID.</li>
+      <li>On the app dashboard, find <b>WhatsApp</b> in the products list and click <b>Set up</b>. Meta adds the product and shows the WhatsApp → Quickstart page.</li>
+    </ol>
+    <div class="tip"><b>Note:</b> this is the official Meta Cloud API — not WhatsApp Web, not a gateway. Unofficial gateways get numbers banned; the Cloud API is what Meta supports for businesses.</div>
+  </div>
+
+  <div class="step" id="p1s2"><span class="n">2</span>
+    <h3>Copy the four credentials</h3>
+    <p>From Meta's <b>WhatsApp → Quickstart / API Setup</b> page, gather:</p>
+    <table>
+      <tr><th>Credential</th><th>Where in Meta</th></tr>
+      <tr><td>Phone Number ID</td><td>API Setup → "From" — the number that will message guests. Click "Show" on the ID.</td></tr>
+      <tr><td>Access Token (permanent)</td><td>Business Settings → Users → System Users → generate token with <code>whatsapp_business_messaging</code> + <code>whatsapp_business_management</code> permissions. Temporary tokens expire in 24h — always use a permanent System User token.</td></tr>
+      <tr><td>App Secret</td><td>App Settings → Basic → "Show" in the App Secret field.</td></tr>
+      <tr><td>Webhook Verify Token</td><td>Anything you pick yourself — a random string you invent. StayChat will echo it back to Meta during verification.</td></tr>
+    </table>
+    <p style="margin-top:12px">In StayChat, open <b>Settings → WhatsApp</b> and paste all four values. The page shows your exact webhook URL (<code>/api/webhooks/whatsapp/&lt;your-subdomain&gt;</code>) — copy it now.</p>
+  </div>
+
+  <div class="step" id="p1s3"><span class="n">3</span>
+    <h3>Point Meta's webhook at StayChat</h3>
+    <ol>
+      <li>Back in Meta: <b>WhatsApp → Configuration</b> (in the developer app), click <b>Edit</b> on Callback URL.</li>
+      <li>Paste the webhook URL from StayChat's settings page and your verify token, then click <b>Verify and save</b>. Meta calls your URL; StayChat answers with the token and the field turns verified.</li>
+      <li>On the same page under <b>Webhook fields</b>, click <b>Subscribe</b> for the <code>messages</code> field. Nothing arrives in your inbox until this subscription is on.</li>
+      <li>If your guest-facing number is still a test number, add real recipient phone numbers under "To" for testing — or move the app through App Review / Business Verification with Meta to message any guest live.</li>
+    </ol>
+    <div class="warn"><b>Production tip:</b> for live guests you'll need Meta Business Verification and, once past the 1,000-unique-user free-service tier, Meta's per-message pricing. Configuration inside StayChat never changes — only Meta's side moves.</div>
+  </div>
+
+  <div class="step" id="p1s4"><span class="n">4</span>
+    <h3>Run the built-in connection test</h3>
+    <p>In <b>Settings → WhatsApp</b>, click <b>Test Connection</b>. StayChat runs two real probes and tells you exactly which half is broken:</p>
+    <ul>
+      <li><b>Inbound</b> — self-checks your webhook endpoint: the verify-token handshake Meta will perform, plus a signed empty delivery through the real signature gate.</li>
+      <li><b>Outbound</b> — an authenticated live probe of Meta's Graph API confirming your token actually owns the Phone Number ID.</li>
+    </ul>
+    <p>Both green → guests can start messaging your number right now.</p>
+  </div>
+
+  <div class="step" id="p1s5"><span class="n">5</span>
+    <h3>Give the AI receptionist a personality</h3>
+    <p>In <b>Settings → AI Receptionist</b>: pick a tone (Professional, Friendly…), switch the AI on, and choose what it can answer — bookings by tender code, Wi-Fi, facilities, room service. Add your own API key (Anthropic / OpenAI / OpenRouter) or use the platform key if one is configured. Without any key it falls back to a built-in keyword assistant — the inbox never breaks.</p>
+    <div class="tip"><b>What the AI can do:</b> a guest can literally send their booking code (e.g. <code>BE-7K2M9QX4</code>) on WhatsApp and the receptionist replies with live status, room and total — pulled from your database in real time, tied to the same conversation your desk sees in the shared inbox.</div>
+  </div>
+</section>
+
+<!-- ═══ PART 2 ═══ -->
+<section id="part2">
+  <span class="part-tag">Part 2</span>
+  <h2>Customise the whole system to your preferences</h2>
+  <p class="lead">Everything your guests and staff touch is configurable from Settings — no code, no developer.</p>
+
+  <div class="step" id="p2s1"><span class="n">1</span>
+    <h3>Hotel profile</h3>
+    <p><b>Settings → Hotel</b>: name, country, email, phone, timezone, check-in/check-out times, currency, POS tax &amp; service percentages, pool capacity. The timezone drives every report and end-of-day boundary; the currency sets what the folio charges.</p>
+  </div>
+
+  <div class="step" id="p2s2"><span class="n">2</span>
+    <h3>Rooms &amp; rates</h3>
+    <p><b>Rooms → Add</b>: number, floor, type, view, capacity, nightly rate. Then <b>Room Setup → Categories</b> for tiered pricing — separate weekday / weekend / holiday rates per category, with discount percentages. Your rate card is what the public booking engine quotes — no manual pricing on the phone with guests.</p>
+  </div>
+
+  <div class="step" id="p2s3"><span class="n">3</span>
+    <h3>Floors &amp; facilities</h3>
+    <p><b>Room Setup → Floors</b> to mirror your building. <b>Facilities</b>: add halls (day or hourly rate) and pools (price per person per hour) — each appears automatically on your public booking page with a Facilities tab and live time-slot conflict rejection.</p>
+  </div>
+
+  <div class="step" id="p2s4"><span class="n">4</span>
+    <h3>Accepted payment methods &amp; gateways</h3>
+    <p><b>Settings → Payment Methods</b>: tick what the hotel accepts (cash, card, transfer…). For online links, store your <b>Paystack</b> or <b>Stripe</b> keys — credentials are encrypted AES-256-GCM at rest, and both gateways' webhooks are signature-verified and idempotent (a repeated webhook never double-charges).</p>
+  </div>
+
+  <div class="step" id="p2s5"><span class="n">5</span>
+    <h3>Staff accounts &amp; permissions</h3>
+    <p><b>Users → Add</b>: reception, cashier, barman, accountant, auditor, housekeeping. Every role lands with sensible defaults — front desk can check guests in but <i>cannot</i> alter prices, void ledgers or refund; that's manager territory. Fine-tune anyone with per-user capability toggles. Every sensitive action lands in the audit log with who-did-what.</p>
+  </div>
+
+  <div class="step" id="p2s6"><span class="n">6</span>
+    <h3>Your public booking page</h3>
+    <p><b>Settings → Booking Engine</b>: turn the engine on, drop a welcome notice (e.g. high-season policies), and the page at <code>/book.html?hotel=your-subdomain</code> goes live — priced from your real rate card, "reserve now, pay at the hotel". Guests pick rooms or facilities, leave name + phone, and receive a tender code like <code>BE-7K2M9QX4</code> on WhatsApp. Your desk gets a WhatsApp within seconds of every submission.</p>
+  </div>
+
+  <div class="step" id="p2s7"><span class="n">7</span>
+    <h3>In-room &amp; infrastructure integrations (optional, Pro plan)</h3>
+    <p><b>Settings → Integrations</b>: connect Wi-Fi controllers (UniFi, MikroTik, Meraki…), door locks, IPTV, room automation, cameras — 49 services. Every service has docs links, encrypted credential storage, and a live <b>Test Connection</b> probe. Guest Wi-Fi sessions auto-open at check-in and die at checkout, speed-tiered by room type.</p>
+  </div>
+
+  <div class="step" id="p2s8"><span class="n">8</span>
+    <h3>Multi-currency for your guests</h3>
+    <p>Guests from other countries visiting your booking page automatically see prices in <i>their</i> currency (detected by the edge server from the visitor's country), converted at today's live rate — while the folio still charges your hotel currency. Refresh rates any time in <b>Settings → Exchange Rates</b> (or let the daily auto-refresh handle it). Guests can also pick a currency manually from the selector on the booking page.</p>
+  </div>
+</section>
+
+<!-- ═══ PART 3 ═══ -->
+<section id="part3">
+  <span class="part-tag">Part 3</span>
+  <h2>Day-to-day operations</h2>
+  <p class="lead">The rhythm of a normal day in StayChat — what each person does, in the order they do it.</p>
+
+  <div class="step" id="p3s1"><span class="n">1</span>
+    <h3>Morning — the dashboard handshake</h3>
+    <p>Reception opens StayChat (install it from the browser: <b>📲 Install app</b>, works from the home screen). The dashboard shows last night's occupancy, today's arrivals and departures, and any pending tasks. <b>Housekeeping</b> sees rooms left dirty by checkout and the day's ready-list with SLA timers.</p>
+  </div>
+
+  <div class="step" id="p3s2"><span class="n">2</span>
+    <h3>When an online booking arrives</h3>
+    <p>The submission lands in <b>Booking Engine → Submissions</b> with the guest's tender code up top; a WhatsApp notification hits the team simultaneously. One click <b>Confirm</b> holds the room, bumps availability, and the guest instantly gets their printable QR confirmation slip. Ignore a submission and the spam cap re-frees the inventory — no arma-squatting.</p>
+  </div>
+
+  <div class="step" id="p3s3"><span class="n">3</span>
+    <h3>Check-in</h3>
+    <p><b>Rooms → Check in</b>: pick the guest from the booking (every check-in is tied to a real Guest record — walk-ins create one first: name, phone, ID type/number, next-of-kin), take any deposit as real money (it posts to the ledger, not "marked paid"), and confirm. Wi-Fi credentials pop on the same screen; the guest's WhatsApp gets a welcome with the details. Group bookings check in as one folio with one balance.</p>
+  </div>
+
+  <div class="step" id="p3s4"><span class="n">4</span>
+    <h3>During the stay — the guest spends</h3>
+    <ul>
+      <li><b>POS</b> (cashier/barman): restaurant and bar tickets charge the room folio or settle cash instantly — with a live receipt.</li>
+      <li><b>Orders</b>: room service and miscellaneous requests route to the right station.</li>
+      <li><b>Pool / Halls</b>: facility bookings and sessions, conflict-checked live.</li>
+      <li><b>Guest Messaging</b>: anything a guest WhatsApps lands in the shared inbox — AI answers instantly; staff can take over with one click.</li>
+      <li><b>Maintenance</b>: report a leaky tap; the right technician gets it with SLA timing.</li>
+    </ul>
+  </div>
+
+  <div class="step" id="p3s5"><span class="n">5</span>
+    <h3>Checkout &amp; settlement — the money moment</h3>
+    <p><b>Rooms → Check out</b> on a guest with a balance shows an <b>Outstanding Balance</b> dialog with the exact amount and a <b>Go to Pay</b> button that opens the Settle modal pre-filled. Type the cash collected — the input is a real amount field with change-due live (₦ all day, $ if you prefer) — confirm, and the settlement receipt pops with auto-print. Behind the receipt the room auto-checks-out, the balance zeroes, the double-entry ledger posts room-revenue vs. cash, and the room flips to <i>dirty</i> for housekeeping. Nothing is hand-waved: card and cash both clear to real ledger entries.</p>
+  </div>
+
+  <div class="step" id="p3s6"><span class="n">6</span>
+    <h3>End of day</h3>
+    <p><b>EOD</b>: each department (POS, pool, halls, room service) closes its own day — totals snap to the ledger. The <b>Accounting</b> view is double-entry; the trial balance always balances because every posting on the system came through the same path. Print your (CSV or paper) transaction report — <b>Payments → Export CSV</b> hands you the exact file of everything that ran today.</p>
+  </div>
+
+  <div class="step" id="p3s7"><span class="n">7</span>
+    <h3>Weekly — keep it tight</h3>
+    <ul>
+      <li><b>Analytics</b>: occupancy, ADR, booking-engine funnel (submissions → confirmations → revenue). Spot the channel paying off.</li>
+      <li><b>Reports</b>: every report downloads a real CSV — transactions, charges, discounts, purchasing, housekeeping activity.</li>
+      <li><b>Billing &amp; Plan</b> (owner): check subscription, upgrade if the room count grew.</li>
+      <li><b>Audit Log</b>: every user action on your system, timestamped — accountability by default.</li>
+    </ul>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <div><b>StayChat OS</b> — hotel management, WhatsApp-first.</div>
+    <div><a href="/landing.html">Home</a> · <a href="/help.html">Full manual (18 sections)</a> · <a href="/app">Open your hotel</a> · <a href="/signup.html">Start free trial</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

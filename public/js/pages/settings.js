@@ -13,18 +13,33 @@ function renderWaTracker(s) {
     ['App Secret', st.appSecret, 'Meta → App Settings → Basic (required — webhooks are signature-verified)'],
   ];
   const done = steps.filter(x => x[1]).length;
-  const rows = steps.map(([label, saved, hint]) =>
-    '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px">' +
-      '<span>' + (saved ? '✅' : '⬜') + '</span>' +
+  // Each row is clickable: it opens the EXACT next action you need. When all
+  // four are saved, the row opens the finish-in-Meta step instead.
+  const OPEN_ACTIONS = [
+    "window.__waOpenField('set-waphoneid')",
+    "window.__waOpenField('set-watoken')",
+    "window.__waOpenField('set-waverify')",
+    "window.__waOpenField('set-waappsecret')",
+  ];
+  const rows = steps.map(([label, saved, hint], i) =>
+    '<div role="button" tabindex="0" onclick="' + (saved ? '' : OPEN_ACTIONS[i]) + '" style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;cursor:' + (saved ? 'default' : 'pointer') + '">' +
+      '<span style="filter:' + (saved ? 'none' : 'grayscale(1)') + '">' + (saved ? '✅' : '⬜') + '</span>' +
       '<span style="font-weight:600;min-width:158px">' + label + '</span>' +
-      (saved ? '<span style="color:var(--a);font-weight:600">saved</span>' : '<span style="color:var(--text3)">' + hint + '</span>') +
+      (saved ? '<span style="color:var(--a);font-weight:600">saved</span>'
+             : '<span style="color:var(--text3)">' + hint + (hint ? ' — ' : '') + '<b style="color:var(--p-light)">click to enter →</b></span>') +
     '</div>').join('');
+  const nextStep = done === 0
+    ? 'Start with the first item below — click it to paste the value.'
+    : done < 4
+      ? 'Click the first ⬜ row to enter the next value, then Save All Changes. Repeat until all four are ✅.'
+      : 'All four saved ✅ — now finish in Meta: set the callback URL (shown below) and subscribe to the "messages" webhook field in WhatsApp → Configuration. Then run Test Connection.';
   return '<div style="background:var(--surface2);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">' +
       '<span style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Setup checklist</span>' +
       '<span style="font-size:11.5px;font-weight:700">' + done + ' of 4 saved</span></div>' +
+    '<div style="font-size:11.5px;color:var(--p-dark);font-weight:600;margin:4px 0 6px">' + nextStep + '</div>' +
     rows +
-    (done < 4 ? '<div style="font-size:11.5px;color:var(--text3);margin-top:6px">Full walkthrough: Help Center → "WhatsApp &amp; the AI receptionist". After saving all four, finish in Meta: set the callback URL below and subscribe to the "messages" webhook field.</div>' : '') +
+    (done < 4 ? '<div style="font-size:11.5px;color:var(--text3);margin-top:6px">Detailed walkthrough with Meta screenshots: <a href="/setup-guide.html#part1" style="color:var(--p-light);font-weight:600">Setup Guide → Part 1</a>. After saving all four, finish in Meta: set the callback URL below and subscribe to the "messages" webhook field.</div>' : '') +
   '</div>';
 }
 
@@ -189,8 +204,28 @@ PAGES.settings = function () {
         if (sbRole) sbRole.textContent = App.tenant.name;
       }
       toast('All settings saved', 'success'); render();
+      // Checklist auto-advance: after a save, open the next ⬜ item so the
+      // operator walks the 4 fields one after another without hunting.
+      const st = (settings.waSetup || {});
+      const order = ['phoneNumberId', 'accessToken', 'verifyToken', 'appSecret'];
+      const missing = order.find(k => !st[k]);
+      if (missing) {
+        const target = { phoneNumberId: 'set-waphoneid', accessToken: 'set-watoken', verifyToken: 'set-waverify', appSecret: 'set-waappsecret' }[missing];
+        setTimeout(() => window.__waOpenField(target), 250);
+      }
     }
     catch (err) { toast(err.message, 'error'); }
+  };
+
+  // Checklist click → scroll to + focus the right credential input, with a
+  // brief highlight ring so the operator knows exactly where to type.
+  window.__waOpenField = (id) => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    input.focus({ preventScroll: true });
+    input.style.boxShadow = '0 0 0 3px rgba(37,211,102,.4)';
+    setTimeout(() => { input.style.boxShadow = ''; }, 1800);
   };
   window.__saveEngineConfig = async () => {
     const enabled = document.getElementById('set-engine-enabled').checked;
