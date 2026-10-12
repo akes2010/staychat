@@ -184,45 +184,68 @@ async function pushToController(tenantId, provision, op) {
  * under `password` for immediate display; the DB keeps only the encrypted form).
  */
 async function provisionForBooking(tenantId, booking, { mac = null, speedDown = null, speedUp = null, quotaGb = undefined, grantedBy = 'system', auto = true } = {}) {
-  // One active session per booking: re-running check-in (or a duplicate call)
-  // must not fork credentials.
-  const existing = db.prepare(`
-    SELECT * FROM wifi_provisions WHERE tenant_id = ? AND booking_id = ? AND status = 'active'
-  `).get(tenantId, booking.id);
-  if (existing) {
-    return { ...existing, password: existing.password_enc ? decrypt(existing.password_enc) : null, reused: true };
+  // Removing the old booking-wide early-return: the per-room guard below now
+  // makes re-runs idempotent (each room either reused or created exactly once)
+  // without hiding the group case behind a single legacy row.
+  const rooms = db.prepare('SELECT * FROM booking_rooms WHERE booking_id = ?').all(booking.id);
+
+  // GROUP BOOKINGS: one Wi-Fi session PER ROOM, each with its own identity
+  // (room-<number>) and password, so every room in the group gets login
+  // details that name its own room number. Single bookings keep the exact
+  // previous behavior. The "no duplicates" guard is scoped per room, not per
+  // booking: a partial re-run (e.g. a room was added to the group after
+  // check-in) provisions only the missing room and reuses the others.
+  const madeSessions = [];
+  const created = [];
+  for (const room of rooms) {
+    const existingOne = db.prepare(`
+      SELECT * FROM wifi_provisions WHERE tenant_id = ? AND booking_id = ? AND room_number = ? AND status = 'active'
+    `).get(tenantId, booking.id, room.room_number);
+    if (existingOne) {
+      madeSessions.push({ ...existingOne, password: existingOne.password_enc ? decrypt(existingOne.password_enc) : null, reused: true });
+      continue;
+    }
+    const roomRow = db.prepare('SELECT * FROM rooms WHERE tenant_id = ? AND number = ?').get(tenantId, room.room_number);
+    const tier = tierForRoomType(roomRow?.type);
+    const password = generatePassword();
+    const identity = `room-${room.room_number || booking.reference || booking.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '');
+    const expiresAt = booking.check_out + ' 12:00:00'; // checkout time + grace
+
+    const id = 'wf_' + crypto.randomBytes(8).toString('hex');
+    db.prepare(`
+      INSERT INTO wifi_provisions
+        (id, tenant_id, booking_id, room_id, room_number, guest_name, controller, identity,
+         password_enc, speed_down_mbps, speed_up_mbps, quota_gb, status, auto, granted_by, expires_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, ?)
+    `).run(
+      id, tenantId, booking.id, roomRow?.id || room.room_id || null, room.room_number, booking.guest_name,
+      // Controller is decided at insert time from the tenant's active config;
+      // if none is configured we store 'none' and the push step is a no-op.
+      db.prepare(`SELECT service_key FROM tenant_api_configs WHERE tenant_id = ? AND category = 'internet_management' AND active = 1 ORDER BY updated_at DESC LIMIT 1`).get(tenantId)?.service_key || 'none',
+      identity, encrypt(password), speedDown || tier.down, speedUp || tier.up,
+      quotaGb !== undefined ? quotaGb : tier.quotaGb, auto ? 1 : 0, grantedBy, expiresAt
+    );
+
+    const provision = db.prepare('SELECT * FROM wifi_provisions WHERE id = ?').get(id);
+    const push = await pushToController(tenantId, provision, 'authorize');
+    madeSessions.push({ ...provision, password, push, reused: false });
+    created.push(provision);
   }
 
-  const rooms = db.prepare('SELECT * FROM booking_rooms WHERE booking_id = ?').all(booking.id);
-  const firstRoomNumber = rooms[0]?.room_number || null;
-  const firstRoom = firstRoomNumber
-    ? db.prepare('SELECT * FROM rooms WHERE tenant_id = ? AND number = ?').get(tenantId, firstRoomNumber)
-    : null;
-
-  const tier = tierForRoomType(firstRoom?.type);
-  const password = generatePassword();
-  const identity = `room-${firstRoomNumber || booking.reference || booking.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '');
-  const expiresAt = booking.check_out + ' 12:00:00'; // checkout time + grace
-
-  const id = 'wf_' + crypto.randomBytes(8).toString('hex');
-  db.prepare(`
-    INSERT INTO wifi_provisions
-      (id, tenant_id, booking_id, room_id, room_number, guest_name, controller, identity,
-       password_enc, speed_down_mbps, speed_up_mbps, quota_gb, status, auto, granted_by, expires_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, ?)
-  `).run(
-    id, tenantId, booking.id, firstRoom?.id || null, firstRoomNumber, booking.guest_name,
-    // Controller is decided at insert time from the tenant's active config;
-    // if none is configured we store 'none' and the push step is a no-op.
-    db.prepare(`SELECT service_key FROM tenant_api_configs WHERE tenant_id = ? AND category = 'internet_management' AND active = 1 ORDER BY updated_at DESC LIMIT 1`).get(tenantId)?.service_key || 'none',
-    identity, encrypt(password), speedDown || tier.down, speedUp || tier.up,
-    quotaGb !== undefined ? quotaGb : tier.quotaGb, auto ? 1 : 0, grantedBy, expiresAt
-  );
-
-  const provision = db.prepare('SELECT * FROM wifi_provisions WHERE id = ?').get(id);
-  const push = await pushToController(tenantId, provision, 'authorize');
-
-  return { ...provision, password, push };
+  // Legacy single-room return shape: rooms[0] (re)used or created. Callers that
+  // expect ONE row keep working unchanged; the full per-room list rides on
+  // `sessions` (new) for group check-ins and the WiFi button.
+  const primary = madeSessions[0] || null;
+  if (!primary) {
+    // Rooms may have been removed after being provisioned: nothing active left.
+    return { sessions: [], reused: true, push: { pushed: false } };
+  }
+  return {
+    ...primary,
+    reused: madeSessions.every(s => s.reused),
+    sessions: madeSessions.map(s => ({ ...s, push: s.push })),
+    createdCount: created.length,
+  };
 }
 
 /**

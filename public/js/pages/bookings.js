@@ -110,6 +110,8 @@ PAGES.bookings = function () {
         '<div style="text-align:right;min-width:90px"><div style="font-weight:800;color:var(--p)">' + formatMoney(b.total_amount) + '</div><div style="font-size:11px;color:var(--text3)">' + formatMoney(b.paid_amount) + ' paid</div></div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
           '<button class="btn ghost sm" onclick="window.__viewBooking(\'' + b.id + '\')">View</button>' +
+          (!['checked_out', 'cancelled'].includes(b.status) ? '<button class="btn ghost sm" onclick="window.__editBooking(\'' + b.id + '\')">✎ Edit</button>' : '') +
+          (!['checked_out', 'cancelled'].includes(b.status) ? '<button class="btn ghost sm" onclick="window.__transferBooking(\'' + b.id + '\')">🔀 Transfer</button>' : '') +
           (b.status === 'confirmed' ? '<button class="btn outline sm" onclick="window.__checkinBooking(\'' + b.id + '\')">Check In</button>' : '') +
           (b.status === 'checked_in' ? '<button class="btn outline sm" onclick="window.__checkoutBooking(\'' + b.id + '\')">Check Out</button>' : '') +
           (['confirmed'].includes(b.status) ? '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__cancelBooking(\'' + b.id + '\')">Cancel</button>' : '') +
@@ -597,7 +599,10 @@ PAGES.bookings = function () {
         (b.notes ? '<div><strong>Notes:</strong> ' + escapeHtml(b.notes) + '</div>' : '') +
         '<div style="font-size:11px;color:var(--text3)">Booked via ' + escapeHtml(b.source) + ' by ' + escapeHtml(b.created_by || '—') + '</div>' +
       '</div>',
-      '<button class="btn outline" onclick="closeModal()">Close</button>' + (b.isGroup ? '<button class="btn primary" onclick="window.__viewGroupFolio(\'' + b.id + '\')">View Group Folio</button>' : '')
+      '<button class="btn outline" onclick="closeModal()">Close</button>' +
+      (!['checked_out', 'cancelled'].includes(b.status) ? '<button class="btn ghost" onclick="closeModal(); window.__editBooking(\'' + b.id + '\')">✎ Edit</button>' : '') +
+      (!['checked_out', 'cancelled'].includes(b.status) ? '<button class="btn ghost" onclick="closeModal(); window.__transferBooking(\'' + b.id + '\')">🔀 Transfer</button>' : '') +
+      (b.isGroup ? '<button class="btn primary" onclick="window.__viewGroupFolio(\'' + b.id + '\')">View Group Folio</button>' : '')
     );
   };
 
@@ -618,6 +623,117 @@ PAGES.bookings = function () {
       );
     } catch (err) { toast(err.message, 'error'); }
   };
+  // ── EDIT RESERVATION ─────────────────────────────────────────
+  // Desk correction of a live reservation: contact details, dates, party size,
+  // notes, and (managers/owners only) the re-price. Dates are re-validated against
+  // availability server-side (PATCH /api/bookings/:id) and any conflict comes back
+  // as a 409 with a readable message shown as a toast.
+  window.__editBooking = (id) => {
+    const b = state.bookings.find(x => x.id === id);
+    if (!b) return;
+    if (['checked_out', 'cancelled'].includes(b.status)) { toast('This booking is ' + b.status + ' and can no longer be edited', 'warn'); return; }
+    const canPrice = typeof can === 'function' ? can('pricing.manage') : false;
+    openModal('✎ Edit Reservation — ' + escapeHtml(b.reference),
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+        '<div class="form-row cols-2">' +
+          '<div class="form-group"><label class="form-label">Guest Surname</label><input class="form-input" id="eb-surname" value="' + escapeHtml(b.surname || '') + '"/></div>' +
+          '<div class="form-group"><label class="form-label">First Name</label><input class="form-input" id="eb-firstname" value="' + escapeHtml(b.first_name || '') + '"/></div>' +
+        '</div>' +
+        '<div class="form-row cols-2">' +
+          '<div class="form-group"><label class="form-label">Guest Name (folio display)</label><input class="form-input" id="eb-name" value="' + escapeHtml(b.guest_name || '') + '"/></div>' +
+          '<div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="eb-phone" value="' + escapeHtml(b.guest_phone || '') + '"/></div>' +
+        '</div>' +
+        '<div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" id="eb-email" value="' + escapeHtml(b.guest_email || '') + '"/></div>' +
+        '<div class="form-row cols-2">' +
+          '<div class="form-group"><label class="form-label">Check-in</label><input class="form-input" type="date" id="eb-in" value="' + escapeHtml((b.check_in || '').slice(0, 10)) + '"/></div>' +
+          '<div class="form-group"><label class="form-label">Check-out</label><input class="form-input" type="date" id="eb-out" value="' + escapeHtml((b.check_out || '').slice(0, 10)) + '"/></div>' +
+        '</div>' +
+        '<div class="form-row cols-3">' +
+          '<div class="form-group"><label class="form-label">Adults</label><input class="form-input" type="number" min="1" id="eb-adults" value="' + (b.adults || 1) + '"/></div>' +
+          '<div class="form-group"><label class="form-label">Children</label><input class="form-input" type="number" min="0" id="eb-children" value="' + (b.children || 0) + '"/></div>' +
+          '<div class="form-group"><label class="form-label">Total ($)' + (canPrice ? '' : ' — manager only') + '</label><input class="form-input" type="number" min="0" step="0.01" id="eb-total" value="' + (b.total_amount != null ? b.total_amount : '') + '"' + (canPrice ? '' : ' disabled') + '/></div>' +
+        '</div>' +
+        '<div class="form-group"><label class="form-label">Notes</label><textarea class="form-input" id="eb-notes" rows="2">' + escapeHtml(b.notes || '') + '</textarea></div>' +
+        '<div style="font-size:11px;color:var(--text3)">The guest\'s original rate is kept. Changing dates is re-checked against room availability automatically.</div>' +
+      '</div>',
+      '<button class="btn outline" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn primary" onclick="window.__saveBookingEdit(\'' + b.id + '\')">Save Changes</button>'
+    );
+  };
+
+  window.__saveBookingEdit = async (id) => {
+    const b = state.bookings.find(x => x.id === id);
+    if (!b) return;
+    const val = (elId) => { const el = document.getElementById(elId); return el ? el.value.trim() : undefined; };
+    const body = {};
+    const surname = val('eb-surname'); const firstName = val('eb-firstname');
+    if (surname !== undefined) body.surname = surname;
+    if (firstName !== undefined) body.firstName = firstName;
+    if (surname || firstName) body.guestName = ((firstName || b.first_name || '') + ' ' + (surname || b.surname || '')).trim() || undefined;
+    const name = val('eb-name'); if (name && name !== b.guest_name) body.guestName = name;
+    const phone = val('eb-phone'); if (phone !== undefined && phone !== (b.guest_phone || '')) body.guestPhone = phone;
+    const email = val('eb-email'); if (email !== undefined && email !== (b.guest_email || '')) body.guestEmail = email;
+    const cin = val('eb-in'); const cout = val('eb-out');
+    if (cin && cin !== (b.check_in || '').slice(0, 10)) body.checkIn = cin;
+    if (cout && cout !== (b.check_out || '').slice(0, 10)) body.checkOut = cout;
+    const adults = Number(val('eb-adults')); if (Number.isFinite(adults) && adults >= 1 && adults !== b.adults) body.adults = adults;
+    const children = Number(val('eb-children')); if (Number.isFinite(children) && children >= 0 && children !== b.children) body.children = children;
+    const totalEl = document.getElementById('eb-total');
+    if (totalEl && !totalEl.disabled && totalEl.value !== '' && Number(totalEl.value) !== b.total_amount) body.totalAmount = Number(totalEl.value);
+    const notes = val('eb-notes'); if (notes !== undefined && notes !== (b.notes || '')) body.notes = notes;
+
+    if (Object.keys(body).length === 0) { toast('Nothing changed', 'info'); return; }
+    if (body.checkIn && body.checkOut && new Date(body.checkOut) <= new Date(body.checkIn)) { toast('Check-out must be after check-in', 'error'); return; }
+    try {
+      await API.patch('/api/bookings/' + id, body);
+      toast('Reservation updated', 'success'); closeModal(); await load();
+    } catch (err) {
+      if (err.status === 409) toast(err.message, 'error'); // room conflict on new dates
+      else toast(err.message, 'error');
+    }
+  };
+
+  // ── ROOM TRANSFER ───────────────────────────────────────────
+  // Move a guest to another room (walk-in swap, maintenance move, upgrade).
+  // Only rooms free for the whole stay are offered; the server re-checks inside
+  // the write transaction so two desks can never double-book the same room.
+  window.__transferBooking = (id) => {
+    const b = state.bookings.find(x => x.id === id);
+    if (!b) return;
+    if (['checked_out', 'cancelled'].includes(b.status)) { toast('This booking is ' + b.status + ' and cannot be transferred', 'warn'); return; }
+    const attachedIds = (b.rooms || []).map(r => r.room_id);
+    // Sellable for a new stay: not occupied by an in-house guest, not on this
+    // booking, and in a usable state. booking_rooms overlap re-checks dates
+    // server-side, so a room booked on another confirmed reservation is still
+    // selectable here and the server rejects with a readable 409 if so.
+    const candidates = state.rooms.filter(r =>
+      !attachedIds.includes(r.id) && ['available', 'cleaning'].includes(r.status)
+    );
+    openModal('🔀 Transfer Room — ' + escapeHtml(b.reference),
+      '<div style="font-size:13px;line-height:1.5;margin-bottom:10px">Moving <b>' + escapeHtml(b.isGroup ? (b.group_name || b.guest_name) : b.guest_name) + '</b> (' +
+        (b.rooms || []).map(r => 'Room ' + escapeHtml(r.room_number)).join(', ') + ') from <b>' + fmtDate(b.check_in) + '</b> to <b>' + fmtDate(b.check_out) + '</b>.' +
+        ' Pick the new room — the guest\'s rate and folio stay attached to the reservation.</div>' +
+      '<div class="form-group"><label class="form-label">Transfer to room</label>' +
+        '<select class="form-input" id="tr-room">' +
+          (candidates.length === 0 ? '<option value="">No other room is free for these dates</option>'
+            : candidates.map(r => '<option value="' + r.id + '">Room ' + escapeHtml(r.number) + ' — ' + escapeHtml(r.type || '') + ' (' + escapeHtml(r.status) + ')</option>').join('')) +
+        '</select></div>' +
+      (candidates.length === 0 ? '<div style="font-size:12px;color:var(--warn);background:var(--warn-bg);border-radius:var(--radius);padding:8px 12px;margin-top:4px">⚠ Every room is either occupied, on this booking, or otherwise unavailable. Free a room first (housekeeping / check-out), then retry.</div>' : ''),
+      '<button class="btn outline" onclick="closeModal()">Cancel</button>' +
+      (candidates.length === 0 ? '' : '<button class="btn primary" onclick="window.__doTransfer(\'' + b.id + '\')">Transfer Booking</button>')
+    );
+  };
+
+  window.__doTransfer = async (id) => {
+    const sel = document.getElementById('tr-room');
+    const roomId = sel && sel.value;
+    if (!roomId) { toast('Pick a room to transfer to', 'error'); return; }
+    try {
+      await API.post('/api/bookings/' + id + '/transfer', { roomId });
+      toast('Booking transferred', 'success'); closeModal(); await load();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
   window.__confirmEngine = (id) => {
     confirmAction('Confirm this online booking? The room will be held for the guest.', async () => {
       try { await API.post('/api/bookings/' + id + '/confirm'); toast('Online booking confirmed', 'success'); await load(); }
@@ -651,7 +767,7 @@ PAGES.bookings = function () {
         toast('Checked in', 'success');
         // Show Wi-Fi credentials immediately when a session was just created.
         if (r.wifi && r.wifi.identity && !r.wifi.reused) {
-          setTimeout(() => window.__wifiCredentialsModal(r.wifi), 400);
+          setTimeout(() => window.__wifiCredentialsModal(r.wifi.sessions && r.wifi.sessions.length > 1 ? { group: r.wifi.sessions } : r.wifi), 400);
         } else if (r.wifi && r.wifi.reused) {
           toast('Wi-Fi session already active for this stay', 'info');
         }
@@ -661,14 +777,21 @@ PAGES.bookings = function () {
     });
   };
   // Shared credential card after check-in auto-provisioning.
+  // Accepts either a SINGLE session ({room, identity, password, …}) or a GROUP
+  // payload ({group: [session, …]}) — one credential block per room.
   window.__wifiCredentialsModal = (w) => {
-    openModal('Guest Wi-Fi — Room ' + escapeHtml(w.room || ''),
-      '<div class="card" style="padding:18px;background:var(--bg);font-family:monospace;font-size:15px;line-height:2">' +
-        '<div style="font-family:inherit;font-size:12px;color:var(--text3);margin-bottom:6px">GUEST Wi-Fi</div>' +
-        '<div>Network: <b>' + escapeHtml(w.identity) + '</b></div>' +
-        '<div>Password: <b>' + escapeHtml(w.password || '—') + '</b></div>' +
-        (w.controllerNote && !w.pushedToController ? '<div style="font-family:inherit;font-size:11px;color:var(--warn);margin-top:8px">⚠ ' + escapeHtml(w.controllerNote) + '</div>' : '') +
-      '</div>' +
+    const credCard = (s) =>
+      '<div style="margin-bottom:12px">' +
+        '<div style="font-family:inherit;font-size:12px;color:var(--text3);margin-bottom:4px">ROOM ' + escapeHtml(s.room || '—') + '</div>' +
+        '<div style="padding:14px;background:var(--bg);font-family:monospace;font-size:15px;line-height:2">' +
+          '<div>GUEST Wi-Fi</div>' +
+          '<div>Network: <b>' + escapeHtml(s.identity) + '</b></div>' +
+          '<div>Password: <b>' + escapeHtml(s.password || '—') + '</b></div>' +
+          (s.controllerNote && !s.pushedToController ? '<div style="font-family:inherit;font-size:11px;color:var(--warn);margin-top:8px">⚠ ' + escapeHtml(s.controllerNote) + '</div>' : '') +
+        '</div>' +
+      '</div>';
+    openModal(w.group ? 'Guest Wi-Fi — ' + w.group.length + ' Rooms' : 'Guest Wi-Fi — Room ' + escapeHtml(w.room || ''),
+      (w.group ? w.group : [w]).map(credCard).join('') +
       '<p style="font-size:11px;color:var(--text3)">Guests can also self-serve at <b>/wifi.html</b> with room number + booking reference.</p>',
       '<button class="btn outline" onclick="window.print()">Print</button>' +
       '<button class="btn primary" onclick="closeModal()">Done</button>');
@@ -682,12 +805,22 @@ PAGES.bookings = function () {
   window.__bookingWifi = async (id) => {
     try {
       const list = await API.get('/api/wifi?bookingId=' + encodeURIComponent(id));
-      const active = (Array.isArray(list) ? list : []).find(s => s.status === 'active');
-      if (active) {
-        window.__wifiDetails(active.id);
+      const actives = (Array.isArray(list) ? list : []).filter(s => s.status === 'active');
+      if (actives.length > 0) {
+        // Groups hold one ACTIVE session per room — show all credential cards.
+        if (actives.length > 1) return window.__wifiCredentialsModal({ group: actives });
+        window.__wifiDetails(actives[0].id);
       } else {
         const created = await API.post('/api/wifi', { bookingId: id });
         toast('Wi-Fi provisioned', 'success');
+        // POST /api/wifi returns the primary session; pull the full per-room
+        // list when the booking is a group so every room's card shows.
+        try {
+          const all = await API.get('/api/wifi/booking/' + encodeURIComponent(id));
+          if (all && all.active && all.active.length > 1) {
+            return window.__wifiCredentialsModal({ group: all.active });
+          }
+        } catch (e) { /* fall through to the single-session card */ }
         window.__wifiCredentialsModal({ room: created.roomNumber, identity: created.identity, password: created.password });
       }
     } catch (err) { toast(err.message, 'error'); }

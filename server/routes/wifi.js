@@ -123,6 +123,25 @@ router.get('/my', (req, res) => {
   });
 });
 
+// GET /api/wifi/booking/:bookingId — every session for a booking (group
+// check-ins produce one PER ROOM). Includes each room's plaintext password so
+// the desk can print/hand over one credential card per room.
+// NOTE: declared BEFORE /:id so Express doesn't route "booking" into the
+// detail handler.
+router.get('/booking/:bookingId', requireAuth, resolveTenant, requireTenant, requirePermission('bookings.manage'), (req, res) => {
+  const booking = db.prepare('SELECT * FROM bookings WHERE id = ? AND tenant_id = ?').get(req.params.bookingId, req.tenantId);
+  if (!booking) return res.status(404).json({ error: 'Booking not found' });
+  const rows = db.prepare(`
+    SELECT * FROM wifi_provisions WHERE tenant_id = ? AND booking_id = ?
+    ORDER BY room_number ASC, created_at DESC
+  `).all(req.tenantId, req.params.bookingId);
+  // Mirror what the desk sees: active sessions first with passwords, then any
+  // revoked/expired history without the secret.
+  const active = rows.filter(r => r.status === 'active').map(r => serialize(r, { withPassword: true }));
+  const history = rows.filter(r => r.status !== 'active').map(r => serialize(r));
+  res.json({ bookingId: booking.id, isGroup: !!booking.is_group, active, history });
+});
+
 // GET /api/wifi/:id — detail incl. the guest password (front desk hands it over)
 router.get('/:id', requireAuth, resolveTenant, requireTenant, requirePermission('bookings.manage'), (req, res) => {
   const row = getProvision(req, res);

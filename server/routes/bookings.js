@@ -436,6 +436,100 @@ router.patch('/:id', requirePermission('bookings.manage'), (req, res) => {
   res.json(serialize(updated));
 });
 
+// POST /api/bookings/:id/transfer — perform a ROOM TRANSFER (room swap) for a
+// booking. Body: { roomId } — move the booking onto a different room.
+//
+// Transfer semantics:
+// - The booking keeps its dates, identity, rate and folio; only the room changes.
+// - Availability is checked against OTHER active bookings inside the write
+//   transaction (same overlap rule as POST /bookings and PATCH), so two desks
+//   transferring onto the same room at the same time cannot both succeed.
+// - Room status: a merely *confirmed* booking does not flip room status —
+//   availability lives in booking_rooms + date overlap (same as POST /bookings).
+//   When the guest is already IN-HOUSE the physical move happens: the old room
+//   goes 'dirty' (housekeeping queue) and the new room becomes 'occupied'.
+router.post('/:id/transfer', requirePermission('bookings.manage'), (req, res) => {
+  const b = db.prepare('SELECT * FROM bookings WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+  if (!b) return res.status(404).json({ error: 'Booking not found' });
+  if (['checked_out', 'cancelled'].includes(b.status)) return res.status(409).json({ error: 'This booking is ' + b.status + ' and cannot be transferred' });
+
+  const { roomId, newRoomId } = req.body || {};
+  const targetRoomId = roomId || newRoomId;
+  if (!targetRoomId) return res.status(400).json({ error: 'A target room (roomId) is required' });
+
+  const target = db.prepare('SELECT * FROM rooms WHERE id = ? AND tenant_id = ?').get(targetRoomId, req.tenantId);
+  if (!target) return res.status(404).json({ error: 'Target room not found' });
+
+  const existing = db.prepare('SELECT * FROM booking_rooms WHERE booking_id = ?').all(b.id);
+  if (existing.length === 0) return res.status(409).json({ error: 'This booking has no rooms attached to transfer' });
+  if (existing.some(br => br.room_id === target.id)) {
+    return res.status(400).json({ error: 'Room ' + target.number + ' is already on this booking' });
+  }
+
+  // Transfers in this UI are one-for-one swaps: the first attached room moves
+  // onto the target room. (Full multi-room re-mapping is a separate workflow.)
+  const leaving = existing[0];
+  db.transaction(() => {
+    const conflict = db.prepare(`
+      SELECT br.room_number FROM booking_rooms br
+      JOIN bookings b2 ON b2.id = br.booking_id
+      WHERE b2.tenant_id = ? AND b2.id != ? AND b2.status IN ('confirmed','checked_in')
+        AND br.room_id = ?
+        AND NOT (b2.check_out <= ? OR b2.check_in >= ?)
+    `).get(req.tenantId, b.id, target.id, b.check_in, b.check_out);
+    if (conflict) throw Object.assign(new Error('Room ' + conflict.room_number + ' is already booked for those dates'), { status: 409 });
+
+    db.prepare('UPDATE booking_rooms SET room_id = ?, room_number = ?, rate = ? WHERE booking_id = ? AND room_id = ?')
+      .run(target.id, target.number, leaving.rate, b.id, leaving.room_id);
+    db.prepare("UPDATE bookings SET updated_at = datetime('now') WHERE id = ?").run(b.id);
+
+    if (b.status === 'checked_in') {
+      const displayName = b.is_group ? (b.group_name || b.guest_name) + ' (' + b.guest_name + ')' : b.guest_name;
+      db.prepare(`UPDATE rooms SET status='dirty', guest_id=NULL, guest_name=NULL, checkout_label=NULL, updated_at=datetime('now') WHERE id=?`).run(leaving.room_id);
+      db.prepare(`UPDATE rooms SET status='occupied', guest_id=?, guest_name=?, updated_at=datetime('now') WHERE id=?`).run(b.guest_id, displayName, target.id);
+    }
+    broadcast(req.tenantId, 'room.updated', db.prepare('SELECT * FROM rooms WHERE id = ?').get(leaving.room_id));
+    broadcast(req.tenantId, 'room.updated', db.prepare('SELECT * FROM rooms WHERE id = ?').get(target.id));
+  })();
+
+  const updated = db.prepare('SELECT * FROM bookings WHERE id = ?').get(b.id);
+  audit(req, 'booking.transfer', 'booking', b.id, {
+    fromRoom: leaving.room_number, toRoom: target.number,
+    guestName: b.guest_name, reference: b.reference,
+  });
+  broadcast(req.tenantId, 'booking.updated', serialize(updated));
+  res.json(serialize(updated));
+});
+
+// POST /api/bookings/:id/delete-room — remove one room from a group booking
+// (desk correction when a group shrinks). The room is freed and the booking's
+// stored total is NOT auto-reduced — pricing changes go through PATCH with
+// pricing.manage, keeping money decisions explicit and audited.
+router.post('/:id/delete-room', requirePermission('bookings.manage'), (req, res) => {
+  const b = db.prepare('SELECT * FROM bookings WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+  if (!b) return res.status(404).json({ error: 'Booking not found' });
+  if (!b.is_group) return res.status(400).json({ error: 'Only group bookings can have a room removed individually' });
+  if (['checked_out', 'cancelled'].includes(b.status)) return res.status(409).json({ error: 'This booking is ' + b.status + ' and cannot be modified' });
+
+  const roomId = req.body && req.body.roomId;
+  if (!roomId) return res.status(400).json({ error: 'A roomId is required' });
+  const attached = db.prepare('SELECT * FROM booking_rooms WHERE booking_id = ?').all(b.id);
+  if (attached.length <= 1) return res.status(400).json({ error: 'A group booking must keep at least one room — cancel the booking instead' });
+  const leaving = attached.find(br => br.room_id === roomId);
+  if (!leaving) return res.status(404).json({ error: 'That room is not part of this booking' });
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM booking_rooms WHERE booking_id = ? AND room_id = ?').run(b.id, roomId);
+    db.prepare(`UPDATE rooms SET status='available', guest_id=NULL, guest_name=NULL, updated_at=datetime('now') WHERE id=?`).run(roomId);
+  })();
+  broadcast(req.tenantId, 'room.updated', db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId));
+
+  const updated = db.prepare('SELECT * FROM bookings WHERE id = ?').get(b.id);
+  audit(req, 'booking.remove_room', 'booking', b.id, { roomId, roomNumber: leaving.room_number, guestName: b.guest_name });
+  broadcast(req.tenantId, 'booking.updated', serialize(updated));
+  res.json(serialize(updated));
+});
+
 // ── Facility (hall/pool) engine submissions — desk workflow ─────────────────
 // NOTE: these MUST be registered before the /:id/confirm, /:id/reject, …
 // parameterized routes below — otherwise POST /facilities/confirm is captured
@@ -568,20 +662,27 @@ router.post('/:id/checkin', requirePermission('bookings.manage'), async (req, re
   rooms.forEach(r => broadcast(req.tenantId, 'room.updated', db.prepare('SELECT * FROM rooms WHERE id = ?').get(r.room_id)));
 
   // Auto-provision guest Wi-Fi for the stay (best-effort — never blocks or
-  // fails the check-in). Tier comes from the room type; one active session per
-  // booking, so double calls reuse the existing credentials.
+  // fails the check-in). GROUP bookings get one session PER ROOM, each
+  // identity named after its own room number; single bookings keep the
+  // previous single-session shape. Re-running check-in reuses existing
+  // credentials instead of forking them.
   let wifiResult = null;
   try {
     const provision = await wifi.provisionForBooking(req.tenantId, b, { grantedBy: req.user.id, auto: true });
-    wifiResult = {
-      room: provision.room_number,
-      identity: provision.identity,
-      password: provision.password || undefined,
-      reused: !!provision.reused,
-      pushedToController: !!(provision.push && provision.push.pushed),
-      controllerNote: provision.push ? provision.push.detail : undefined,
-    };
-    if (!provision.reused) broadcast(req.tenantId, 'wifi.updated', provision);
+    const toUi = (p) => ({
+      room: p.room_number,
+      identity: p.identity,
+      password: p.password || undefined,
+      reused: !!p.reused,
+      pushedToController: !!(p.push && p.push.pushed),
+      controllerNote: p.push ? p.push.detail : undefined,
+    });
+    wifiResult = toUi(provision);
+    wifiResult.sessions = (provision.sessions || []).map(toUi);
+    // Broadcast every room's provision so dashboard tiles light up per room.
+    for (const s of (provision.sessions || [])) {
+      if (!s.reused) broadcast(req.tenantId, 'wifi.updated', s);
+    }
   } catch (e) {
     console.warn('Wi-Fi auto-provision failed for booking', b.id, ':', e.message);
   }
