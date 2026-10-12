@@ -6,6 +6,7 @@ const { requireAuth, resolveTenant, requireTenant, audit } = require('../middlew
 const { requirePermission } = require('../utils/permissions');
 const { postEntry, getAccountByKey, ensureDefaultAccounts } = require('./accounting');
 const { resolveOutstanding } = require('../utils/balance');
+const { broadcast } = require('../ws');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('payments.use'));
@@ -135,6 +136,115 @@ router.post('/settle', requirePermission('payments.use'), (req, res) => {
     roomBalance: settledRoomBalance, pendingTotal: collectedIncidentals, grandTotal: collected,
     change: method === 'cash' ? Math.max(0, Number(cashReceived) - collected) : 0,
     settledTransactionIds,
+  });
+});
+
+// POST /api/payments/refund — issue a refund against a COMPLETED transaction.
+// Refunding changes what the hotel owes the guest — that is the .manage side of
+// the payments split, never day-to-day desk work. The reversal is written as a
+// real 'refunded' transaction (money OUT, reference RFD-…) that every report
+// already excludes from revenue, and the original transaction is marked
+// 'refunded'. Optionally re-opens a checked-out booking so the desk can re-run
+// folio totals. Gateway skips are honest — without real gateway credentials the
+// cash/card drawer is the refund, exactly like the rest of this deployment.
+router.post('/refund', requirePermission('payments.manage'), (req, res) => {
+  const { transactionId, amount, reason, reopenBooking } = req.body || {};
+  if (!transactionId) return res.status(400).json({ error: 'transactionId is required' });
+  if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'A written reason is required to issue a refund' });
+
+  const txn = db.prepare('SELECT * FROM transactions WHERE id = ? AND tenant_id = ?').get(transactionId, req.tenantId);
+  if (!txn) return res.status(404).json({ error: 'Transaction not found' });
+  if (txn.status !== 'completed') return res.status(409).json({ error: 'Only a completed payment can be refunded (this one is ' + txn.status + ')' });
+
+  let refundAmount = txn.amount;
+  if (amount !== undefined && amount !== null) {
+    const n = Number(amount);
+    if (!Number.isFinite(n) || n <= 0 || Math.round(n * 100) / 100 > txn.amount) {
+      return res.status(400).json({ error: 'Refund amount must be a positive number not exceeding ' + txn.amount.toFixed(2) });
+    }
+    refundAmount = Math.round(n * 100) / 100;
+  }
+
+  ensureDefaultAccounts(req.tenantId);
+  const sourceAccount = getAccountByKey(req.tenantId, txn.method === 'Cash' ? 'cash' : 'bank');
+
+  let roomBalanceAfter = null;
+  let reopened = false;
+  // The status guard re-asserts 'completed' so two concurrent refund clicks
+  // cannot double-refund the same payment — the second settled UPDATE changes
+  // 0 rows and the whole transaction aborts.
+  const tx = db.transaction(() => {
+    const claimed = db.prepare("UPDATE transactions SET status = 'refunded' WHERE id = ? AND status = 'completed'").run(txn.id);
+    if (claimed.changes === 0) throw Object.assign(new Error('This payment was just refunded by someone else'), { status: 409 });
+
+    const refundId = 'txn_' + nanoid(10);
+    db.prepare(`INSERT INTO transactions (id, tenant_id, guest_name, room_number, description, amount, method, status, gateway_ref, booking_id, guest_id)
+                VALUES (?,?,?,?,?,?,?, 'refunded', ?, ?, ?)`)
+      .run(refundId, req.tenantId, txn.guest_name, txn.room_number,
+           'Refund of ' + txn.gateway_ref + ' — ' + String(reason).trim(),
+           refundAmount, txn.method, 'RFD-' + refundId.slice(4).toUpperCase(), txn.booking_id, txn.guest_id);
+
+    // Reversal in the books: the original entry was Debit cash/bank, Credit
+    // revenue — the refund flips it (Credit cash/bank, Debit revenue). The
+    // original revenue account is found from the original entry's credit line.
+    try {
+      const origEntry = txn.id ? db.prepare(`
+        SELECT je.id AS entry_id FROM journal_entries je
+        JOIN journal_lines jl ON jl.entry_id = je.id
+        WHERE je.source_id = ? AND je.source = 'payment' AND jl.credit > 0
+        LIMIT 1
+      `).get(txn.id) : null;
+      if (origEntry) {
+        const revenueLine = db.prepare('SELECT * FROM journal_lines WHERE entry_id = ? AND credit > 0 LIMIT 1').get(origEntry.entry_id);
+        if (sourceAccount && revenueLine) {
+          postEntry(req.tenantId, {
+            date: new Date().toISOString().slice(0, 10), reference: 'RFD-' + refundId.slice(4).toUpperCase(),
+            description: 'Refund — ' + String(reason).trim(), source: 'payment', sourceId: refundId, createdBy: req.user.name,
+            lines: [
+              { accountId: revenueLine.account_id, debit: refundAmount, memo: 'Refund reversal' },
+              { accountId: sourceAccount.id, credit: refundAmount, memo: 'Refund payout' },
+            ],
+          });
+        }
+      }
+    } catch (e) { /* accounting never blocks the refund itself */ }
+
+    // If the refunded payment was against a booking the desk had already
+    // checked out over, optionally re-open it so balances/folio recompute in
+    // the normal lifecycle instead of stranding the guest in 'checked_out'.
+    if (reopenBooking && txn.booking_id) {
+      const b = db.prepare('SELECT * FROM bookings WHERE id = ? AND tenant_id = ?').get(txn.booking_id, req.tenantId);
+      if (b && b.status === 'checked_out') {
+        const targetStatus = b.paid_amount - refundAmount > 0.005 ? 'checked_in' : 'confirmed';
+        const r = db.prepare("UPDATE bookings SET status = ? WHERE id = ? AND status = 'checked_out'").run(targetStatus, b.id);
+        if (r.changes > 0) {
+          const rooms = db.prepare('SELECT room_id FROM booking_rooms WHERE booking_id = ?').all(b.id);
+          rooms.forEach(br => db.prepare("UPDATE rooms SET status = 'occupied', guest_id = ?, guest_name = ?, updated_at = datetime('now') WHERE id = ?").run(b.guest_id, b.guest_name, br.room_id));
+          reopened = true;
+        }
+      }
+    }
+  });
+  try { tx(); }
+  catch (e) {
+    if (e.status === 409) return res.status(409).json({ error: e.message });
+    throw e;
+  }
+
+  // Post-refund room balance (what the guest still owes / is owed) for the UI.
+  if (txn.booking_id) {
+    const b = db.prepare('SELECT * FROM bookings WHERE id = ?').get(txn.booking_id);
+    if (b) roomBalanceAfter = Math.round((b.total_amount - b.paid_amount) * 100) / 100;
+  }
+
+  audit(req, 'payment.refund', 'transaction', txn.id, { amount: refundAmount, reason: String(reason).trim(), reopened });
+  try { broadcast(req.tenantId, 'payment.refunded', { id: txn.id, amount: refundAmount }); } catch (e) { /* ws optional */ }
+  res.json({
+    refunded: refundAmount,
+    transactionId: txn.id,
+    reopened,
+    roomBalanceAfter,
+    note: 'Refund recorded in the ledger. Money leaves via your ' + (txn.method === 'Cash' ? 'cash drawer' : 'gateway/bank') + ' — no gateway credentials are touched here.',
   });
 });
 

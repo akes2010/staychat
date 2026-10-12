@@ -1095,6 +1095,23 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
     CREATE INDEX IF NOT EXISTS idx_billevents_tenant ON billing_events(tenant_id, created_at);
   `);
 
+  // ══════════════════════════════════════════════════════════
+  // BLOCKED NUMBERS — per-tenant phone blocklist enforced at every public
+  // entry point (self-OTA rooms, halls, pool). One row per phone per tenant.
+  // ══════════════════════════════════════════════════════════
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS blocked_numbers (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      phone TEXT NOT NULL,
+      reason TEXT,
+      blocked_by TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(tenant_id, phone)
+    );
+    CREATE INDEX IF NOT EXISTS idx_blocked_tenant ON blocked_numbers(tenant_id, phone);
+  `);
+
   // tenants → SaaS trial + signup provenance
   const tenantCols3 = db.prepare("PRAGMA table_info(tenants)").all().map(c => c.name);
   [

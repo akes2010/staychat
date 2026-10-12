@@ -20,6 +20,7 @@ const db = require('../db/connection');
 const { nanoid } = require('nanoid');
 const { effectiveRate } = require('../routes/room-setup');
 const { sendWhatsAppMessage } = require('../utils/whatsapp');
+const { isBlocked } = require('../routes/blocklist');
 const emailSvc = require('./email');
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // no 0/O/1/I/L
@@ -154,6 +155,9 @@ function submitBooking(tenantId, payload) {
 
   if (!guestName || !String(guestName).trim()) throw Object.assign(new Error('Guest name is required'), { status: 400 });
   if (!guestPhone || !String(guestPhone).trim()) throw Object.assign(new Error('A phone number is required so the hotel can reach you'), { status: 400 });
+
+  // Blocked numbers can never book a room (spam/abuse control).
+  if (isBlocked(tenantId, guestPhone)) throw Object.assign(new Error('This phone number cannot make online bookings — please call the hotel directly'), { status: 403 });
   if (!checkIn || !checkOut) throw Object.assign(new Error('Check-in and check-out dates are required'), { status: 400 });
   if (new Date(checkOut) <= new Date(checkIn)) throw Object.assign(new Error('Check-out must be after check-in'), { status: 400 });
   if (new Date(checkIn) < new Date(new Date().toISOString().slice(0, 10))) throw Object.assign(new Error('Check-in cannot be in the past'), { status: 400 });
@@ -339,6 +343,9 @@ function submitFacilityBooking(tenantId, payload) {
   if (!['hall', 'pool'].includes(kind)) throw Object.assign(new Error('Unknown facility type'), { status: 400 });
   if (!guestName || !String(guestName).trim()) throw Object.assign(new Error('Your name is required'), { status: 400 });
   if (!guestPhone || !String(guestPhone).trim()) throw Object.assign(new Error('A phone number is required so the hotel can reach you'), { status: 400 });
+
+  // Blocked numbers cannot reserve facilities either — same spam control.
+  if (isBlocked(tenantId, guestPhone)) throw Object.assign(new Error('This phone number cannot make online bookings — please call the hotel directly'), { status: 403 });
   if (!date) throw Object.assign(new Error('A date is required'), { status: 400 });
   if (new Date(date + 'T23:59:59') < new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00')) {
     throw Object.assign(new Error('The date cannot be in the past'), { status: 400 });

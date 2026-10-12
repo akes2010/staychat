@@ -220,7 +220,7 @@ router.post('/factory-reset', requireRole('hotel_admin', 'superadmin'), (req, re
   if (!expected || typed !== expected) {
     return res.status(400).json({ error: 'Confirmation mismatch — type the hotel name exactly to factory reset' });
   }
-  const tables = ['rooms','guests','bookings','orders','menu_items','staff','maintenance_requests','conversations','messages','transactions','pos_tickets','pool_bookings','hall_bookings','halls','floors','room_categories','holidays','shifts','attendance','pools','misc_services','misc_service_orders','printers','ai_configs','vouchers','journal_lines','journal_entries','accounts','eod_closings'];
+  const tables = ['rooms','guests','bookings','orders','menu_items','staff','maintenance_requests','conversations','messages','transactions','pos_tickets','pool_bookings','hall_bookings','halls','floors','room_categories','holidays','shifts','attendance','pools','misc_services','misc_service_orders','printers','ai_configs','vouchers','journal_lines','journal_entries','accounts','eod_closings','blocked_numbers','wifi_provisions','booking_engine_config'];
   const txn = db.transaction(() => {
     tables.forEach(t => db.prepare(`DELETE FROM ${t} WHERE tenant_id = ?`).run(tid));
   });
