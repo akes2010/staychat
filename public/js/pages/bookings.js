@@ -240,9 +240,15 @@ PAGES.bookings = function () {
     const gst = document.getElementById('nb-state'); if (gst) s['nb-state'] = gst.value;
     c['nb-group-toggle'] = !!document.getElementById('nb-group-toggle')?.checked;
     c['nb-prepaid'] = !!document.getElementById('nb-prepaid')?.checked;
-    // Room picks are module state, not DOM ids — carry them into the draft.
-    try { saveDraft(); } catch (e) {}
-    return { v, s, c };
+    // Scroll continuity: where is the desk's eyes at? (room grid, group name,
+    // payment block…) Remember the offset and the room-grid anchor so the
+    // re-render can land them EXACTLY where they were — not at the top of a
+    // rebuilt form that reads like a second empty one.
+    const bodyEl = document.querySelector('#modal .modal-body');
+    const modalEl = document.getElementById('modal');
+    // The actual scroll container is the WALLET-SIZED modal wrapper on desktop
+    // (verified live: #modal scrolls; .modal-body does not) — snapshot both.
+    return { v, s, c, scrollY: (modalEl && modalEl.scrollHeight > modalEl.clientHeight) ? modalEl.scrollTop : (bodyEl ? bodyEl.scrollTop : 0), scrollAnchorId: 'nb-room-grid' };
   }
 
   function applyBookingFormSnap(snap) {
@@ -297,7 +303,7 @@ PAGES.bookings = function () {
         '<div class="form-group"><label class="form-label">Children</label><input class="form-input" type="number" min="0" id="nb-children" value="0"/></div>' +
       '</div>' +
       '<div class="form-group" style="margin-bottom:10px"><label class="form-label">' + (isGroup ? 'Check-In Room(s) — choose 2 or more' : 'Check-In Room') + '</label>' +
-        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:180px;overflow-y:auto;padding:2px">' +
+        '<div id="nb-room-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:180px;overflow-y:auto;padding:2px">' +
           availableRooms.map(r => {
             const sel = selectedRoomIds.includes(r.id);
             return '<div onclick="window.__toggleRoomPick(\'' + r.id + '\')" style="border:1.5px solid ' + (sel ? 'var(--p)' : 'var(--border)') + ';background:' + (sel ? 'linear-gradient(135deg,#e8f5e9,#d4ecd4)' : 'var(--surface)') + ';border-radius:9px;padding:8px 10px;cursor:pointer;text-align:center">' +
@@ -325,6 +331,25 @@ PAGES.bookings = function () {
     // the fix for the continuation bug: the room pick / group toggle happens
     // MID-FORM, and the desk keeps typing exactly where they left off.
     applyBookingFormSnap(snap);
+    // Preserve the desk's scroll position too: a room click re-renders the modal
+    // body, and on screens where the form overflows (small laptops, POS
+    // tablets) the rebuilt content snapped back to the top — the desk scrolled
+    // from the top saw a fresh-looking second form and re-typed data. Capture
+    // the scroll offset BEFORE the swap in snapshotBookingForm and restore it
+    // here (clamped to the new height).
+    const bodyElAfter = document.querySelector('#modal .modal-body');
+    const modalElAfter = document.getElementById('modal');
+    if (snap && typeof snap.scrollY === 'number') {
+      const scroller = (modalElAfter && modalElAfter.scrollHeight > modalElAfter.clientHeight) ? modalElAfter : bodyElAfter;
+      if (scroller) {
+        // Keep the desk where the room grid lives — that's what they just
+        // clicked, and on shorter screens a top-snap makes the same single
+        // form read like a fresh second one.
+        const anchor = snap.scrollAnchorId ? document.getElementById(snap.scrollAnchorId) : null;
+        if (anchor) scroller.scrollTop = Math.max(0, anchor.offsetTop - 12);
+        else scroller.scrollTop = Math.min(snap.scrollY, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+      }
+    }
     // Every keystroke saves the draft (cheap, single-key) — an accidental close
     // or reload the next second can rescue everything typed so far.
     const body = document.querySelector('#modal .modal-body');
