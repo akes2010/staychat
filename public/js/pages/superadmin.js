@@ -80,6 +80,11 @@ PAGES.superadmin = function () {
     const s = pb.settings || {};
     const stripe = s.stripe_secret_key || { set: false };
     const paystack = s.paystack_secret_key || { set: false };
+    const flutterwave = s.flutterwave_secret_key || { set: false };
+    const opay = s.opay_secret_key || { set: false };
+    const payoneer = s.payoneer_client_secret || { set: false };
+    const airtm = s.airtm_api_token || { set: false };
+    const crypto = s.crypto_webhook_secret || { set: false };
     const pend = Array.isArray(state.pending) ? state.pending : [];
     return '<div style="display:grid;gap:16px">' +
       '<div class="card" style="padding:22px">' +
@@ -101,12 +106,45 @@ PAGES.superadmin = function () {
             '<input class="form-input" id="pb-paystack" placeholder="sk_live_… / sk_test_…" style="margin-bottom:8px"/>' +
             '<div style="font-size:11px;color:var(--text3)">Leave empty to keep the current key. Clear a field to remove that key.</div>' +
           '</div>' +
+          '<div style="background:var(--surface2);border-radius:12px;padding:14px">' +
+            '<div style="font-weight:700;font-size:13px;margin-bottom:2px">Flutterwave</div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">' + (flutterwave.set ? 'Configured (' + escapeHtml(flutterwave.hint || '') + ')' : 'Not configured') + '</div>' +
+            '<input class="form-input" id="pb-flutterwave" placeholder="FLWSECK-…" style="margin-bottom:8px"/>' +
+            '<input class="form-input" id="pb-flutterwave-wh" placeholder="verif-hash secret"/>' +
+          '</div>' +
+          '<div style="background:var(--surface2);border-radius:12px;padding:14px">' +
+            '<div style="font-weight:700;font-size:13px;margin-bottom:2px">OPay</div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">' + (opay.set ? 'Configured (' + escapeHtml(opay.hint || '') + ')' : 'Not configured') + '</div>' +
+            '<input class="form-input" id="pb-opay" placeholder="OPay merchant secret key" />' +
+          '</div>' +
+          '<div style="background:var(--surface2);border-radius:12px;padding:14px">' +
+            '<div style="font-weight:700;font-size:13px;margin-bottom:2px">Payoneer</div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">' + (payoneer.set ? 'Configured' : 'Not configured') + '</div>' +
+            '<input class="form-input" id="pb-payoneer" placeholder="Payoneer client secret"/>' +
+            '<div style="font-size:11px;color:var(--text3);margin-top:8px">Register the “manual settlement” webhook shown below.</div>' +
+          '</div>' +
+          '<div style="background:var(--surface2);border-radius:12px;padding:14px">' +
+            '<div style="font-weight:700;font-size:13px;margin-bottom:2px">Airtm</div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">' + (airtm.set ? 'Configured' : 'Not configured') + '</div>' +
+            '<input class="form-input" id="pb-airtm" placeholder="Airtm API token"/>' +
+          '</div>' +
+          '<div style="background:var(--surface2);border-radius:12px;padding:14px">' +
+            '<div style="font-weight:700;font-size:13px;margin-bottom:2px">Cryptocurrency</div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">' + (crypto.set ? 'Configured' : 'Not configured') + '</div>' +
+            '<input class="form-input" id="pb-crypto" placeholder="Shared webhook secret (BTC/USDT rails)"/>' +
+            '<div style="font-size:11px;color:var(--text3);margin-top:8px">Used to confirm on-chain transfers via the settlement webhook.</div>' +
+          '</div>' +
         '</div>' +
         '<div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
           '<button class="btn primary sm" onclick="window.__savePlatformBilling()">Save gateway keys</button>' +
           '<div style="font-size:11.5px;color:var(--text3)">Webhook URLs to register with the gateway:<br/>' +
             '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.stripe || '') + '</code><br/>' +
-            '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.paystack || '') + '</code></div>' +
+            '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.paystack || '') + '</code><br/>' +
+            '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.flutterwave || '') + '</code><br/>' +
+            '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.opay || '') + '</code><br/>' +
+            '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.payoneer || '') + '</code><br/>' +
+            '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.airtm || '') + '</code><br/>' +
+            '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.crypto || '') + '</code></div>' +
         '</div>' +
       '</div>' +
       '<div class="card" style="padding:22px">' +
@@ -134,9 +172,21 @@ PAGES.superadmin = function () {
     const stripe = document.getElementById('pb-stripe');
     const stripeWh = document.getElementById('pb-stripe-wh');
     const paystack = document.getElementById('pb-paystack');
+    const flutterwave = document.getElementById('pb-flutterwave');
+    const flutterwaveWh = document.getElementById('pb-flutterwave-wh');
+    const opay = document.getElementById('pb-opay');
+    const payoneer = document.getElementById('pb-payoneer');
+    const airtm = document.getElementById('pb-airtm');
+    const crypto = document.getElementById('pb-crypto');
     if (stripe && stripe.value.trim() !== '') body.stripe_secret_key = stripe.value.trim();
     if (stripeWh && stripeWh.value.trim() !== '') body.stripe_webhook_secret = stripeWh.value.trim();
     if (paystack && paystack.value !== '') body.paystack_secret_key = paystack.value;
+    if (flutterwave && flutterwave.value.trim() !== '') body.flutterwave_secret_key = flutterwave.value.trim();
+    if (flutterwaveWh && flutterwaveWh.value.trim() !== '') body.flutterwave_webhook_secret = flutterwaveWh.value.trim();
+    if (opay && opay.value.trim() !== '') body.opay_secret_key = opay.value.trim();
+    if (payoneer && payoneer.value.trim() !== '') body.payoneer_client_secret = payoneer.value.trim();
+    if (airtm && airtm.value.trim() !== '') body.airtm_api_token = airtm.value.trim();
+    if (crypto && crypto.value.trim() !== '') body.crypto_webhook_secret = crypto.value.trim();
     if (Object.keys(body).length === 0) { toast('Nothing to save — enter a key first (or clear a field to remove it)', 'warn'); return; }
     try {
       await API.put('/api/superadmin/platform-billing', body);

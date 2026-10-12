@@ -57,7 +57,8 @@ function resolvePlatformBaseUrl(req) {
 // calls approveSubscriptionByGatewayRef() — no manual approval needed.
 
 function isAutoPaymentsEnabled() {
-  return platformSettings.has('stripe_secret_key') || platformSettings.has('paystack_secret_key');
+  return ['stripe_secret_key', 'paystack_secret_key', 'flutterwave_secret_key', 'opay_secret_key', 'payoneer_client_secret', 'airtm_api_token']
+    .some(k => platformSettings.has(k));
 }
 
 async function createStripeCheckout(sub, plan, baseUrl) {
@@ -112,6 +113,68 @@ async function createPaystackCheckout(sub, plan, baseUrl) {
   return { url: data.data.authorization_url, sessionId: data.data.access_code, provider: 'paystack' };
 }
 
+async function createFlutterwaveCheckout(sub, plan, baseUrl) {
+  const secret = platformSettings.get('flutterwave_secret_key');
+  const res = await fetch('https://api.flutterwave.com/v3/payments', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tx_ref: sub.payment_reference, // unique SC- reference — doubles as gateway ref
+      amount: sub.amount,
+      currency: 'USD',
+      redirect_url: baseUrl + '/pay?ref=' + sub.payment_reference,
+      customer: { email: sub.tenant_email || 'billing@staychat.io', name: sub.tenant_name || 'Hotel' },
+      customizations: { title: 'StayChat OS — ' + plan.name + ' plan', description: sub.billing_cycle === 'yearly' ? 'Yearly subscription' : 'Monthly subscription' },
+      meta: { subscription_id: sub.id },
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.status !== 'success' || !data.data?.link) {
+    throw Object.assign(new Error('Flutterwave checkout failed: ' + (data.message || res.status)), { status: 502 });
+  }
+  return { url: data.data.link, sessionId: sub.payment_reference, provider: 'flutterwave' };
+}
+
+async function createOpayCheckout(sub, plan, baseUrl) {
+  const secret = platformSettings.get('opay_secret_key');
+  // OPay Web3/Collect API — merchant checkout. Reference doubles as gateway ref.
+  const authHeader = 'Bearer ' + Buffer.from(secret).toString('base64');
+  const res = await fetch('https://api.opaycheckout.com/api/v1/international/transaction/createPayment', {
+    method: 'POST',
+    headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      reference: sub.payment_reference,
+      amount: String(Math.round(sub.amount * 100)), // minor units
+      currency: 'USD',
+      country: 'NG',
+      payType: 'regular',
+      callbackUrl: baseUrl + '/api/webhooks/platform/opay',
+      returnUrl: baseUrl + '/pay?ref=' + sub.payment_reference,
+      productName: { name: 'StayChat OS — ' + plan.name + ' plan', description: sub.billing_cycle === 'yearly' ? 'Yearly' : 'Monthly' },
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.data?.cashierUrl) {
+    throw Object.assign(new Error('OPay checkout failed: ' + (data.message || res.status)), { status: 502 });
+  }
+  return { url: data.data.cashierUrl, sessionId: sub.payment_reference, provider: 'opay' };
+}
+
+// Payoneer / Airtm / Crypto are not hosted-checkout APIs in the classic sense —
+// they operate on account-transfer / wallet semantics. Generating a checkout
+// URL would fabricate a payment path that cannot execute, so these three act
+// as REAL, tracked manual flows: the platform opens its own payment details,
+// the operator transfers, and the gateway webhook (or operator approval)
+// completes the subscription via approveSubscriptionByGatewayRef(). They are
+// still real money paths — never "demo" buttons.
+function manualProviderGateways() {
+  return ['payoneer', 'airtm', 'crypto'].filter(k => platformSettings.has(
+    k === 'payoneer' ? 'payoneer_client_secret' : k === 'airtm' ? 'airtm_api_token' : 'crypto_webhook_secret'
+  ));
+}
+
 /**
  * Create (or reuse) a pending subscription for this tenant and — if the
  * platform has a gateway configured — return a hosted checkout URL for it.
@@ -139,9 +202,13 @@ async function createCheckoutSession(tenant, planId, billingCycle, req) {
   try {
     const checkout = process.env.PLATFORM_GATEWAY === 'paystack' && platformSettings.has('paystack_secret_key')
       ? await createPaystackCheckout(sub, plan, resolvePlatformBaseUrl(req))
-      : platformSettings.has('stripe_secret_key')
-        ? await createStripeCheckout(sub, plan, resolvePlatformBaseUrl(req))
-        : await createPaystackCheckout(sub, plan, resolvePlatformBaseUrl(req));
+      : platformSettings.has('flutterwave_secret_key') && !platformSettings.has('stripe_secret_key') && !platformSettings.has('paystack_secret_key')
+        ? await createFlutterwaveCheckout(sub, plan, resolvePlatformBaseUrl(req))
+        : platformSettings.has('opay_secret_key') && !platformSettings.has('stripe_secret_key') && !platformSettings.has('paystack_secret_key')
+          ? await createOpayCheckout(sub, plan, resolvePlatformBaseUrl(req))
+          : platformSettings.has('stripe_secret_key')
+            ? await createStripeCheckout(sub, plan, resolvePlatformBaseUrl(req))
+            : await createPaystackCheckout(sub, plan, resolvePlatformBaseUrl(req));
 
     db.prepare('UPDATE platform_subscriptions SET payment_method = ?, gateway_ref = COALESCE(?, gateway_ref) WHERE id = ?')
       .run(checkout.provider, checkout.sessionId, sub.id);

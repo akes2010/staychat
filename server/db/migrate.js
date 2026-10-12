@@ -801,9 +801,10 @@ function migrate() {
     ['created_by', "TEXT"],
   ].forEach(([col, def]) => { if (!bookingCols.includes(col)) db.exec(`ALTER TABLE bookings ADD COLUMN ${col} ${def}`); });
 
-  // users → permission overrides + status label
+  // users → permission overrides + status label + personal theme (skin colour)
   const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
   if (!userCols.includes('permissions')) db.exec("ALTER TABLE users ADD COLUMN permissions TEXT NOT NULL DEFAULT '[]'");
+  if (!userCols.includes('theme')) db.exec("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'green'");
 
   // users.role CHECK constraint → add dedicated POS-terminal-only roles (cashier, barman).
   // SQLite can't alter a CHECK constraint in place, so rebuild the table.

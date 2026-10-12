@@ -27,12 +27,22 @@ router.get('/platform-billing', (req, res) => {
     webhookUrls: {
       stripe: base + '/api/webhooks/platform/stripe',
       paystack: base + '/api/webhooks/platform/paystack',
+      flutterwave: base + '/api/webhooks/platform/flutterwave',
+      opay: base + '/api/webhooks/platform/opay',
+      payoneer: base + '/api/webhooks/platform/manual',
+      airtm: base + '/api/webhooks/platform/manual',
+      crypto: base + '/api/webhooks/platform/manual',
     },
   });
 });
 
 router.put('/platform-billing', (req, res) => {
-  const allowed = ['stripe_secret_key', 'paystack_secret_key', 'stripe_webhook_secret', 'platform_base_url'];
+  const allowed = [
+    'stripe_secret_key', 'paystack_secret_key', 'flutterwave_secret_key',
+    'flutterwave_webhook_secret', 'opay_secret_key',
+    'payoneer_client_secret', 'airtm_api_token', 'crypto_webhook_secret',
+    'stripe_webhook_secret', 'platform_base_url',
+  ];
   const updated = [];
   for (const [key, value] of Object.entries(req.body || {})) {
     if (!allowed.includes(key)) return res.status(400).json({ error: 'Unknown setting: ' + key });

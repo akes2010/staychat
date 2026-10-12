@@ -93,8 +93,16 @@ function publicUser(u) {
     avatar: u.avatar,
     department: sanitizeString(u.department) || null,
     permissions: effectivePermissions(u),
+    theme: validTheme(u.theme),
   };
 }
+
+// ── Skin themes ─────────────────────────────────────────────────────────────
+// Every user can pick the colour skin they work in. The list here must match
+// THEMES in public/js/theme.js (client+server share one canonical set).
+const THEMES = ['green', 'emerald', 'ocean', 'royal', 'crimson', 'amber', 'slate', 'rose'];
+const DEFAULT_THEME = 'green';
+function validTheme(t) { return THEMES.includes(t) ? t : DEFAULT_THEME; }
 
 function tenantFor(u) {
   if (!u.tenant_id) return null;
@@ -354,6 +362,23 @@ router.get('/me', requireAuth, (req, res) => {
   let tenant = null;
   if (user.tenant_id) tenant = db.prepare('SELECT id, name, plan, status, currency, timezone FROM tenants WHERE id = ?').get(user.tenant_id);
   res.json({ user: publicUser(user), tenant, entitlements: entitlementsFor(user) });
+});
+
+// PATCH /api/auth/theme — save the signed-in user's skin theme.
+// Body: { theme: 'ocean' } — validated against the canonical THEMES list so a
+// forged value can never inject CSS. Returns the normalized theme.
+router.patch('/theme', requireAuth, (req, res) => {
+  const theme = req.body && typeof req.body.theme === 'string' ? req.body.theme.toLowerCase() : '';
+  if (!THEMES.includes(theme)) {
+    return res.status(400).json({ error: 'Unknown theme. Choose one of: ' + THEMES.join(', ') });
+  }
+  db.prepare("UPDATE users SET theme = ? WHERE id = ?").run(theme, req.user.id);
+  res.json({ theme });
+});
+
+// GET /api/auth/theme — the caller's current skin (handy after a reload).
+router.get('/theme', requireAuth, (req, res) => {
+  res.json({ theme: validTheme(db.prepare('SELECT theme FROM users WHERE id = ?').get(req.user.id)?.theme) });
 });
 
 // POST /api/auth/change-password

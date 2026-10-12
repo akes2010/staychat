@@ -84,6 +84,9 @@ function startApp(user, accessToken, tenant, entitlements) {
   WSClient.setTokenGetter(() => window.App.accessToken);
   WSClient.reconnectWithNewTenant(); // fresh connection with the current token (no-op if already up)
   registerRealtimeHandlers();
+  // The server's persisted skin theme arrives with /me — apply it now (bootTheme
+  // already painted the localStorage guess before the shell rendered).
+  if (typeof applyTheme === 'function' && user.theme) applyTheme(user.theme);
   if (typeof showTrialBanner === 'function') showTrialBanner();
   showInstallButtonIfAvailable();
 

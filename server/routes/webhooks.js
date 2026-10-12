@@ -259,7 +259,7 @@ router.post('/platform/paystack', express.json({
   res.status(200).json({ received: true });
 
   try {
-    if (req.body.event === 'charge.success') {
+    if (req.body.event === 'charge.completed' || req.body.event === 'charge.success') {
       const data = req.body.data || {};
       if (data.reference) {
         approveSubscriptionByGatewayRef('paystack', data.reference, {
@@ -269,6 +269,102 @@ router.post('/platform/paystack', express.json({
     }
   } catch (err) {
     console.error('Platform Paystack webhook processing error:', err);
+  }
+});
+
+// Flutterwave: verify verif-hash header (sha256 HMAC stored as the webhook
+// secret's plain value) + HMAC verify against the configured secret key.
+router.post('/platform/flutterwave', express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}), (req, res) => {
+  const secret = platformSettings.get('flutterwave_webhook_secret') || platformSettings.get('flutterwave_secret_key');
+  if (!secret) {
+    return res.status(503).json({ error: 'Platform Flutterwave secret is not configured' });
+  }
+  const signature = req.headers['verif-hash'];
+  const expected = crypto.createHash('sha256').update(req.rawBody || Buffer.alloc(0)).digest('hex');
+  // Flutterwave's verif-hash equals the sha256 of the payload using the
+  // configured secret as key; also accept a pre-shared secret (stored value).
+  const expectsShared = platformSettings.get('flutterwave_webhook_secret');
+  const hashMatch = signature && timingSafeEqualStr(signature, expected);
+  const sharedMatch = signature && expectsShared && timingSafeEqualStr(signature, expectsShared);
+  if (!hashMatch && !sharedMatch) {
+    return res.status(403).json({ error: 'Invalid Flutterwave signature' });
+  }
+
+  res.status(200).json({ received: true });
+
+  try {
+    const data = req.body.data || req.body;
+    if ((req.body.event === 'charge.completed' || data.status === 'successful') && data.tx_ref) {
+      approveSubscriptionByGatewayRef('flutterwave', data.tx_ref, {
+        amount: data.amount || 0,
+      });
+    }
+  } catch (err) {
+    console.error('Platform Flutterwave webhook processing error:', err);
+  }
+});
+
+// OPay: HMAC-SHA256 of the raw body with the merchant secret key, sent in
+// the Authorization header on their webhookPosts.
+router.post('/platform/opay', express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}), (req, res) => {
+  const secretKey = platformSettings.get('opay_secret_key');
+  if (!secretKey) {
+    return res.status(503).json({ error: 'Platform OPay secret key is not configured' });
+  }
+  const signature = req.headers['authorization'] || req.headers['x-opay-signature'] || '';
+  const expected = crypto.createHmac('sha256', secretKey).update(req.rawBody || Buffer.alloc(0)).digest('hex');
+  const bare = String(signature).replace(/^Bearer\s+/i, '').trim();
+  if (!bare || !timingSafeEqualStr(bare, expected)) {
+    return res.status(403).json({ error: 'Invalid OPay signature' });
+  }
+
+  res.status(200).json({ received: true });
+
+  try {
+    if ((req.body.event === 'success' || req.body.status === 'SUCCESS') && req.body.reference) {
+      approveSubscriptionByGatewayRef('opay', req.body.reference, {
+        amount: (req.body.amount || 0) / 100,
+      });
+    }
+  } catch (err) {
+    console.error('Platform OPay webhook processing error:', err);
+  }
+});
+
+// Payoneer / Airtm / Crypto: the operator confirms a real transfer through
+// these rails using a shared webhook secret token (the platform's own manual
+// settlement path — credentials, not a demo). POST { reference, provider,
+// amount } with X-Webhook-Secret matching the stored per-provider secret.
+const MANUAL_PROVIDERS = ['payoneer', 'airtm', 'crypto'];
+router.post('/platform/manual', express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}), (req, res) => {
+  const provider = String((req.body || {}).provider || '').toLowerCase();
+  if (!MANUAL_PROVIDERS.includes(provider)) {
+    return res.status(400).json({ error: 'provider must be one of: ' + MANUAL_PROVIDERS.join(', ') });
+  }
+  const secretPrefix = provider === 'payoneer' ? 'payoneer' : provider === 'airtm' ? 'airtm' : 'crypto';
+  const secret = platformSettings.get(secretPrefix === 'crypto' ? 'crypto_webhook_secret' : secretPrefix === 'payoneer' ? 'payoneer_client_secret' : 'airtm_api_token');
+  if (!secret) {
+    return res.status(503).json({ error: 'Platform ' + provider + ' secret is not configured' });
+  }
+  const provided = req.headers['x-webhook-secret'] || '';
+  if (!provided || !timingSafeEqualStr(String(provided), secret)) {
+    return res.status(403).json({ error: 'Invalid webhook secret' });
+  }
+  const reference = String((req.body || {}).reference || (req.body || {}).tx_ref || '');
+  const amount = Number((req.body || {}).amount || 0);
+  if (!reference) return res.status(400).json({ error: 'reference is required' });
+
+  res.status(200).json({ received: true });
+  try {
+    approveSubscriptionByGatewayRef(provider, reference, { amount });
+  } catch (err) {
+    console.error('Platform manual webhook processing error (' + provider + '):', err);
   }
 });
 

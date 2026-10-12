@@ -18,11 +18,21 @@ const SECRET_KEYS = new Set([
   'stripe_secret_key',
   'paystack_secret_key',
   'flutterwave_secret_key',
+  'flutterwave_webhook_secret',
+  'opay_secret_key',
+  'payoneer_client_secret',
+  'airtm_api_token',
+  'crypto_webhook_secret',
+  'stripe_webhook_secret',
 ]);
 
 // Keys the superadmin console may see (masked). Anything not listed here is
 // internal — e.g. the cached webhook endpoint secret after verification.
-const VISIBLE_KEYS = ['stripe_secret_key', 'paystack_secret_key', 'flutterwave_secret_key', 'platform_base_url'];
+const VISIBLE_KEYS = [
+  'stripe_secret_key', 'paystack_secret_key', 'flutterwave_secret_key',
+  'opay_secret_key', 'payoneer_client_secret', 'airtm_api_token',
+  'crypto_webhook_secret', 'platform_base_url',
+];
 
 function get(key) {
   const row = db.prepare('SELECT value FROM platform_settings WHERE key = ?').get(key);

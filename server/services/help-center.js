@@ -98,6 +98,30 @@ const MANUAL = [
 • The desk can extend sessions for late checkouts or revoke early departures.`,
   },
   {
+    id: 'wifi-isp-link', icon: '🌐', category: 'Operations',
+    title: 'Internet / ISP link & Wi-Fi management',
+    keys: ['isp', 'router', 'internet link', 'wan', 'fiber', 'modem', 'upstream', 'failover', 'bonding', 'bandwidth', 'Manage network', 'connection', 'staychat wifi management', 'link staychat to router', 'provider account'],
+    body: `Linking your ISP line or router to StayChat turns Wi-Fi from a desk chore into an automated part of the booking lifecycle.
+
+CONNECTION (one-time setup)
+1. Keep the ISP modem in bridge mode or put a supported controller behind it — UniFi, MikroTik, TP-Link Omada, Cisco Meraki, Ruckus and Ruckus-managed hotspots all connect.
+2. Give StayChat a route to the controller: either the controller's cloud API (UniFi Site Manager, Meraki dashboard, Omada cloud) or a local LAN address the server can reach.
+3. Settings → Integrations → Internet: pick your controller, paste the API key / host + credentials, enable, then Test Connection — an authenticated probe runs against the real controller, not a stub.
+4. Maps the venue: controller SSIDs and VLANs are picked up automatically; tag the guest SSID so StayChat only provisions guests there (staff network untouched).
+
+MANAGEMENT (what StayChat then does automatically)
+• Check-in provisions the guest's session on the guest SSID with room-tier speed (suites faster than standard) and delivers credentials to their WhatsApp.
+• Checkout revokes the session — no stale ex-guests on your network.
+• Session list (Guest Wi-Fi page) shows who is on, since when, at what rate; desk can extend for late checkout or revoke early.
+• Guests self-serve at /wifi.html with room number + booking reference.
+
+MAINTENANCE (keep the link healthy)
+• The nightly health sweep pings each connected controller and the WAN gateway; anything unreachable is flagged in the dashboard banner and Settings → Integrations test log.
+• If your ISP drops, sessions keep their state in the local database — no lockout storm when the line returns; provisioning queues and catches up.
+• ISP failover (two lines / LTE backup): register the second WAN in the same Internet integration list; tests verify both, and the banner shows which uplink is live.
+• Change of ISP or router IP? Update the host in Settings → Integrations and Test Connection again — credentials and room tiers are preserved.`,
+  },
+  {
     id: 'pos-payments', icon: '🧾', category: 'Operations',
     title: 'POS & payments',
     keys: ['pos', 'point of sale', 'restaurant', 'bar', 'orders', 'room service', 'menu', 'charge to room', 'cash', 'card', 'payments', 'paystack', 'stripe'],

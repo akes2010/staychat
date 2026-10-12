@@ -92,9 +92,9 @@
     <a href="#p2s3">2.3 Floors &amp; categories</a>
     <a href="#p2s4">2.4 Payment methods</a>
     <a href="#p2s5">2.5 Staff accounts</a>
-    <a href="#p2s6">2.6 Booking engine</a>
-    <a href="#p2s7">2.7 Integrations</a>
-    <a href="#p2s8">2.8 Currency</a>
+    <a href="#p2s6">2.6 Booking engine</a>      <a href="#p2s7">2.7 Internet/ISP link</a>
+      <a href="#p2s8">2.8 Other integrations</a>
+      <a href="#p2s9">2.9 Currency</a>
     <a href="#p3s1">3.1 Morning</a>
     <a href="#p3s2">3.2 Bookings arrive</a>
     <a href="#p3s3">3.3 Check-in</a>
@@ -202,11 +202,23 @@
   </div>
 
   <div class="step" id="p2s7"><span class="n">7</span>
-    <h3>In-room &amp; infrastructure integrations (optional, Pro plan)</h3>
-    <p><b>Settings → Integrations</b>: connect Wi-Fi controllers (UniFi, MikroTik, Meraki…), door locks, IPTV, room automation, cameras — 49 services. Every service has docs links, encrypted credential storage, and a live <b>Test Connection</b> probe. Guest Wi-Fi sessions auto-open at check-in and die at checkout, speed-tiered by room type.</p>
+    <h3>Link your ISP / router for easy Wi-Fi management</h3>
+    <p>Connect the internet line you already pay for to StayChat, and guest Wi-Fi runs itself for every stay.</p>
+    <ul>
+      <li><b>Connect</b> — put the ISP modem in bridge mode (or place a supported controller behind it), then add the controller in <b>Settings → Integrations → Internet</b>. Supported: <b>UniFi, MikroTik, TP-Link Omada, Cisco Meraki, Ruckus</b> — via cloud API or local LAN address. Paste the API key/host, enable, and run <b>Test Connection</b>: an authenticated live probe, not a stub.</li>
+      <li><b>Tag the guest network</b> — StayChat picks up your SSIDs/VLANs; mark the guest SSID so only guests are provisioned there and your staff/office network stays untouched.</li>
+      <li><b>Management on autopilot</b> — check-in provisions the guest session at room-tier speed and delivers credentials by WhatsApp automatically; checkout revokes it. The Guest Wi-Fi page lists who's online; the desk can extend for late checkout. Guests self-serve at <code>/wifi.html</code>.</li>
+      <li><b>Maintenance</b> — nightly health sweeps ping every controller and the WAN gateway; anything unreachable shows a dashboard banner. ISP goes down? Session state lives locally, so nobody gets knocked off and provisioning catches up when the line returns. Running two providers / LTE failover? Register the second uplink in the same list — tests verify both and the banner shows which is live. New ISP or new router IP — update the host and re-test; credentials and speed tiers are preserved.</li>
+    </ul>
+    <div class="tip"><b>One rule of thumb:</b> StayChat never manages your ISP contract — it manages everyone ON the network. Keep the modem + controller running, and the guest access layer is automated from there.</div>
   </div>
 
   <div class="step" id="p2s8"><span class="n">8</span>
+    <h3>In-room &amp; infrastructure integrations (optional, Pro plan)</h3>
+    <p><b>Settings → Integrations</b>: door locks, IPTV, room automation, cameras — 49 services. Every service has docs links, encrypted credential storage, and a live <b>Test Connection</b> probe.</p>
+  </div>
+
+  <div class="step" id="p2s9"><span class="n">9</span>
     <h3>Multi-currency for your guests</h3>
     <p>Guests from other countries visiting your booking page automatically see prices in <i>their</i> currency (detected by the edge server from the visitor's country), converted at today's live rate — while the folio still charges your hotel currency. Refresh rates any time in <b>Settings → Exchange Rates</b> (or let the daily auto-refresh handle it). Guests can also pick a currency manually from the selector on the booking page.</p>
   </div>

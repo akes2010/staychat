@@ -180,7 +180,24 @@ function globalSearch(q) {
     });
 }
 function showNotifications() { toast('You have no new notifications', 'info'); }
-function openUserMenu() { toast('Signed in as: ' + App.user.name + ' (' + App.user.role + ')', 'info'); }
+// User menu: a real dropdown (not a toast) — shows the signed-in identity and
+// quick actions, including the personal skin-theme picker.
+function openUserMenu() {
+  const old = document.getElementById('user-menu');
+  if (old) { old.remove(); return; }
+  const menu = document.createElement('div');
+  menu.id = 'user-menu';
+  menu.style.cssText = 'position:fixed;top:64px;right:12px;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-lg);min-width:230px;overflow:hidden';
+  menu.innerHTML =
+    '<div style="padding:14px 16px;border-bottom:1px solid var(--border)">' +
+      '<div style="font-weight:700;font-size:14px">' + escapeHtml(App.user.name || '') + '</div>' +
+      '<div style="font-size:12px;color:var(--text3)">' + escapeHtml(App.user.email || '') + '</div></div>' +
+    '<button class="user-menu-item" onclick="window.__openThemePicker()">🎨 Choose your theme</button>' +
+    '<button class="user-menu-item" onclick="window.__doLogout && window.__doLogout()">⎋ Sign out</button>';
+  document.body.appendChild(menu);
+  const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); } };
+  setTimeout(() => document.addEventListener('click', close), 0);
+}
 
 // ── SaaS: plan banner ───────────────────────────────────────────────────
 // The plan/trial state stays visible to the whole team (transparency), but the

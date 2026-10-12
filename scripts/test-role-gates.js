@@ -145,7 +145,7 @@ function check(label, cond) {
   console.log('── Help center public surface ──');
   check('GET /help → 200', (await status('/help', null)) === 200 || (await fetch(BASE + '/help').then(r => r.status)) === 200);
   const help = await fetch(BASE + '/api/help').then(r => r.json());
-  check('GET /api/help → 18 manual sections, 25 FAQs', help.manual.length === 18 && help.faq.length === 25);
+  check('GET /api/help → 19 manual sections, 25 FAQs', help.manual.length === 19 && help.faq.length === 25);
   const waHelp = (help.manual.find(s => s.id === 'whatsapp-ai') || {}).body || '';
   check('WhatsApp setup guide covers Meta console steps (token, verify token, app secret, webhook field)', ['Phone Number ID', 'System User', 'Verify Token', 'App Secret', 'webhooks/whatsapp', 'messages'].every(k => waHelp.includes(k)));
   const chat = await fetch(BASE + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'who can see the billing page?' }) }).then(r => r.json());
