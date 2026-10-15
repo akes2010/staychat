@@ -99,10 +99,15 @@ PAGES.guests = function () {
     const name = document.getElementById('ag-name').value.trim();
     if (!name) { toast('Name required', 'error'); return; }
     try {
-      await API.post('/api/guests', {
+      const r = await API.post('/api/guests', {
         name, phone: document.getElementById('ag-phone').value, email: document.getElementById('ag-email').value,
         roomNumber: document.getElementById('ag-room').value, checkInDate: document.getElementById('ag-ci').value, checkOutDate: document.getElementById('ag-co').value,
-      });
+      }, { offline: true, label: 'Guest — ' + name });
+      if (r && r.__offlineQueued) {
+        toast('📴 Offline — guest saved on this device; it will sync automatically when the connection returns.', 'warn', 6000);
+        closeModal();
+        return;
+      }
       toast('Guest added', 'success'); closeModal(); await load();
     } catch (err) { toast(err.message, 'error'); }
   };

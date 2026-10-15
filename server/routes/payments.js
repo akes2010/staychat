@@ -7,6 +7,7 @@ const { requirePermission } = require('../utils/permissions');
 const { postEntry, getAccountByKey, ensureDefaultAccounts } = require('./accounting');
 const { resolveOutstanding } = require('../utils/balance');
 const { broadcast } = require('../ws');
+const { idempotency } = require('../middleware/idempotency');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('payments.use'));
@@ -33,7 +34,7 @@ router.get('/transactions/:id', (req, res) => {
 // payments.use, not payments.manage: collecting what a guest already owes is
 // day-to-day desk work (the .use side of the fraud split). Refunds, voids and
 // payment-status edits — changing what is OWED — remain payments.manage.
-router.post('/settle', requirePermission('payments.use'), (req, res) => {
+router.post('/settle', requirePermission('payments.use'), idempotency, (req, res) => {
   const { roomNumber, guestId, bookingId, method, cashReceived, note } = req.body;
   if (!roomNumber && !guestId && !bookingId) return res.status(400).json({ error: 'roomNumber, guestId, or bookingId is required' });
   if (!method) return res.status(400).json({ error: 'A payment method is required to settle a balance' });

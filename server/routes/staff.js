@@ -1,7 +1,7 @@
 // server/routes/staff.js
 const express = require('express');
 const { nanoid } = require('nanoid');
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../utils/password-pool'); // bcrypt runs OFF the request thread
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 
@@ -13,7 +13,7 @@ router.get('/', (req, res) => {
   res.json(rows);
 });
 
-router.post('/', requireRole('hotel_admin', 'superadmin'), (req, res) => {
+router.post('/', requireRole('hotel_admin', 'superadmin'), async (req, res) => {
   const { name, role, department, shift, phone, email, createLogin } = req.body;
   if (!name || !role) return res.status(400).json({ error: 'name and role are required' });
 
@@ -27,7 +27,7 @@ router.post('/', requireRole('hotel_admin', 'superadmin'), (req, res) => {
       const tempPassword = nanoid(8);
       db.prepare(`INSERT INTO users (id, tenant_id, name, email, password_hash, role, department, avatar, phone)
                   VALUES (?,?,?,?,?, 'staff', ?, ?, ?)`)
-        .run(userId, req.tenantId, name, email.toLowerCase(), bcrypt.hashSync(tempPassword, 10), department || 'Front Desk',
+        .run(userId, req.tenantId, name, email.toLowerCase(), await hashPassword(tempPassword, 10), department || 'Front Desk',
              name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase(), phone || null);
       res.locals.tempPassword = tempPassword; // surfaced in response below
     }

@@ -34,12 +34,47 @@ const API = (() => {
     const headers = { 'Content-Type': 'application/json' };
     const qs = opts.tenantId ? `${path.includes('?') ? '&' : '?'}tenantId=${encodeURIComponent(opts.tenantId)}` : '';
 
-    const res = await fetch(path + qs, {
-      method,
-      headers,
-      credentials: 'include',
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    // ── Offline-first (PWA outbox) ─────────────────────────────────────────
+    // Call sites opt in with { offline: true, label: '…' }. Such a write is
+    // never lost: if the device is offline — or the connection dies
+    // mid-flight (navigator.onLine can lie; captive portals still report
+    // 'online') — the request is queued in IndexedDB by window.Offline and
+    // replayed later with an Idempotency-Key the server executes exactly
+    // once (server/middleware/idempotency.js). The call site receives
+    // { __offlineQueued: true } and shows honest "saved offline" UI instead
+    // of pretending the data reached the server. Requests WITHOUT the flag
+    // behave exactly as before this feature existed.
+    const offlineCapable = opts.offline === true && (method === 'POST' || method === 'PATCH' || method === 'PUT');
+    const OfflineMod = (typeof window !== 'undefined' && window.Offline) ? window.Offline : null;
+    const idemKey = offlineCapable && OfflineMod ? OfflineMod.newKey() : null;
+    const queueIt = async () => {
+      const item = await OfflineMod.enqueue({ method, path, body, label: opts.label, key: idemKey || OfflineMod.newKey() });
+      try { window.dispatchEvent(new CustomEvent('staychat:offline-enqueued')); } catch (e) { /* non-fatal */ }
+      return { __offlineQueued: true, __outboxId: item.id, __label: item.label };
+    };
+
+    if (offlineCapable && OfflineMod && typeof navigator !== 'undefined' && !navigator.onLine) {
+      try { return await queueIt(); } catch (e) { /* store broken → fall through to fetch (will throw) */ }
+    }
+    if (idemKey) headers['Idempotency-Key'] = idemKey;
+
+    let res;
+    try {
+      res = await fetch(path + qs, {
+        method,
+        headers,
+        credentials: 'include',
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch (networkErr) {
+      // Connection died mid-request. Queue it — the Idempotency-Key already
+      // sent guarantees the replay cannot double-execute even if the server
+      // DID receive this attempt but the response was lost.
+      if (offlineCapable && OfflineMod) {
+        try { return await queueIt(); } catch (e) { /* fall through */ }
+      }
+      throw networkErr;
+    }
 
     if (res.status === 401 && !opts._isRetry && path !== '/api/auth/login' && path !== '/api/auth/refresh') {
       const ok = await tryRefresh();
@@ -60,6 +95,14 @@ const API = (() => {
       // Refresh could not recover the session → truly dead. Return to login
       // instead of leaving a shell that renders pages full of 401s.
       handoffToLogin();
+    }
+
+    // Maintenance-mode 503 is answered by global middleware BEFORE any route
+    // runs — the request definitely did not execute, so it is safe to queue
+    // and replay once maintenance ends (flush treats a repeat 503 as a
+    // server error with backoff, so this can never hot-loop).
+    if (offlineCapable && OfflineMod && res.status === 503) {
+      try { return await queueIt(); } catch (e) { /* fall through to normal handling */ }
     }
 
     let data = null;

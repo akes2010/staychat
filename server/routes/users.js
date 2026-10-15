@@ -4,7 +4,7 @@
 'use strict';
 
 const express = require('express');
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../utils/password-pool'); // bcrypt runs OFF the request thread
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
@@ -137,7 +137,7 @@ router.post('/', async (req, res) => {
     }
 
     const id = 'user_' + nanoid(16);
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const passwordHash = await hashPassword(password, BCRYPT_ROUNDS);
     const avatar = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
     const customized = Array.isArray(permissions);
 
@@ -255,7 +255,7 @@ router.post('/:id/reset-password', async (req, res) => {
       return res.status(400).json({ error: passwordCheck.reason });
     }
     
-    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const passwordHash = await hashPassword(password, BCRYPT_ROUNDS);
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, user.id);
     
     // Force re-login everywhere

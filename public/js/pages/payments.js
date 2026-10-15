@@ -155,7 +155,11 @@ PAGES.payments = function () {
   window.__finishRoomCheckoutAfterSettle = async (roomId, navigateAfter) => {
     if (navigateAfter === undefined) navigateAfter = true;
     try {
-      await API.post('/api/rooms/' + roomId + '/checkout', {});
+      const r = await API.post('/api/rooms/' + roomId + '/checkout', {}, { offline: true, label: 'Room check-out' });
+      if (r && r.__offlineQueued) {
+        toast('📴 Offline — room check-out queued behind the payment; both sync together when the connection returns.', 'warn', 7000);
+        return;
+      }
       toast('Balance cleared — room checked out and marked dirty for housekeeping.', 'success');
       if (navigateAfter) navigate('rooms'); else await load();
     } catch (err) {
@@ -216,7 +220,16 @@ PAGES.payments = function () {
         body.cashReceived = cashReceived;
       }
       try {
-        const result = await API.post('/api/payments/settle', body);
+        const result = await API.post('/api/payments/settle', body, { offline: true, label: 'Settlement — ' + (roomLabel || target.roomNumber || target.bookingId || 'balance') });
+        if (result && result.__offlineQueued) {
+          // Money was recorded on THIS device only — never fake a receipt or
+          // a cleared balance. The outbox badge shows it pending; the receipt
+          // prints after sync when the server has actually posted it.
+          toast('📴 Offline — payment recorded on this device. It will sync automatically; the receipt prints after sync.', 'warn', 7000);
+          closeModal();
+          if (target.checkoutRoomId) { await window.__finishRoomCheckoutAfterSettle(target.checkoutRoomId, false); }
+          return;
+        }
         toast('Balance settled — ' + formatMoney(result.grandTotal) + (result.change ? ' · Change: ' + formatMoney(result.change) : ''), 'success');
         const receipt = {
           hotelName: (App.tenant && App.tenant.name) || 'StayChat OS',

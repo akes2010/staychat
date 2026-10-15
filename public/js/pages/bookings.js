@@ -547,7 +547,13 @@ PAGES.bookings = function () {
         prepaid: source === 'ota' ? !!document.getElementById('nb-prepaid')?.checked : false,
         payment: payAmount > 0 && selectedPayMethod ? { amount: payAmount, method: selectedPayMethod } : null,
         notes: document.getElementById('nb-notes').value,
-      });
+      }, { offline: true, label: 'Reservation — ' + ((surname || firstName) || 'new') + (checkIn ? ' (' + checkIn + ')' : '') });
+      if (booking && booking.__offlineQueued) {
+        clearDraft(); // a completed registration is no longer a draft
+        closeModal();
+        toast('📴 Offline — reservation saved on this device. It will sync automatically when the connection returns.', 'warn', 7000);
+        return;
+      }
       clearDraft(); // a completed registration is no longer a draft
       toast('Reservation created', 'success');
       if (payAmount > 0) {
@@ -763,7 +769,12 @@ PAGES.bookings = function () {
   window.__checkinBooking = (id) => {
     confirmAction('Check in this reservation? All attached rooms will be marked occupied.', async () => {
       try {
-        const r = await API.post('/api/bookings/' + id + '/checkin');
+        const bk = state.bookings.find(x => x.id === id);
+        const r = await API.post('/api/bookings/' + id + '/checkin', undefined, { offline: true, label: 'Check-in — ' + (bk ? (bk.reference || bk.guest_name) : id) });
+        if (r && r.__offlineQueued) {
+          toast('📴 Offline — check-in saved on this device; it syncs automatically when the connection returns. Wi-Fi credentials follow after sync.', 'warn', 7000);
+          return;
+        }
         toast('Checked in', 'success');
         // Show Wi-Fi credentials immediately when a session was just created.
         if (r.wifi && r.wifi.identity && !r.wifi.reused) {
@@ -827,7 +838,12 @@ PAGES.bookings = function () {
   };
   window.__checkoutBooking = (id) => {
     confirmAction('Check out this reservation? Rooms will be sent to Housekeeping as dirty.', async () => {
-      try { await API.post('/api/bookings/' + id + '/checkout'); toast('Checked out', 'success'); await load(); }
+      try {
+        const bk = state.bookings.find(x => x.id === id);
+        const r = await API.post('/api/bookings/' + id + '/checkout', undefined, { offline: true, label: 'Check-out — ' + (bk ? (bk.reference || bk.guest_name) : id) });
+        if (r && r.__offlineQueued) { toast('📴 Offline — check-out saved on this device; it syncs automatically and rooms reach Housekeeping then.', 'warn', 7000); return; }
+        toast('Checked out', 'success'); await load();
+      }
       catch (err) {
         if (err.status === 409 && err.data && err.data.grandBalance !== undefined) {
           const canForce = typeof can === 'function' ? can('payments.manage') : false;
@@ -863,7 +879,8 @@ PAGES.bookings = function () {
     const reason = document.getElementById('ov-reason-bk').value.trim();
     if (!reason) { toast('A reason is required', 'error'); return; }
     try {
-      await API.post('/api/bookings/' + id + '/checkout', { forceOverride: true, overrideReason: reason });
+      const r = await API.post('/api/bookings/' + id + '/checkout', { forceOverride: true, overrideReason: reason }, { offline: true, label: 'Check-out (balance override)' });
+      if (r && r.__offlineQueued) { toast('📴 Offline — override check-out saved; it syncs automatically when the connection returns.', 'warn', 7000); closeModal(); return; }
       toast('Checked out with an outstanding balance on record', 'warn'); closeModal(); await load();
     }
     catch (err) { toast(err.message, 'error'); }

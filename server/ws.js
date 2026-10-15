@@ -7,6 +7,7 @@ const { verifyAccessToken } = require('./utils/tokens');
 const url = require('url');
 
 let wss = null;
+let heartbeatInterval = null;
 const tenantClients = new Map(); // tenantId -> Set<ws>
 const clientMetadata = new WeakMap(); // Store client metadata
 
@@ -14,7 +15,17 @@ const clientMetadata = new WeakMap(); // Store client metadata
 const MAX_MESSAGE_SIZE = 64 * 1024; // 64KB max message size
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 const HEARTBEAT_TIMEOUT = 60000; // 60 seconds (2 missed heartbeats)
-const MAX_CLIENTS_PER_TENANT = 100; // Limit connections per tenant
+// Cap concurrent WS connections per tenant. A tenant can only connect users
+// that hold one of ITS JWTs, so this is a runaway/protection knob, not a
+// multi-tenancy limit: the default comfortably covers a 500–1000 seat hotel
+// (the SPA opens ONE socket per tab). Operators can tune per deployment via
+// WS_MAX_CLIENTS_PER_TENANT. Before this was raised + made configurable, a
+// busy hotel silently lost every connection past the old hard-coded 100 —
+// the load test showed 577 of 1000 sockets kicked mid-session.
+const MAX_CLIENTS_PER_TENANT = (() => {
+  const n = parseInt(process.env.WS_MAX_CLIENTS_PER_TENANT, 10);
+  return Number.isFinite(n) && n > 0 ? n : 2000;
+})();
 
 function attach(server) {
   wss = new WebSocketServer({
@@ -120,7 +131,7 @@ function attach(server) {
   });
 
   // Ping clients periodically to detect dead connections
-  const heartbeatInterval = setInterval(() => {
+  heartbeatInterval = setInterval(() => {
     if (!wss) return;
     
     wss.clients.forEach((ws) => {
@@ -136,13 +147,28 @@ function attach(server) {
       }
     });
   }, HEARTBEAT_INTERVAL);
+  heartbeatInterval.unref();
 
   // Clean up interval on server close
   wss.on('close', () => {
     clearInterval(heartbeatInterval);
   });
 
-  console.log('✓ WebSocket server attached at /ws (max payload: 64KB)');
+  console.log(`✓ WebSocket server attached at /ws (max payload: 64KB, max clients/tenant: ${MAX_CLIENTS_PER_TENANT})`);
+}
+
+/**
+ * Close every live client (graceful shutdown). Sends a normal close frame so
+ * the SPA reconnects against the new process instead of seeing dead sockets.
+ */
+function closeAll(code = 1001, reason = 'server shutting down') {
+  if (!wss) return;
+  clearInterval(heartbeatInterval);
+  tenantClients.forEach((set) => set.clear());
+  tenantClients.clear();
+  wss.clients.forEach((client) => {
+    try { client.close(code, reason); } catch (e) { try { client.terminate(); } catch (e2) { /* already gone */ } }
+  });
 }
 
 /**
@@ -205,4 +231,4 @@ function getStats() {
   return stats;
 }
 
-module.exports = { attach, broadcast, broadcastAll, getStats };
+module.exports = { attach, broadcast, broadcastAll, getStats, closeAll };

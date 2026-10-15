@@ -26,6 +26,15 @@ The platform is a complete SaaS + PWA out of the box:
   service worker (stale-while-revalidate shell, network-first API with cached fallback),
   install prompts with iOS fallback instructions, and logout cache-wipe for shared
   front-desk tablets. Icons are generated, not binary: `node scripts/generate-icons.js`.
+- **Offline-first writes** — the desk keeps working with no connection: new reservations,
+  guest registration, check-in, check-out and settle are queued in IndexedDB
+  (`public/js/offline.js`) behind a live badge + review ledger, then auto-sync in order
+  the moment the network returns (online event, 30s retry, tab-visible, Background Sync).
+  Every replay carries an `Idempotency-Key` the server executes exactly once
+  (`server/middleware/idempotency.js`), so a reconnect can never double-book a room or
+  double-charge a guest; anything the server rejects on sync (e.g. the room was sold
+  meanwhile) is flagged for staff review instead of retried. Proven by
+  `scripts/test-idempotency.js` (23 checks) + `scripts/browser-test-offline-sync.js` (19 checks).
 
 ### Plans
 
@@ -145,13 +154,14 @@ npm run dev
 
 ## Deploy it for real
 
-### Option A′ — Ready-made VPS kit (Contabo / any Ubuntu VPS, with a domain)
-
-`deploy/` contains a complete production stack: app + **Caddy (automatic
+### Option A′ — Ready-made VPS kit (Contabo / any Ubuntu VPS, with a domain)`deploy/` contains a complete production stack: app + **Caddy (automatic
 HTTPS)** compose file, a one-shot `setup-vps.sh` (installs Docker, generates
-all secrets, opens the firewall, builds, seeds, starts, waits for health) and
-a step-by-step runbook for email, gateway webhooks, WhatsApp, backups and
+all secrets, opens the firewall, builds, seeds, starts, waits for health) and a
+step-by-step runbook for email, gateway webhooks, WhatsApp, backups and
 demo-data wipe. Start at **`deploy/SETUP.md`**.
+Server sizing (how much CPU/RAM 500–1000 concurrent staff need, measured) and
+the GitHub→production update pipeline that can never touch tenant data live in
+**`deploy/OPERATIONS.md`**.
 
 ### Option A — Docker (any VPS, DigitalOcean, Hetzner, AWS Lightsail, etc.)
 
@@ -329,6 +339,32 @@ rest (AES-256-GCM) and never displayed in lists.
 - Check-in responses include a `wifi` object; if a controller push fails
   (device offline) the session still exists locally and the error surfaces on
   the integrations page — provisioning never blocks a check-in.
+
+---
+
+## Load testing (multi-tenant capacity)
+
+`scripts/load-test.js` proves the server holds up with hundreds of concurrent staff
+across multiple tenants — it seeds an ISOLATED database (never your dev/prod data),
+spawns virtual users that each hold a real WebSocket plus a realistic API loop
+(page navigations, interactions, maintenance writes that fan out over WS), and
+reports latency percentiles, server CPU/RSS, WS rejections and any cross-tenant
+broadcast leakage (which must always be 0):
+
+```bash
+node scripts/load-test.js setup --tenants 5 --users 1000     # seed isolated DB
+DATA_DIR=./data/loadtest PORT=3100 node server/index.js       # run server against it
+node scripts/load-test.js run --users 1000 --duration 45      # 1000 concurrent users
+node scripts/load-test.js run --users 1000 --only-tenant lt_tenant_0   # one hotel, 1000 users
+node scripts/load-test.js logins --users 300                  # bcrypt login-burst probe
+node scripts/load-test.js cleanup
+```
+
+Reference result on an 8-core box (Node 22, single process, SQLite/WAL):
+1000 users across 5 tenants ≈ 840 req/s with p95 ≈ 16ms, p99 ≈ 27ms, 0 errors,
+0 dropped WebSockets, 0 cross-tenant leaks, CPU ≈ 75% of one core, RSS ≈ 240MB.
+The `logins` phase confirms a 300-account simultaneous login burst keeps the rest
+of the API at single-digit-millisecond latency (bcrypt runs in worker threads).
 
 ---
 

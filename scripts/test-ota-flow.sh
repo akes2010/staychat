@@ -12,6 +12,21 @@ cp "$ROOT/data/staychat.db" "$DATA_DIR/staychat.db"
 [ -f "$ROOT/data/staychat.db-wal" ] && cp "$ROOT/data/staychat.db-wal" "$DATA_DIR/"
 [ -f "$ROOT/data/staychat.db-shm" ] && cp "$ROOT/data/staychat.db-shm" "$DATA_DIR/"
 
+# Precondition: bookable inventory in the COPY. The dev DB accumulates
+# dirty/occupied room statuses from manual runs (with no active bookings behind
+# them), which starves availability to 0 rooms and fails the whole guest flow.
+# Normalize only the throwaway copy — the real dev DB is never touched.
+NORMALIZE_DB="$DATA_DIR/staychat.db" node <<'NODE_EOF'
+const Database = require('better-sqlite3');
+const db = new Database(process.env.NORMALIZE_DB);
+const live = "SELECT room_id FROM bookings WHERE room_id IS NOT NULL AND status IN ('confirmed','checked_in')";
+const sql = "UPDATE rooms SET status='available', guest_name=NULL, checkout_label=NULL, issue=NULL " +
+            "WHERE status IN ('dirty','maintenance','occupied') AND id NOT IN (" + live + ")";
+const res = db.prepare(sql).run();
+db.close();
+console.log('normalized ' + res.changes + ' stale room(s) to available in test copy');
+NODE_EOF
+
 PORT=$PORT DATA_DIR="$DATA_DIR" NODE_ENV=development node "$ROOT/server/index.js" > "$LOG" 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; rm -rf "$DATA_DIR"' EXIT

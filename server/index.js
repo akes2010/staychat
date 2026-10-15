@@ -13,6 +13,11 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 const { nanoid } = require('nanoid');
 
+// MUST load before any ./routes/* module: forwards rejected promises from
+// async route handlers to the error handler instead of crashing the process
+// (Express 4 drops them → `unhandledRejection` → Node kills the server).
+require('./utils/async-safe');
+
 require('./db/migrate');
 
 // SaaS boot: seed the platform plan catalog (public pricing + superadmin
@@ -115,10 +120,13 @@ app.use((req, res, next) => {
 });
 
 // ── Rate Limiting ───────────────────────────────────────────────────────────
-// Global API rate limit
+// Global API rate limit.
+// RATE_LIMIT_GLOBAL_MAX raises the per-IP budget for deployments where many
+// staff share one egress IP (an office NAT'd behind a single router can trip
+// 200/min at shift start). Default keeps the tighter, safer posture.
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 200, // Requests per minute
+  max: Number(process.env.RATE_LIMIT_GLOBAL_MAX) || 200, // Requests per minute
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please slow down.' },
@@ -180,10 +188,17 @@ app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-only-insecure-secret'));
 // ── Logging ─────────────────────────────────────────────────────────────────
 // Production: structured logging with request ID
 // Development: colored morgan with dev format
-if (isProduction) {
-  app.use(morgan(':method :url :status :res[content-length] - :response-time ms [:date[iso]] :req[x-request-id]'));
-} else {
-  app.use(morgan('dev'));
+// ACCESS_LOG=off silences the per-request access log entirely (default: on).
+// At 500–1000 concurrent users this stream is ~100–400 lines/s (~10–30MB/min)
+// — set it off when another pipeline (file shipper, sidecar) already captures
+// stdout, or when running load tests, to keep log volume sane.
+const accessLog = String(process.env.ACCESS_LOG || 'on').toLowerCase();
+if (!['off', '0', 'false', 'no'].includes(accessLog)) {
+  if (isProduction) {
+    app.use(morgan(':method :url :status :res[content-length] - :response-time ms [:date[iso]] :req[x-request-id]'));
+  } else {
+    app.use(morgan('dev'));
+  }
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
@@ -275,6 +290,7 @@ app.get('/api/version', (req, res) => {
 // Detailed health check for load balancers
 app.get('/api/health/detailed', (req, res) => {
   const memUsage = process.memoryUsage();
+  const cpuUsage = process.cpuUsage();
   res.json({
     ok: true,
     time: new Date().toISOString(),
@@ -285,6 +301,9 @@ app.get('/api/health/detailed', (req, res) => {
       heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024) + 'MB',
       heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024) + 'MB',
     },
+    // Cumulative CPU time (user+system, microseconds) since process start.
+    // Monitoring clients diff two samples against wall time to get CPU %.
+    cpu: cpuUsage,
     env: process.env.NODE_ENV,
   });
 });
@@ -385,6 +404,27 @@ ws.attach(server);
 const parsedPort = parseInt(process.env.PORT, 10);
 const PORT = Number.isFinite(parsedPort) ? parsedPort : 3000;
 const HOST = process.env.HOST || '0.0.0.0';
+
+// NOTE: process-level safety nets (unhandledRejection / uncaughtException →
+// log & keep serving) are installed by ./utils/async-safe, loaded at the top.
+
+// ── Graceful shutdown ──────────────────────────────────────────────────────
+// Deploys/restarts send SIGTERM (Docker, pm2, systemd). Drain WebSocket
+// clients and in-flight HTTP requests first so live users reconnect cleanly
+// instead of hitting dead sockets, then exit — also letting --cpu-prof and
+// other atexit hooks flush their output. Hard-exit fallback after 3s.
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received — draining connections before exit`);
+  try { ws.closeAll(); } catch (e) { /* ws may not be attached */ }
+  server.close(() => process.exit(0));
+  if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections();
+  setTimeout(() => process.exit(0), 3000).unref();
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 server.listen(PORT, HOST, () => {
   console.log('');

@@ -23,6 +23,14 @@ if (!ACCESS_SECRET || !REFRESH_SECRET) {
 const DEV_ACCESS_SECRET = ACCESS_SECRET || 'dev_access_secret_DO_NOT_USE_IN_PRODUCTION';
 const DEV_REFRESH_SECRET = REFRESH_SECRET || 'dev_refresh_secret_DO_NOT_USE_IN_PRODUCTION';
 
+// Pre-derive the HMAC key ONCE. jsonwebtoken re-derives the key on every
+// verify() — it first tries createPublicKey(secret), which THROWS for a plain
+// string, then falls back to createSecretKey: two key-derivation attempts per
+// request (measured ≈100µs each — visible as `createPublicKey` at
+// internal/crypto/keys in the load profile). Passing a KeyObject skips both
+// (jsonwebtoken checks `instanceof KeyObject` and uses it directly).
+const ACCESS_KEY = crypto.createSecretKey(Buffer.from(DEV_ACCESS_SECRET, 'utf8'));
+
 /**
  * Sign an access token with user payload
  * @param {Object} user - User object with id, role, tenant_id, name
@@ -38,7 +46,7 @@ function signAccessToken(user) {
     iat: Math.floor(Date.now() / 1000),
   };
   
-  return jwt.sign(payload, DEV_ACCESS_SECRET, {
+  return jwt.sign(payload, ACCESS_KEY, {
     expiresIn: ACCESS_TTL,
     issuer: 'staychat-os',
     audience: 'staychat-app',
@@ -53,7 +61,7 @@ function signAccessToken(user) {
  */
 function verifyAccessToken(token) {
   try {
-    return jwt.verify(token, DEV_ACCESS_SECRET, {
+    return jwt.verify(token, ACCESS_KEY, {
       issuer: 'staychat-os',
       audience: 'staychat-app',
     });

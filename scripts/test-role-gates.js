@@ -9,6 +9,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { normalizeRoomsInCopy } = require('./lib/normalize-rooms');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = Number(process.env.PORT) || 4420;
@@ -51,6 +52,10 @@ function check(label, cond) {
     for (const ext of ['-wal', '-shm']) {
       if (fs.existsSync(path.join(ROOT, 'data', 'staychat.db' + ext))) fs.copyFileSync(path.join(ROOT, 'data', 'staychat.db' + ext), path.join(dataDir, 'staychat.db' + ext));
     }
+    // Precondition: bookable inventory — the dev DB accumulates stale
+    // dirty/occupied statuses that starve availability to 0 rooms. Normalizes
+    // the COPY only (see scripts/lib/normalize-rooms.js).
+    normalizeRoomsInCopy(dataDir);
     srv = spawn('node', [path.join(ROOT, 'server', 'index.js')], {
       env: Object.assign({}, process.env, { PORT: String(PORT), DATA_DIR: dataDir, NODE_ENV: 'production' }),
       stdio: 'ignore',

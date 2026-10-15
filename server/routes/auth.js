@@ -1,6 +1,6 @@
 // server/routes/auth.js
 const express = require('express');
-const bcrypt = require('bcryptjs');
+const { hashPassword, comparePassword } = require('../utils/password-pool'); // bcrypt runs OFF the request thread
 const rateLimit = require('express-rate-limit');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
@@ -207,7 +207,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     const subdomain = makeUniqueSubdomain(hotelName);
     const tenantId = 'tenant_' + nanoid(10);
     const userId = 'user_' + nanoid(10);
-    const passwordHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
+    const passwordHash = await hashPassword(password, BCRYPT_ROUNDS);
 
     const doRegister = db.transaction(() => {
       db.prepare(`INSERT INTO tenants (id, name, subdomain, plan, status, email, signup_source)
@@ -296,7 +296,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
     
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+    const passwordMatch = await comparePassword(password, user.password_hash);
     if (!passwordMatch) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -435,13 +435,13 @@ router.post('/change-password', requireAuth, async (req, res) => {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    const currentMatch = await bcrypt.compare(currentPassword, user.password_hash);
+    const currentMatch = await comparePassword(currentPassword, user.password_hash);
     if (!currentMatch) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
     
     // Hash new password
-    const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    const newHash = await hashPassword(newPassword, BCRYPT_ROUNDS);
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, user.id);
     
     // Revoke all refresh tokens (force re-login everywhere)
@@ -523,7 +523,7 @@ router.post('/reset-password', forgotLimiter, async (req, res) => {
       return res.status(400).json({ error: 'This reset link has expired. Request a new one — links are valid for one hour.' });
     }
 
-    const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    const newHash = await hashPassword(newPassword, BCRYPT_ROUNDS);
     const doReset = db.transaction(() => {
       db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, reset.user_id);
       db.prepare('UPDATE password_resets SET used_at = datetime(\'now\') WHERE id = ?').run(reset.id);

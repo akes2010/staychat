@@ -7,6 +7,7 @@ const { requirePermission, hasPermission } = require('../utils/permissions');
 const { broadcast } = require('../ws');
 const { resolveOutstanding } = require('../utils/balance');
 const { assertLimit } = require('../services/entitlements');
+const { idempotency } = require('../middleware/idempotency');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
@@ -96,7 +97,7 @@ router.patch('/:id', requirePermission('rooms.manage'), (req, res) => {
 
 // POST /api/rooms/:id/checkin
 // POST /api/rooms/:id/checkin — a real Guest record is required; no "dummy" free-text guests.
-router.post('/:id/checkin', requirePermission('bookings.manage'), (req, res) => {
+router.post('/:id/checkin', requirePermission('bookings.manage'), idempotency, (req, res) => {
   const room = db.prepare('SELECT * FROM rooms WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   if (room.status !== 'available') return res.status(409).json({ error: 'Room is not available for check-in (currently ' + room.status + ')' });
@@ -133,7 +134,7 @@ router.get('/:id/checkout-check', (req, res) => {
 });
 
 // POST /api/rooms/:id/checkout — blocked unless the room has a real linked guest with no outstanding balance
-router.post('/:id/checkout', requirePermission('bookings.manage'), (req, res) => {
+router.post('/:id/checkout', requirePermission('bookings.manage'), idempotency, (req, res) => {
   const room = db.prepare('SELECT * FROM rooms WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!room) return res.status(404).json({ error: 'Room not found' });
   if (room.status !== 'occupied') return res.status(409).json({ error: 'Room is not currently occupied' });

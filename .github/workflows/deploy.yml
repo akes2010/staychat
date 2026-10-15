@@ -1,0 +1,94 @@
+# .github/workflows/deploy.yml — GitHub → live VPS, WITHOUT ever touching tenant data.
+#
+# Pipeline:  push to master → CI (9-suite regression battery) → this workflow.
+#
+#   • Only runs when CI concluded "success" for a PUSH to master (never for PRs),
+#     or when triggered manually from the Actions tab (workflow_dispatch).
+#   • Does NOT deploy if the repo has no deploy secrets configured yet (prints
+#     a notice and exits green instead of failing every build).
+#   • The actual update is executed ON THE SERVER by deploy/update.sh, which is
+#     built around the rule "customer data and secrets are never touched":
+#       - DB snapshot (VACUUM INTO + integrity check) BEFORE any change
+#       - .env is server-owned and excluded from every code-sync step
+#       - migrations are pre-flighted against a COPY of the live DB before the
+#         new container ever sees it (additive-only schema changes)
+#       - health/seed/auth checks after swap; ANY failure → automatic rollback
+#         of image + git ref + DB, with maintenance mode left ON
+#   - One deploy at a time (concurrency group); the server path defaults to
+#     /opt/staychat-os (where deploy/deploy.sh installs the stack).
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST     VPS hostname or IP          e.g. 203.0.113.10
+#   DEPLOY_USER     SSH user                    e.g. root
+#   DEPLOY_SSH_KEY  Private key (ed25519) whose PUBLIC key is in the VPS's
+#                   ~/.ssh/authorized_keys — use a dedicated deploy key with
+#                   access only to this repo's server, not your personal key
+#   DEPLOY_PATH     (optional) install dir      default /opt/staychat-os
+#
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false   # never cancel a half-finished production update
+
+jobs:
+  deploy:
+    # Run only for: CI success on a push to master, or a manual dispatch.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production   # add required reviewers here for a manual approval gate
+    steps:
+      - name: Guard — skip cleanly when deploy secrets are not configured
+        id: guard
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_SSH_KEY" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploy secrets (DEPLOY_HOST/DEPLOY_SSH_KEY) not configured — skipping deploy. Everything else stays green."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy via deploy/update.sh (backup → preflight migrate → swap → health → rollback on failure)
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'root' }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/staychat-os' }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          # %b also fixes keys pasted into the secret field as one line with literal \n
+          printf '%b\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          SSH="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+          DEST="$DEPLOY_USER@$DEPLOY_HOST"
+          REMOTE="$DEPLOY_PATH"
+
+          # Nothing to do if the server already runs this exact commit.
+          CURRENT="$($SSH "$DEST" "cd $REMOTE && git rev-parse HEAD 2>/dev/null || echo none")"
+          if [ "$CURRENT" = "$TARGET_SHA" ]; then
+            echo "Server already at $TARGET_SHA — nothing to deploy."
+            exit 0
+          fi
+
+          echo "Deploying $TARGET_SHA → $DEST:$REMOTE"
+          $SSH "$DEST" "set -euo pipefail; cd $REMOTE && bash deploy/update.sh --pull"
+          echo "✓ Deployed $TARGET_SHA (update.sh verified health + seed check, or rolled back automatically on failure)."

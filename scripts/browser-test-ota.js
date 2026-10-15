@@ -10,6 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const WebSocket = require('ws');
+const { normalizeRoomsInCopy } = require('./lib/normalize-rooms');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4277;
@@ -71,6 +72,7 @@ async function connectCdp(port) {
   for (const ext of ['-wal', '-shm']) {
     if (fs.existsSync(path.join(ROOT, 'data', 'staychat.db' + ext))) fs.copyFileSync(path.join(ROOT, 'data', 'staychat.db' + ext), path.join(dataDir, 'staychat.db' + ext));
   }
+  normalizeRoomsInCopy(dataDir); // bookable-inventory precondition (see helper)
   const srv = spawn('node', [path.join(ROOT, 'server', 'index.js')], {
     env: Object.assign({}, process.env, { PORT: String(PORT), DATA_DIR: dataDir, NODE_ENV: 'development' }),
     stdio: ['ignore', 'pipe', 'pipe'],

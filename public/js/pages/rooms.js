@@ -144,20 +144,45 @@ PAGES.rooms = function () {
   window.__confirmCheckIn = async (id) => {
     let guestId = document.getElementById('ci-guest').value;
     const newName = document.getElementById('ci-newname').value.trim();
+    let guestQueued = false;
     try {
       if (!guestId) {
         if (!newName) { toast('Select an existing guest or enter a name to register a new one', 'error'); return; }
-        const guest = await API.post('/api/guests', { name: newName, phone: document.getElementById('ci-newphone').value.trim() });
-        guestId = guest.id;
+        const guest = await API.post('/api/guests', { name: newName, phone: document.getElementById('ci-newphone').value.trim() }, { offline: true, label: 'Guest — ' + newName });
+        if (guest && guest.__offlineQueued) {
+          // The guest does not exist server-side yet. Queue the check-in
+          // against the guest op's LOCAL id (its outbox id); once that op
+          // syncs, the outbox rewrites the placeholder to the real guest id
+          // before this check-in is replayed (strict FIFO order guarantees
+          // the guest exists first).
+          guestQueued = true;
+          guestId = guest.__outboxId;
+        } else {
+          guestId = guest.id;
+        }
       }
-      await API.post('/api/rooms/' + id + '/checkin', { guestId });
+      const r = await API.post('/api/rooms/' + id + '/checkin', { guestId }, { offline: true, label: 'Room check-in' + (newName ? ' — ' + newName : '') });
+      if (r && r.__offlineQueued) {
+        toast('📴 Offline — check-in saved on this device' + (guestQueued ? ' together with the new guest' : '') + '; it syncs automatically when the connection returns.', 'warn', 7000);
+        closeModal();
+        return;
+      }
       toast('Check-in complete', 'success'); closeModal(); await load();
     } catch (err) { toast(err.message, 'error'); }
   };
 
   window.__checkOutRoom = async (id) => {
     let check;
-    try { check = await API.get('/api/rooms/' + id + '/checkout-check'); } catch (err) { toast(err.message, 'error'); return; }
+    try {
+      check = await API.get('/api/rooms/' + id + '/checkout-check');
+    } catch (err) {
+      // Offline: the balance PREVIEW is unavailable — but the preview is UX
+      // only. The server re-checks the REAL balance when the queued
+      // check-out syncs and flags a conflict if money is still owed, so
+      // proceeding here can never sneak an unpaid guest out.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) { check = { grandTotal: 0, offlinePreview: true }; }
+      else { toast(err.message, 'error'); return; }
+    }
     if (check.grandTotal > 0) {
       const canForce = typeof can === 'function' ? can('payments.manage') : false;
       openModal('Outstanding Balance',
@@ -173,7 +198,11 @@ PAGES.rooms = function () {
       return;
     }
     confirmAction('Check out this room? It will be marked dirty for housekeeping.', async () => {
-      try { await API.post('/api/rooms/' + id + '/checkout', {}); toast('Check-out done. Room marked dirty.', 'info'); closeModal(); await load(); }
+      try {
+        const r = await API.post('/api/rooms/' + id + '/checkout', {}, { offline: true, label: 'Room check-out' });
+        if (r && r.__offlineQueued) { toast('📴 Offline — check-out saved on this device; it syncs automatically when the connection returns.', 'warn', 7000); closeModal(); return; }
+        toast('Check-out done. Room marked dirty.', 'info'); closeModal(); await load();
+      }
       catch (err) { toast(err.message, 'error'); }
     });
   };
@@ -194,7 +223,8 @@ PAGES.rooms = function () {
     const reason = document.getElementById('ov-reason').value.trim();
     if (!reason) { toast('A reason is required', 'error'); return; }
     try {
-      await API.post('/api/rooms/' + id + '/checkout', { forceOverride: true, overrideReason: reason });
+      const rOverride = await API.post('/api/rooms/' + id + '/checkout', { forceOverride: true, overrideReason: reason }, { offline: true, label: 'Room check-out (balance override)' });
+      if (rOverride && rOverride.__offlineQueued) { toast('📴 Offline — override check-out saved; it syncs automatically when the connection returns.', 'warn', 7000); closeModal(); return; }
       toast('Checked out with an outstanding balance on record', 'warn'); closeModal(); await load();
     }
     catch (err) { toast(err.message, 'error'); }

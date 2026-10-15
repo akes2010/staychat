@@ -14,6 +14,7 @@ const path = require('path');
 
 const FAST = [
   'test-role-gates.js',
+  'test-idempotency.js',
   'test-ws-auth.js',
   'test-ota-flow.sh',
   'verify-booking-payment.js',
@@ -22,6 +23,7 @@ const FAST = [
 ];
 const BROWSER = [
   'browser-test-settle-modal.js',
+  'browser-test-offline-sync.js',
   'browser-test-checkout-flow.js',
   'browser-test-ota.js',
 ];

@@ -8,12 +8,13 @@
 //   • /api/GET: network-first with a 4s timeout; falls back to the last cached
 //     response so read-only screens still render offline, stamped with an
 //     X-Served-From header the client can surface as a stale-data badge.
-//   • /api/non-GET: never cached, never queued (writes are refused offline —
-//     the UI toasts instead of silently dropping money-moving requests).
+//   • /api/non-GET: never cached — WRITES are never executed by the SW.
+//     While offline the page queues them in IndexedDB (public/js/offline.js)
+//     and replays them with an Idempotency-Key the server runs exactly once.
 //   • Navigations to unknown paths fall back to the SPA shell.
 'use strict';
 
-const VERSION = 'v8'; // v8: /js/ + /css/ are NETWORK-FIRST — stale-while-revalidate kept serving a cached page module after its fix deployed (staff could not type the amount collected at checkout until the next reload×2)
+const VERSION = 'v9'; // v9: ships /js/offline.js (offline write outbox) + Background Sync tag → clients flush their queue the moment connectivity returns
 const SHELL_CACHE = 'staychat-shell-' + VERSION;
 const ASSET_CACHE = 'staychat-assets-' + VERSION;
 const API_CACHE = 'staychat-api-' + VERSION;
@@ -26,7 +27,7 @@ const SHELL = [
 
 const ASSETS = [
   '/js/countries.js', '/js/api.js', '/js/ws-client.js', '/js/ui.js', '/js/auth.js',
-  '/js/pwa.js', '/js/app.js',
+  '/js/pwa.js', '/js/offline.js', '/js/app.js',
   '/js/pages/dashboard.js', '/js/pages/rooms.js', '/js/pages/bookings.js',
   '/js/pages/booking-engine.js', '/js/pages/wifi.js', '/js/pages/inbox.js',
   '/js/pages/orders.js', '/js/pages/pos.js', '/js/pages/pool.js', '/js/pages/halls.js',
@@ -155,4 +156,17 @@ self.addEventListener('fetch', (event) => {
 // wipe, and to broadcast connectivity changes.
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
+});
+
+// Background Sync (Chrome/Android): fires when connectivity returns — even if
+// the app tab was backgrounded or discarded. Wake every open client and tell
+// it to flush its offline outbox now. (If NO tab is open, the queue simply
+// waits in IndexedDB and flushes when the app next boots — data is never lost.)
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'staychat-sync') {
+    event.waitUntil((async () => {
+      const list = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+      list.forEach(c => { try { c.postMessage('SYNC_NOW'); } catch (e) { /* detached */ } });
+    })());
+  }
 });

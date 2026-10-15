@@ -1139,6 +1139,30 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
   ].forEach(([col, def]) => { if (!tenantCols3.includes(col)) db.exec(`ALTER TABLE tenants ADD COLUMN ${col} ${def}`); });
 
   // ══════════════════════════════════════════════════════════
+  // IDEMPOTENCY KEYS — offline-first request replay protection.
+  // One row per client-generated Idempotency-Key (scoped per tenant). The
+  // offline PWA replays queued writes when the connection returns; the row
+  // remembers that the key already executed (and stores the exact 2xx
+  // response) so a replay can never create a second booking, guest, check-in
+  // or settlement. Rows are cleaned up lazily after 48h by the middleware.
+  // Purely additive — existing data untouched. See server/middleware/idempotency.js.
+  // ══════════════════════════════════════════════════════════
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS idempotency_keys (
+      key TEXT PRIMARY KEY,             -- tenant_id + ':' + client key
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      user_id TEXT,
+      method TEXT NOT NULL,
+      path TEXT,
+      request_hash TEXT NOT NULL,       -- method+path+canonical body (mismatch → 409)
+      status INTEGER,                   -- NULL = in flight; else stored response status
+      response_body TEXT,               -- exact stored 2xx JSON response
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_idem_created ON idempotency_keys(created_at);
+  `);
+
+  // ══════════════════════════════════════════════════════════
   // ANALYZE — Update query planner statistics
   // ══════════════════════════════════════════════════════════
   try {

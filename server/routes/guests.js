@@ -4,6 +4,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
+const { idempotency } = require('../middleware/idempotency');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
@@ -28,7 +29,7 @@ router.get('/:id', (req, res) => {
   res.json(serialize(g));
 });
 
-router.post('/', requirePermission('rooms.manage'), (req, res) => {
+router.post('/', requirePermission('rooms.manage'), idempotency, (req, res) => {
   const { name, phone, email, roomNumber, checkInDate, checkOutDate } = req.body;
   if (!name) return res.status(400).json({ error: 'Guest name is required' });
   const id = 'guest_' + nanoid(10);

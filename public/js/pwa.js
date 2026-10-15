@@ -62,6 +62,13 @@ window.PWA = (() => {
   // On shared devices the next user must not see this hotel's offline copies.
   async function wipeCaches() {
     try {
+      // Queued offline writes go too (same shared-device rule as the caches):
+      // the next shift must not inherit — or sync — the previous hotel's
+      // pending work. Staff can see the pending count on the badge before
+      // signing out and hit "Sync now" if they want it delivered first.
+      if (window.Offline && typeof Offline.wipe === 'function') await Offline.wipe();
+    } catch (e) { /* best-effort */ }
+    try {
       if ('caches' in window) {
         const names = await caches.keys();
         await Promise.all(names.map(n => caches.delete(n)));

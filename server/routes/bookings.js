@@ -15,6 +15,7 @@ const { postEntry, getAccountByKey, ensureDefaultAccounts } = require('./account
 const wifi = require('../services/wifi');
 const engine = require('../services/booking-engine');
 const { notifyStaffOfDecision } = require('../services/engine-notifications');
+const { idempotency } = require('../middleware/idempotency');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
@@ -22,6 +23,34 @@ router.use(requireAuth, resolveTenant, requireTenant);
 function serialize(b) {
   const rooms = db.prepare('SELECT * FROM booking_rooms WHERE booking_id = ?').all(b.id);
   return { ...b, isGroup: !!b.is_group, rooms, engineCode: b.engine_code || undefined, engineSyncStatus: b.engine_sync_status || undefined };
+}
+
+// List-variant of `serialize`: ONE query for all rooms instead of the N+1
+// (one query per booking). The bookings screen is fetched on every dashboard
+// load and, with 100+ reservations, the old pattern spent ~100 prepares +
+// roundtrips per request — the single biggest CPU item in the load profile
+// (≈17% of total). Response shape is byte-identical to serialize().
+function serializeList(bookings) {
+  const roomsByBooking = new Map();
+  // Chunked IN-lists: stay well under SQLite's bound-parameter limit even for
+  // tenants with thousands of reservations.
+  for (let i = 0; i < bookings.length; i += 500) {
+    const chunk = bookings.slice(i, i + 500);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT * FROM booking_rooms WHERE booking_id IN (${placeholders})`).all(...chunk.map(b => b.id));
+    for (const r of rows) {
+      let arr = roomsByBooking.get(r.booking_id);
+      if (!arr) { arr = []; roomsByBooking.set(r.booking_id, arr); }
+      arr.push(r);
+    }
+  }
+  return bookings.map(b => ({
+    ...b,
+    isGroup: !!b.is_group,
+    rooms: roomsByBooking.get(b.id) || [],
+    engineCode: b.engine_code || undefined,
+    engineSyncStatus: b.engine_sync_status || undefined,
+  }));
 }
 
 function makeReference() {
@@ -53,7 +82,7 @@ router.get('/', (req, res) => {
   if (isGroup !== undefined) { sql += ' AND is_group = ?'; params.push(isGroup === 'true' ? 1 : 0); }
   sql += ' ORDER BY check_in DESC';
   const rows = db.prepare(sql).all(...params);
-  res.json(rows.map(serialize));
+  res.json(serializeList(rows));
 });
 
 // GET /api/bookings/returning-guest?phone= — PEMBROKE-STYLE RETURNING-GUEST
@@ -147,7 +176,9 @@ function registrationFingerprint(body, resolvedRooms) {
   return 'reg-' + crypto.createHash('sha256').update(JSON.stringify(norm)).digest('hex').slice(0, 32);
 }
 
-router.post('/', requirePermission('bookings.manage'), (req, res) => {
+// idempotency: offline-first clients replay this request after reconnect —
+// the header key makes the replay return the ORIGINAL booking, never a dup.
+router.post('/', requirePermission('bookings.manage'), idempotency, (req, res) => {
   const {
     guestName, surname, firstName, guestPhone, guestEmail, guestId, address, idType, idNumber, country, state,
     nextOfKinName, nextOfKinPhone, checkIn, checkOut, roomIds,
@@ -637,7 +668,7 @@ router.post('/:id/reject', requirePermission('bookings.manage'), (req, res) => {
 });
 
 // POST /api/bookings/:id/checkin — flips every attached room to occupied
-router.post('/:id/checkin', requirePermission('bookings.manage'), async (req, res) => {
+router.post('/:id/checkin', requirePermission('bookings.manage'), idempotency, async (req, res) => {
   const b = db.prepare('SELECT * FROM bookings WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!b) return res.status(404).json({ error: 'Booking not found' });
   if (b.status !== 'confirmed') return res.status(409).json({ error: 'Only confirmed bookings can be checked in' });
@@ -691,7 +722,7 @@ router.post('/:id/checkin', requirePermission('bookings.manage'), async (req, re
 });
 
 // POST /api/bookings/:id/checkout — flips every attached room to dirty (ready for housekeeping)
-router.post('/:id/checkout', requirePermission('bookings.manage'), async (req, res) => {
+router.post('/:id/checkout', requirePermission('bookings.manage'), idempotency, async (req, res) => {
   const b = db.prepare('SELECT * FROM bookings WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!b) return res.status(404).json({ error: 'Booking not found' });
   if (b.status !== 'checked_in') return res.status(409).json({ error: 'Only checked-in bookings can be checked out' });

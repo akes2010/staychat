@@ -1,6 +1,6 @@
 // server/routes/superadmin.js
 const express = require('express');
-const bcrypt = require('bcryptjs');
+const { hashPassword } = require('../utils/password-pool'); // bcrypt runs OFF the request thread
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, requireRole, audit } = require('../middleware/auth');
@@ -141,7 +141,7 @@ router.post('/sweep-trials', (req, res) => {
   res.json({ swept });
 });
 
-router.post('/tenants', (req, res) => {
+router.post('/tenants', async (req, res) => {
   const { name, plan, rooms, email, country, subdomain } = req.body;
   if (!name) return res.status(400).json({ error: 'Hotel name is required' });
   if (!['starter','pro','enterprise'].includes(plan)) return res.status(400).json({ error: 'Invalid plan' });
@@ -160,7 +160,7 @@ router.post('/tenants', (req, res) => {
   if (email) {
     tempPassword = nanoid(10);
     db.prepare(`INSERT INTO users (id, tenant_id, name, email, password_hash, role, avatar) VALUES (?,?,?,?,?, 'hotel_admin', 'HA')`)
-      .run('user_' + nanoid(10), id, 'Hotel Admin', email.toLowerCase(), bcrypt.hashSync(tempPassword, 10));
+      .run('user_' + nanoid(10), id, 'Hotel Admin', email.toLowerCase(), await hashPassword(tempPassword, 10));
   }
 
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);
