@@ -164,10 +164,17 @@ git clone git@github-staychat:YOUR_USER/YOUR_REPO.git /opt/staychat-os
 cd /opt/staychat-os && DOMAIN=staychat.yourdomain.com bash deploy/setup-vps.sh
 ```
 
-`setup-vps.sh` does the server-side half: installs Docker, generates the
-secrets into `/opt/staychat-os/.env`, configures ufw (22/80/443), adds swap +
-automatic security updates, and installs the **daily 03:17 backup cron**
-(14 days retained in `/opt/backups`).
+`setup-vps.sh` does the server-side half: installs Docker + the Compose
+plugin, generates the secrets into `/opt/staychat-os/.env` (once — re-runs
+never overwrite them), opens ufw 22/80/443, brings the stack up, and installs
+the **daily 03:17 backup cron** (14 days retained in `/opt/backups`).
+
+> Recommended once per new VPS (the setup script leaves these to you):
+> `apt-get install -y unattended-upgrades && dpkg-reconfigure -f noninteractive
+> unattended-upgrades` for automatic security patches, and a 2 GB swap file
+> (`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile &&
+> swapon /swapfile` + fstab entry) — see [OPERATIONS.md](OPERATIONS.md) §1
+> OS baseline.
 
 ---
 
