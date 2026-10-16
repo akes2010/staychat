@@ -73,7 +73,7 @@ Any user's checklist can be edited — once customized, **that list becomes
 their complete capability set** (role defaults no longer apply):
 
 1. Users module → pick user → **Edit permissions**
-2. Tick exactly the capabilities they need (the same 32 the server checks)
+2. Tick exactly the capabilities they need (the same 31 the server checks)
 3. Save — effective immediately on their next request
 
 Use cases:
