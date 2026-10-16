@@ -23,6 +23,7 @@ const FAST = [
 ];
 const BROWSER = [
   'browser-test-settle-modal.js',
+  'browser-test-logout.js',
   'browser-test-offline-sync.js',
   'browser-test-checkout-flow.js',
   'browser-test-ota.js',

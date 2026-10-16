@@ -118,6 +118,11 @@ async function doLogout() {
   }
   toast('Logged out successfully', 'info');
 }
+// Expose logout for the account dropdown (openUserMenu in app.js guards on
+// window.__doLogout). Without this assignment the menu's "Sign out" button
+// silently did nothing — the 🚪 topbar button worked, but the menu looked
+// like the primary way out and left users stranded.
+window.__doLogout = doLogout;
 
 // Surface the install button once the browser says the app is installable.
 function showInstallButtonIfAvailable() {
