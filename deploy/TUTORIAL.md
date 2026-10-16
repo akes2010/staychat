@@ -8,6 +8,10 @@ nothing here is aspirational.
 > Prefer the short version? [`SETUP.md`](SETUP.md) is the condensed runbook and
 > [`OPERATIONS.md`](OPERATIONS.md) covers sizing + the update-safety model.
 > This tutorial is the long, guided path.
+>
+> **Want a separate, file-by-file guide folder?** See
+> [`../install-guide/`](../install-guide/) — the same walkthrough split into
+> 10 focused files (with Cloudflare-specific DNS steps).
 
 ---
 

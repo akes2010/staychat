@@ -150,15 +150,19 @@ For local development with auto-restart on file changes:
 npm run dev
 ```
 
----
+---## Deploy it for real
 
-## Deploy it for real
+> **New to this?** [`install-guide/`](install-guide/) is a complete,
+> beginner-level, copy-paste tutorial (prerequisites → DNS on Cloudflare →
+> install → email/payments/WhatsApp → auto-deploy → day-2 operations →
+> troubleshooting) that takes a fresh VPS to a live HTTPS system in ~2 hours.
 
 ### Option A′ — Ready-made VPS kit (Contabo / any Ubuntu VPS, with a domain)`deploy/` contains a complete production stack: app + **Caddy (automatic
 HTTPS)** compose file, a one-shot `setup-vps.sh` (installs Docker, generates
-all secrets, opens the firewall, builds, seeds, starts, waits for health) and a
-step-by-step runbook for email, gateway webhooks, WhatsApp, backups and
-demo-data wipe. Start at **`deploy/SETUP.md`**.
+all secrets, opens the firewall, builds, seeds, starts, waits for health) and
+a step-by-step runbook for email, gateway webhooks, WhatsApp, backups and
+demo-data wipe. Start at **`deploy/SETUP.md`** (or the guided version:
+[`install-guide/`](install-guide/)).
 Server sizing (how much CPU/RAM 500–1000 concurrent staff need, measured) and
 the GitHub→production update pipeline that can never touch tenant data live in
 **`deploy/OPERATIONS.md`**.
