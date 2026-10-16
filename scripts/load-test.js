@@ -20,7 +20,8 @@
 //   cleanup  Delete the seeded load-test tenants from the isolated DB.
 //
 // Typical sequence (server MUST run against the isolated DB):
-//   node scripts/load-test.js setup --tenants 10 --users 1000
+//   node scripts/load-test.js setup --tenants 200 --users 1000   # platform scale
+//   (… --tenants 5 for the small-hotel profile)
 //   DATA_DIR=./data/loadtest PORT=3100 node server/index.js   # in another shell
 //   node scripts/load-test.js run     --users 1000 --duration 60
 //   node scripts/load-test.js logins  --users 300

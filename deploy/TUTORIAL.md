@@ -56,12 +56,15 @@ them again once deployed:
 | Tier | Who | CPU | RAM | Disk | Example |
 |---|---|---|---|---|---|
 | Demo / staging | you, testers | 2 vCPU | 2–4 GB | 40 GB | smallest VPS anywhere |
-| Small production | up to ~500 staff | 2–4 vCPU ≥3.0 GHz | 4–8 GB | 40–80 GB NVMe | Contabo VPS 100 tier, Hetzner CX22 |
-| **Target** | 500–1000 staff | **4 vCPU ≥3.2 GHz** | **8 GB** | **80 GB NVMe** | Contabo VPS 200 tier, DO 8 GB |
+| Small production | 1–20 hotels, up to ~500 staff | 2–4 vCPU ≥3.0 GHz | 4–8 GB | 40–80 GB NVMe | Contabo VPS 100 tier, Hetzner CX22 |
+| **Target** | up to ~50 hotels, 500–1000 staff | **4 vCPU ≥3.2 GHz** | **8 GB** | **80 GB NVMe** | Contabo VPS 200 tier, DO 8 GB |
+| **Platform (measured)** | 100–200 hotels, 1000 busy staff | **8 vCPU ≥3.2 GHz** | **16 GB** | **160 GB NVMe** | Contabo VPS 400 tier, Hetzner CX52, DO 16 GB |
 
-Single-core **speed** matters most (the app is one Node process; measured 77%
-of one core at 1000 concurrent users). Disk must be **local NVMe/SSD** — never
-network storage (SQLite WAL requires a local filesystem).
+Single-core **speed** matters most (the app is one Node process; measured
+77–89% of one core at 1000 concurrent users, at both 5 and 200 tenants —
+tenant count is nearly free, concurrency is the driver). Disk must be
+**local NVMe/SSD** — never network storage (SQLite WAL requires a local
+filesystem).
 
 ### Provider specifics
 

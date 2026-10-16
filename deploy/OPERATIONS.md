@@ -9,34 +9,56 @@ in [`SETUP.md`](SETUP.md); this document covers **sizing + safe remote updates**
 ## 1. Recommended server specifications
 
 All numbers below are **measured**, not guessed — they come from the load test in
-`scripts/load-test.js` (1000 concurrent staff across 5 tenants, production mode,
-SQLite/WAL, single Node process):
+`scripts/load-test.js` (production mode, SQLite/WAL, single Node process, one
+laptop-class core boosting to 4.8 GHz). Two profiles were run — 1000 concurrent
+staff across **5 tenants** and the same 1000 staff spread across **200 tenants**:
 
-| Measured at 1000 concurrent users | Result |
-|---|---|
-| Throughput | ~840 requests/s (plus 1000 live WebSockets, ~115k broadcast msgs/45s) |
-| Latency | p50 3.8ms · **p95 19ms** · p99 33ms · 0 errors |
-| CPU | **~77% of ONE core** (Node app logic is single-threaded) |
-| RAM (server RSS) | peak **193–250MB** (heap ~70MB) |
-| Login burst (300 simultaneous) | all succeed, bcrypt runs in worker threads, API stays at single-digit ms |
+| Measured at 1000 concurrent users | 5 tenants | 200 tenants (platform scale) |
+|---|---|---|
+| Throughput | ~840 req/s (plus 1000 live WebSockets, ~115k broadcast msgs/45s) | **827 req/s** (1000 live WS, 0 drops) |
+| Latency | p50 3.8ms · **p95 19ms** · p99 33ms | p50 7ms · **p95 41ms** · p99 516ms (ramp spike only) |
+| Errors | 0 | 0 (all responses 2xx) |
+| Cross-tenant WS leaks | 0 | 0 |
+| CPU | ~77% of ONE core | **avg 89%** of one core |
+| RAM (server RSS) | peak 193–250MB | peak **211MB** (heap 95MB) |
+| Login burst (300 simultaneous) | all succeed, API at single-digit ms | canary p95 **7.3ms** during the burst — event loop never froze |
+
+**Tenant count is nearly free.** 200 hotels vs 5 costs ~+15% CPU and +22ms p95 —
+the cost driver is *concurrency* (how many staff are clicking right now), not how
+many properties share the process. The practical limit stays the single fast core.
+
+> Reproduce (isolated DB, never prod data):
+> `node scripts/load-test.js setup --tenants 200 --users 1000` →
+> `DATA_DIR=./data/loadtest PORT=3100 NODE_ENV=production node server/index.js` →
+> `node scripts/load-test.js run --users 1000 --duration 45` → `… logins --users 300`
 
 ### Sizing table
 
-| Tier | Concurrent staff | CPU | RAM | Disk | Example plans* |
+| Tier | Scale | CPU | RAM | Disk | Example plans* |
 |---|---|---|---|---|---|
-| Demo / staging | 1–50 | 2 vCPU | 2–4 GB | 40 GB NVMe | smallest VPS anywhere |
-| Small production | up to ~500 | 2–4 vCPU @ ≥3.0 GHz | 4–8 GB | 40–80 GB NVMe | Contabo VPS 100 tier, Hetzner CX22/CPX21, Lightsail 4 GB |
-| **Target (500–1000, the tested profile)** | 500–1000 | **4 vCPU @ ≥3.2 GHz** | **8 GB** | **80 GB NVMe** | Contabo VPS 200 / Cloud VPS tier, Hetzner CX32/CPX31, DO 8 GB, Vultr 8 GB |
-| Growth (>1000 busy users, many large properties) | 1000+ | 8 vCPU | 16 GB | 160 GB NVMe + start the [SQLite → PostgreSQL path](../README.md#scaling-up-sqlite--postgresql) | dedicated/bare metal |
+| Demo / staging | 1 hotel, 1–50 staff | 2 vCPU | 2–4 GB | 40 GB NVMe | smallest VPS anywhere |
+| Small production | 1–20 hotels, up to ~500 staff | 2–4 vCPU @ ≥3.0 GHz | 4–8 GB | 40–80 GB NVMe | Contabo VPS 100 tier, Hetzner CX22/CPX21, Lightsail 4 GB |
+| **Target (500–1000 staff, the tested profile)** | up to ~50 hotels | **4 vCPU @ ≥3.2 GHz** | **8 GB** | **80 GB NVMe** | Contabo VPS 200 / Cloud VPS tier, Hetzner CX32/CPX31, DO 8 GB, Vultr 8 GB |
+| **Platform scale (100–200 tenants — measured)** | 100–200 hotels, up to 1000 busy staff | **8 vCPU @ ≥3.2 GHz** | **16 GB** | **160 GB NVMe** | Contabo VPS 400 tier, Hetzner CX52/CPX41, DO 16 GB, Vultr 16 GB |
+| Growth (>1000 busy users across many large properties) | 200+ hotels | 8–16 vCPU | 32 GB | 320 GB NVMe + start the [SQLite → PostgreSQL path](../README.md#scaling-up-sqlite--postgresql) | dedicated/bare metal |
+
+**Why 8 vCPU / 16 GB for the 100–200 tenant tier "without scratching":** the
+measured 200-tenant run held avg 89% of ONE 4.8 GHz boost core. Cloud vCPU
+cores sustain ~3.2 GHz (≈30–40% slower than that laptop boost), so one busy
+core saturates — you want 2–3 fast cores of app headroom plus cores for WAL
+I/O, Docker, the daily `VACUUM INTO` backup and bcrypt worker threads during
+morning login rushes. 16 GB RAM keeps years of SQLite page cache hot (the app
+itself peaks at ~211MB RSS — the rest is deliberate file cache, which is what
+makes 100-tenant reporting queries fast).
 
 \* SKU names change — match the **spec**, not the name.
 
 **Why these numbers**
 
-- **Single-core speed is the #1 factor.** The app is one Node process; the test
-  showed 77–85% of one core at 1000 users. Clock speed buys headroom; extra
-  cores help only for SQLite WAL I/O, the OS, Docker, backups and the bcrypt
-  worker threads.
+- **Single-core speed is the #1 factor.** The app is one Node process; the tests
+  showed 77–89% of one core at 1000 users (5→200 tenants). Clock speed buys
+  headroom; extra cores help SQLite WAL I/O, the OS, Docker, backups and the
+  bcrypt worker threads.
 - **RAM:** Node heap + 64MB SQLite page cache + 256MB mmap window + Docker +
   OS page cache. 8GB is comfortable at 1000 users (peak RSS measured 250MB for
   the app alone); 4GB is the practical floor.

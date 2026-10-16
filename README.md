@@ -156,6 +156,11 @@ npm run dev
 > beginner-level, copy-paste tutorial (prerequisites → DNS on Cloudflare →
 > install → email/payments/WhatsApp → auto-deploy → day-2 operations →
 > troubleshooting) that takes a fresh VPS to a live HTTPS system in ~2 hours.
+>
+> **Operating a hotel on it?** [`tenant-manual/`](tenant-manual/) is the full
+> tenant & user manual — property setup, WhatsApp/Meta connection, APIs, and
+> per-role guides (admin, receptionist, housekeeping, maintenance, restaurant/
+> bar POS, accountant, auditor, OTA booking channel).
 
 ### Option A′ — Ready-made VPS kit (Contabo / any Ubuntu VPS, with a domain)`deploy/` contains a complete production stack: app + **Caddy (automatic
 HTTPS)** compose file, a one-shot `setup-vps.sh` (installs Docker, generates
@@ -356,19 +361,26 @@ reports latency percentiles, server CPU/RSS, WS rejections and any cross-tenant
 broadcast leakage (which must always be 0):
 
 ```bash
-node scripts/load-test.js setup --tenants 5 --users 1000     # seed isolated DB
-DATA_DIR=./data/loadtest PORT=3100 node server/index.js       # run server against it
+node scripts/load-test.js setup --tenants 200 --users 1000   # seed isolated DB (platform scale)
+DATA_DIR=./data/loadtest PORT=3100 NODE_ENV=production node server/index.js   # run server against it
 node scripts/load-test.js run --users 1000 --duration 45      # 1000 concurrent users
 node scripts/load-test.js run --users 1000 --only-tenant lt_tenant_0   # one hotel, 1000 users
 node scripts/load-test.js logins --users 300                  # bcrypt login-burst probe
 node scripts/load-test.js cleanup
 ```
 
-Reference result on an 8-core box (Node 22, single process, SQLite/WAL):
-1000 users across 5 tenants ≈ 840 req/s with p95 ≈ 16ms, p99 ≈ 27ms, 0 errors,
-0 dropped WebSockets, 0 cross-tenant leaks, CPU ≈ 75% of one core, RSS ≈ 240MB.
-The `logins` phase confirms a 300-account simultaneous login burst keeps the rest
-of the API at single-digit-millisecond latency (bcrypt runs in worker threads).
+Reference results (Node 22, single process, SQLite/WAL, production mode, 1000
+concurrent staff on one laptop-class core that boosts to 4.8 GHz):
+
+| Profile | Throughput | Latency | Errors | CPU (one core) | RSS |
+|---|---|---|---|---|---|
+| **200 tenants / 1000 users** | 827 req/s | p50 7ms · p95 41ms | 0 (all 200s), 0 WS drops, 0 cross-tenant leaks | avg 89% | peak 211MB |
+| 5 tenants / 1000 users | ≈840 req/s | p50 4ms · p95 19ms | 0 | ≈75% | ≈240MB |
+
+Tenant count is nearly free: 200 hotels vs 5 costs ~+15% CPU, ~+22ms p95 —
+concurrency is the driver, not the number of properties. The `logins` phase
+confirms a 300-account simultaneous login burst keeps the rest of the API at
+canary p95 ≈ 7ms (bcrypt runs in worker threads, event loop never freezes).
 
 ---
 
