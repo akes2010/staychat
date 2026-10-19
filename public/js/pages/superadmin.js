@@ -22,11 +22,13 @@ PAGES.superadmin = function () {
     try {
       if (tab === 'gateways' && state.gateways.length === 0) state.gateways = await API.get('/api/plans/gateways');
       if (tab === 'billing') {
-        const [pending, pb] = await Promise.all([
+        const [pending, pb, selfhostOrders] = await Promise.all([
           API.get('/api/superadmin/subscriptions?status=pending_approval'),
           API.get('/api/superadmin/platform-billing'),
+          API.get('/api/selfhost/admin/orders').catch(() => []), // Desk PC Edition
         ]);
         state.pending = pending; state.platformBilling = pb;
+        state.selfhostOrders = Array.isArray(selfhostOrders) ? selfhostOrders : [];
       }
     }
     catch (err) { toast(err.message, 'error'); }
@@ -164,8 +166,61 @@ PAGES.superadmin = function () {
                 '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__rejectSub(\'' + r.id + '\')">Reject</button></td>' +
             '</tr>').join('') + '</tbody></table></div>') +
       '</div>' +
+      deskpcOrdersHTML() +
     '</div>';
   }
+
+  // ── Desk PC Edition orders (one-time $3,000, self-hosted) ──────────────
+  // Manual bank-transfer / POS payments are confirmed here — confirming is
+  // what generates the licence key and mails the installer to the customer.
+  function deskpcOrdersHTML() {
+    const orders = Array.isArray(state.selfhostOrders) ? state.selfhostOrders : [];
+    const stBadge = s => badge(
+      s === 'delivered' ? 'Delivered' : s === 'paid' ? 'Paid' :
+      s === 'cancelled' ? 'Cancelled' : 'Awaiting payment',
+      s === 'delivered' ? 'success' : s === 'paid' ? 'info' :
+      s === 'cancelled' ? 'error' : 'warn');
+    return '<div class="card" style="padding:22px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
+        '<div><h3 style="font-size:16px">Desk PC Edition orders (' + orders.length + ')</h3>' +
+        '<div style="font-size:12.5px;color:var(--text3);margin-top:4px">One-time $3,000 self-hosted purchases from the landing page. Card checkout confirms itself via the gateway webhook; confirm bank-transfer / POS payments below — confirmation generates the licence and emails the customer their installer.</div></div>' +
+        '<button class="btn outline sm" onclick="window.__saTab(\'billing\')">↻ Refresh</button></div>' +
+      (orders.length === 0
+        ? '<div style="font-size:13px;color:var(--text3)">No registrations yet — customers appear here the moment they submit the Desk PC Edition form on the landing page.</div>'
+        : '<div class="table-wrap"><table><thead><tr><th>Hotel</th><th>Contact</th><th>Amount</th><th>Reference</th><th>Status</th><th>Registered</th><th style="text-align:right">Action</th></tr></thead><tbody>' +
+          orders.map(o => '<tr>' +
+            '<td style="font-weight:600">' + escapeHtml(o.hotel_name || '—') + '</td>' +
+            '<td style="font-size:12px">' + escapeHtml(o.name || '') + '<br><span style="color:var(--text3)">' + escapeHtml(o.email || '') + '</span></td>' +
+            '<td style="font-weight:700">' + formatMoney(o.amount) + '</td>' +
+            '<td><code>' + escapeHtml(o.payment_reference) + '</code></td>' +
+            '<td>' + stBadge(o.status) + '</td>' +
+            '<td style="font-size:12px;color:var(--text3)">' + (o.created_at || '').slice(0, 10) + '</td>' +
+            '<td style="text-align:right;white-space:nowrap">' +
+              (o.status === 'pending'
+                ? '<button class="btn primary sm" onclick="window.__confirmSelfhost(\'' + o.payment_reference + '\')">Confirm payment</button>'
+                : o.status === 'paid' || o.status === 'delivered'
+                  ? '<button class="btn outline sm" onclick="window.__resendSelfhost(\'' + o.payment_reference + '\')">Resend software</button>'
+                  : '<span style="font-size:12px;color:var(--text3)">—</span>') +
+            '</td></tr>').join('') + '</tbody></table></div>') +
+    '</div>';
+  }
+
+  window.__confirmSelfhost = (ref) => {
+    confirmAction('Confirm the $3,000 payment for ' + ref + '? This issues the licence key and emails the software to the customer.', async () => {
+      try {
+        await API.post('/api/selfhost/admin/orders/' + encodeURIComponent(ref) + '/confirm', {});
+        toast('Payment confirmed — software emailed to the customer', 'success');
+        if (window.refreshSelfhostBadge) window.refreshSelfhostBadge(); // pending count dropped
+        await window.__saTab('billing');
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  };
+  window.__resendSelfhost = async (ref) => {
+    try {
+      await API.post('/api/selfhost/admin/orders/' + encodeURIComponent(ref) + '/resend', {});
+      toast('Licence + download link re-sent', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  };
 
   window.__savePlatformBilling = async () => {
     const body = {};

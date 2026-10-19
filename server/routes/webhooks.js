@@ -198,6 +198,20 @@ router.post('/paystack/:subdomain', express.json({
 
 const platformSettings = require('../services/platform-settings');
 const { approveSubscriptionByGatewayRef } = require('../services/billing');
+const selfhost = require('../services/selfhost'); // Desk PC Edition one-time payments
+
+// A platform-checkout charge that matches no subscription may be a Desk PC
+// Edition order (one-time $3,000). Route it to the selfhost flow — confirming
+// it there generates the licence and EMAILS the software to the customer,
+// which is what "delivered the moment payment is confirmed" means. A ref that
+// belongs to neither system already logged "unknown reference" in billing's
+// subscription lookup, so this stays quiet on no-match; only real failures
+// (mail/DB errors) are surfaced.
+function tryConfirmSelfhost(provider, gatewayRef, opts) {
+  if (!gatewayRef) return;
+  selfhost.confirmPayment(provider, gatewayRef, opts)
+    .catch(err => console.error('[selfhost] webhook confirmation failed:', err.message));
+}
 
 // Stripe: verify the Stripe-Signature header (t=timestamp,v1=hmac_sha256(rawBody))
 // against the platform's signing secret. Fail closed when unconfigured.
@@ -231,9 +245,15 @@ router.post('/platform/stripe', express.json({
       // checkout creation; metadata.subscription_id is the fallback.
       const subId = session.client_reference_id || session.metadata?.subscription_id;
       if (subId && session.payment_status === 'paid') {
-        approveSubscriptionByGatewayRef('stripe', subId, {
+        const approved = approveSubscriptionByGatewayRef('stripe', subId, {
           amount: (session.amount_total || 0) / 100,
         });
+        // Not a subscription charge → might be a Desk PC Edition order. For a
+        // selfhost checkout the stored gateway_ref is the session id.
+        if (!approved) {
+          tryConfirmSelfhost('stripe', session.metadata?.order_id || session.id,
+            { amount: (session.amount_total || 0) / 100 });
+        }
       }
     }
   } catch (err) {
@@ -262,9 +282,15 @@ router.post('/platform/paystack', express.json({
     if (req.body.event === 'charge.completed' || req.body.event === 'charge.success') {
       const data = req.body.data || {};
       if (data.reference) {
-        approveSubscriptionByGatewayRef('paystack', data.reference, {
+        const approved = approveSubscriptionByGatewayRef('paystack', data.reference, {
           amount: (data.amount || 0) / 100,
         });
+        // Selfhost orders use their SC- reference as the gateway reference —
+        // confirmPayment matches it on payment_reference and mails the software.
+        if (!approved) {
+          tryConfirmSelfhost('paystack', data.reference,
+            { amount: (data.amount || 0) / 100 });
+        }
       }
     }
   } catch (err) {

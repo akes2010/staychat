@@ -223,6 +223,7 @@ app.use('/api/ai-config', require('./routes/ai-config'));
 app.use('/api/printers', require('./routes/printers'));
 app.use('/api/plans', require('./routes/plans'));
 app.use('/api/billing', require('./routes/billing'));
+app.use('/api/selfhost', require('./routes/selfhost')); // one-time $3,000 Desk PC Edition (self-hosted)
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/staff', require('./routes/staff'));
 app.use('/api/shifts', require('./routes/shifts'));

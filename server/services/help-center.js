@@ -17,7 +17,7 @@ const CATS = getCategories();
 const TOTAL_SERVICES = Object.keys(SERVICE_DEFINITIONS).length;
 const count = c => Object.values(SERVICE_DEFINITIONS).filter(d => d.category === c).length;
 
-const HELP_VERSION = '3'; // bump when manual/FAQ content changes materially
+const HELP_VERSION = '4'; // bump when manual/FAQ content changes materially
 
 // ── USER MANUAL ──────────────────────────────────────────────────────────────
 // Each section: id, icon, title, category (for grouping), keys (search terms),
@@ -161,13 +161,44 @@ MAINTENANCE (keep the link healthy)
   {
     id: 'billing-plans', icon: '💳', category: 'Administration',
     title: 'Billing, plans & the free trial',
-    keys: ['billing', 'plan', 'plans', 'pricing', 'price', 'cost', 'how much', 'subscription', 'trial', 'free', 'upgrade', 'downgrade', 'invoice', 'sc-', 'payment reference', 'cancel', 'yearly', 'monthly', 'renew'],
+    keys: ['billing', 'plan', 'plans', 'pricing', 'price', 'cost', 'how much', 'subscription', 'trial', 'free', 'upgrade', 'downgrade', 'invoice', 'sc-', 'payment reference', 'cancel', 'yearly', 'monthly', 'renew', 'payment methods', 'how do i pay', 'one-time', 'one time', 'own outright'],
     body: `Three plans, every one with a 14-day free trial — no card required:
 • Starter — $29/mo ($290/yr): up to 20 rooms; booking engine, AI receptionist, front desk, POS.
 • Pro — $79/mo ($790/yr): up to 100 rooms; adds guest Wi-Fi, integrations (locks/IPTV/IoT), accounting + EOD, halls, pools, staff shifts.
 • Enterprise — $199/mo ($1990/yr): unlimited rooms & properties, custom integrations, dedicated onboarding.
 Yearly billing saves 2 months. Direct bookings through your own engine always pay 0% commission.
-Activating after the trial: pick a plan (Billing & Plan — owner/admin only), get a payment reference (SC-…), pay by transfer or the platform's gateway. With a gateway key configured, checkout is automatic; otherwise the platform team approves your reference. During the trial, your requested plan's features are live immediately. Renewal reminders go out 7 days and 1 day before expiry.`,
+Activating after the trial: pick a plan (Billing & Plan — owner/admin only), get a payment reference (SC-…), pay by transfer or the platform's gateway. With a gateway key configured, checkout is automatic; otherwise the platform team approves your reference. During the trial, your requested plan's features are live immediately. Renewal reminders go out 7 days and 1 day before expiry.
+How you pay: card through Stripe/Paystack hosted checkout when a gateway is configured, or bank transfer / POS quoting your SC- reference — activation is confirmed by email as soon as payment lands.
+Prefer to OWN the software instead of subscribing? The Desk PC Edition is the one-time alternative: $3,000 once (40% off the real $5,000 for the first 100 buyers), no renewals ever — see "Desk PC Edition (one-time, self-hosted)".`,
+    followups: ['What does the free trial include?', 'How do I pay for my subscription?', 'Tell me about the Desk PC Edition', 'Who can see the Billing page?'],
+  },
+  {
+    id: 'deskpc-edition', icon: '🖥️', category: 'Administration',
+    title: 'Desk PC Edition (one-time, self-hosted)',
+    keys: ['desk pc', 'desk edition', 'desk app', 'desktop app edition', 'self hosted edition', 'self-hosted edition', 'selfhost', 'offline version', 'offline install', 'local install', 'locally deployable', 'own the software', 'buy outright', 'one time edition', 'one-time payment', '3000', '5000', '40% off', '40 percent', 'first 100', 'launch offer', 'discount', 'software mailed', 'mailed to me', '20 properties', '20 hotels'],
+    body: `The Desk PC Edition is the complete StayChat OS platform installed on YOUR own desk PC or local server — sold outright: one payment, yours forever, no subscription.
+
+THE LAUNCH OFFER
+• $3,000 once — that's 40% off the real $5,000 price, reserved for the first 100 buyers only. After buyer #100 the price returns to $5,000.
+• 20 properties have already purchased it and are enjoying the dividends of the software today — one impressive, holistic hotel solution running on their own premises.
+• Perpetual licence: your licence key never expires, no renewals, no monthly bill.
+
+HOW BUYING WORKS (register → pay → software is emailed to you)
+1. Open the landing page (Desk PC Edition card in the Pricing section) and fill the simple registration form — name, email, hotel, phone. No account needed, about 20 seconds.
+2. You instantly get a quotable reference (SC-XXXXXXXX) and a confirmation email that quotes it.
+3. Pay the $3,000 one-time price — hosted card checkout where a payment gateway is configured, or bank transfer / POS quoting your reference.
+4. The moment payment is confirmed, StayChat emails the software to you AUTOMATICALLY: your perpetual licence key (SCHK-…) plus a personal download link for the installer — no waiting on a human, no support ticket.
+5. Install and run it on your own machine — minutes, not days.
+
+WHAT YOU GET
+• The full platform: rooms & rates, bookings, the public booking engine, POS, double-entry accounting + EOD, reports, users & permissions, halls, pools, housekeeping.
+• Offline / local-network operation — day-to-day work keeps running without internet, and guest records never leave your premises.
+• WhatsApp, cloud integrations and other online features stay optional whenever you do have a connection.
+
+DESK PC vs CLOUD SUBSCRIPTION
+• Cloud (Starter $29/mo, Pro $79/mo, Enterprise $199/mo): hosted by us, 14-day free trial, we run the infrastructure — best when you want zero maintenance.
+• Desk PC Edition ($3,000 once): your hardware, your data on site, offline-capable, no renewal ever — best when data locality, internet independence or OWNING the software outright matter to you.`,
+    followups: ['How much is the Desk PC Edition?', 'How do I get the software after paying?', 'Does the Desk PC Edition work without internet?', 'Who else is using StayChat?'],
   },
   {
     id: 'whatsapp-ai', icon: '🤖', category: 'Guest experience',
@@ -256,6 +287,14 @@ const FAQ = [
   { q: 'I lost my confirmation — how do I find my booking?', keys: ['lost', 'find my booking', 'find booking', 'their booking', 'my booking', 'confirmation', 'lookup', 'reference', 'phone', 'slip'], a: 'Open /confirmation.html?hotel=<hotel-subdomain> and enter your tender code — or your reference (BK-…) plus the phone number you booked with. Both paths render the same printable slip with a QR code.' },
   { q: 'What does the free trial include?', keys: ['trial', 'free', '14 day', '14-day'], a: 'Every plan starts with a 14-day free trial — full features, no credit card. Your requested plan\'s features are live immediately, and you can switch plans any time.' },
   { q: 'What happens when the trial ends?', keys: ['trial ends', 'expire', 'expires', 'after trial', 'suspended'], a: 'Pick a plan in Billing & Plan (owner/admin only). You\'ll get a payment reference (SC-…) — pay by transfer or the platform gateway. With a gateway configured, hosted checkout activates the subscription automatically; otherwise the platform team approves your reference. Renewal reminders go out 7 days and 1 day before expiry. If a subscription lapses, features lock but Billing stays reachable for self-service reactivation.' },
+  { q: 'What is the Desk PC Edition?', keys: ['desk pc', 'desk edition', 'desks edition', 'self hosted edition', 'self-hosted edition', 'offline version', 'own the software', 'buy outright', 'one time edition', 'desk app'], a: 'The Desk PC Edition is the complete StayChat OS platform installed on your own desk PC or local server and licensed to you permanently — one $3,000 payment, no subscription, no renewals, and your guest data stays on your premises. It includes the full platform: rooms & rates, bookings, the public booking engine, POS, double-entry accounting + EOD, reports, users & permissions, halls, pools and housekeeping. Twenty properties have already bought it and run it daily. Register in the Desk PC Edition card on the landing page (Pricing section).', followups: ['How much is the Desk PC Edition?', 'How do I get the software after paying?', 'Does the Desk PC Edition work without internet?', 'Desk PC Edition or subscription — which should I choose?'] },
+  { q: 'How much is the Desk PC Edition?', keys: ['how much is the desk', 'desk pc price', 'price of the desk pc', '3000', '5000', '40% off', '40%', 'discount', 'first 100', 'launch offer', 'save'], a: '$3,000 once — a 40% launch discount off the real $5,000 price, for the first 100 buyers only (after that it returns to $5,000, so you save $2,000 today). That is a single one-time payment covering the perpetual licence: no monthly bill, no renewals, ever. By comparison the cloud subscription is Starter $29/mo, Pro $79/mo, Enterprise $199/mo (yearly saves 2 months). 20 properties have already claimed theirs — register in the Desk PC Edition card on the landing page to claim one of the remaining launch slots.', followups: ['How do I get the software after paying?', 'Desk PC Edition or subscription — which should I choose?', 'How do I pay for my subscription?', 'Does the Desk PC Edition work without internet?'] },
+  { q: 'How do I get the software after paying?', keys: ['get the software', 'after paying', 'download the software', 'software delivery', 'installation package', 'install package', 'license key', 'licence key', 'mailed', 'emailed', 'delivery', 'sent to me', 'software'], a: 'Automatically, by email. Here is the exact flow: register with the simple form on the landing page → you get a quotable SC- reference and a confirmation email → pay the $3,000 (card checkout, or bank transfer/POS quoting your reference) → the instant payment is confirmed, StayChat emails your registered address with the perpetual licence key (SCHK-…) and a personal, tokenized download link for the installer. No support ticket, no waiting for a human. Order status is visible any time through the reference you got at registration, and the same delivery email can be re-sent if it lands in spam.', followups: ['What is the Desk PC Edition?', 'Does the Desk PC Edition work without internet?', 'How do I introduce StayChat to another hotel?'] },
+  { q: 'Does the Desk PC Edition work without internet?', keys: ['without internet', 'no internet', 'offline install', 'works offline', 'local network', 'no connection', 'standalone', 'internet'], a: 'Yes — that is the point of the edition. It runs on your own desk PC or local server, so front desk, bookings, POS, accounting and reports keep working on your LAN when the internet is down, and guest records never leave your premises. Optional online features (WhatsApp messaging, cloud integrations) need a connection and simply resume when it returns. Note this is different from the cloud version: as a PWA it keeps your last-seen data readable offline, but its money-moving actions require connectivity.', followups: ['How much is the Desk PC Edition?', 'How do I get the software after paying?', 'Desk PC Edition or subscription — which should I choose?'] },
+  { q: 'Desk PC Edition or subscription — which should I choose?', keys: ['or subscription', 'vs subscription', 'which should i choose', 'buy or subscribe', 'self hosted or cloud', 'choose between', 'difference between', 'which one'], a: 'Both run the same platform — it is a hosting choice. Cloud subscription (Starter $29/mo, Pro $79/mo, Enterprise $199/mo, 14-day free trial) means we host it, back it up and update it: zero maintenance, live from 60 seconds. Desk PC Edition ($3,000 once, 40% off $5,000 for the first 100 buyers) means it runs on your own machine: your data never leaves the building, it works without internet, and you never receive another invoice. Rule of thumb: want zero maintenance → subscribe; want data locality, offline operation and outright ownership → buy the Desk PC Edition. Many hotels start on the free trial and buy the Desk PC Edition once they are sure.', followups: ['How much is the Desk PC Edition?', 'What does the free trial include?', 'How do I pay for my subscription?', 'Who else is using StayChat?'] },
+  { q: 'How do I pay for my subscription?', keys: ['pay for my subscription', 'how do i pay', 'payment methods', 'bank transfer', 'pos payment', 'card payment', 'pay by', 'pay online', 'checkout', 'paystack', 'stripe', 'gateway', 'payment reference'], a: 'Two ways, both simple. (1) Hosted checkout: when Stripe or Paystack is configured on the platform, clicking pay opens their secure card page and your plan activates automatically once the gateway confirms — signature-verified, idempotent webhooks, so a repeated callback never double-charges. (2) Bank transfer / POS: pick your plan in Billing & Plan and you get an SC- reference — quote it as the narration on the transfer; the platform team confirms it and activation is confirmed to you by email. The Desk PC Edition ($3,000 one-time) works the same way: card checkout or transfer quoting your SC- reference, then the software is emailed the moment payment lands. Renewal reminders go out 7 days and 1 day before every renewal.', followups: ['What does the free trial include?', 'How do I get the software after paying?', 'Who can see the Billing page?'] },
+  { q: 'Who else is using StayChat?', keys: ['who else', 'using staychat', 'customers', 'trust', 'proven', 'reliable', 'how many hotels', 'references', 'track record', 'using it'], a: 'Twenty properties have already purchased the Desk PC Edition outright and are enjoying the dividends of the software daily — front desk, bookings, POS, accounting and reports running as one holistic solution on their own machines, with no subscription eating their margin. On top of that you can verify everything yourself in two minutes: "Try the Live Demo" opens a fully seeded hotel, "Book a Stay" runs the real public booking flow, and every cloud plan starts with a 14-day free trial — no card. The suite is also tested by automated browser and security suites on every commit.', followups: ['How much is the Desk PC Edition?', 'How do I introduce StayChat to another hotel?', 'Is there a demo I can try?'] },
+  { q: 'How do I introduce StayChat to another hotel?', keys: ['introduce', 'another hotel', 'refer', 'referral', 'share staychat', 'tell a friend', 'spread the word', 'recommend'], a: 'Best way: send them the landing page — one link shows the product, the live demo and both buying paths. Tailor the hook to the hotel: (1) Cloud subscription — 14-day free trial, no card, every feature unlocked, live in 60 seconds; from $29/mo with 0% commission on direct bookings. (2) Desk PC Edition — own the whole platform outright for $3,000 once (40% off the real $5,000 for the first 100 buyers), fully offline, data on their own premises, never a renewal notice again. The OTA-savings calculator on the landing page usually does the convincing for you — most hotels are shocked by what commission is costing them per year.', followups: ['How much is the Desk PC Edition?', 'What does the free trial include?', 'Is there a commission on bookings?'] },
   { q: 'Can two hotels share one installation?', keys: ['multi tenant', 'multi-tenant', 'two hotels', 'multiple hotels', 'shared', 'portfolio', 'properties'], a: 'Yes — StayChat OS is multi-tenant by design. Tenant isolation is enforced in a single middleware chokepoint, so hotels can never read each other\'s bookings, guests or credentials. A platform operator (superadmin) manages the portfolio, plans and approvals from the Super Admin console.' },
   { q: 'Who can see the Billing & Plan page?', keys: ['billing page', 'who can see billing', 'staff billing', 'billing visible', 'owner', 'admin only'], a: 'Only the hotel owner/admin (and the platform superadmin when managing a specific hotel). Staff roles never see the Billing page, plan prices or payment history — enforced in the UI and on the server. The plan banner stays visible to everyone for transparency, but without a "View plan" button for non-managers. Owners can grant billing to a trusted manager via per-user permissions.' },
   { q: 'Can staff change prices or void payments?', keys: ['staff change price', 'void', 'refund', 'fraud', 'who can', 'who is allowed', 'allowed to'], a: 'By default, no. The capability matrix splits .use from .manage: front desk can operate (check in, sell, book) but only manager-level roles alter prices, void ledger entries or cancel paid bookings. Every sensitive action is audit-logged, and per-user permissions are fully customizable.' },
@@ -333,26 +372,30 @@ function search(query) {
     if (manual && manualScore >= 2 && manual.id !== 'getting-started') {
       answer += '\n\nMore: "' + manual.title + '" — see /help#' + manual.id;
     }
-    return { id: faq.q, title: faq.q, answer };
+    return { id: faq.q, title: faq.q, answer, followups: faq.followups || null };
   }
-  if (manual) return { id: manual.id, title: manual.title, answer: manual.body + '\n\nMore: /help#' + manual.id };
+  if (manual) return { id: manual.id, title: manual.title, answer: manual.body + '\n\nMore: /help#' + manual.id, followups: manual.followups || null };
 
   return {
     id: 'fallback',
     title: null,
-    answer: `I can help with anything about StayChat OS — try asking about:\n\n• The booking engine, tender codes and guest confirmations\n• WhatsApp & the AI receptionist\n• Rooms & rates, halls, pools, POS, accounting, housekeeping\n• Pricing, the 14-day free trial and plan activation\n• Users, roles & permissions (billing is owner/admin only)\n• Integrations — ${TOTAL_SERVICES} services (locks, IPTV, Wi-Fi, IoT, payments)\n• Installing the app (PWA) and offline mode\n• Security, multi-tenancy and self-hosting\n\nOr browse the Help Center at /help.html.`,
+    answer: `I can help with anything about StayChat OS — try asking about:\n\n• The booking engine, tender codes and guest confirmations\n• WhatsApp & the AI receptionist\n• Rooms & rates, halls, pools, POS, accounting, housekeeping\n• Pricing, the 14-day free trial, plan activation and payment\n• The Desk PC Edition — $3,000 one-time (40% off $5,000, first 100 buyers), self-hosted & offline\n• Buying, delivery by email, licences and renewals\n• Users, roles & permissions (billing is owner/admin only)\n• Integrations — ${TOTAL_SERVICES} services (locks, IPTV, Wi-Fi, IoT, payments)\n• Installing the app (PWA) and offline mode\n• Security, multi-tenancy and self-hosting\n\nOr browse the Help Center at /help.html.`,
   };
 }
 
 const SUGGESTIONS = [
   'What is StayChat OS?',
-  'How does the booking engine work?',
+  'How much is the Desk PC Edition?',
+  'How do I get the software after paying?',
+  'Tell me about the Desk PC Edition',
   'How much does it cost?',
-  'Who can see the Billing page?',
+  'How do I pay for my subscription?',
+  'Does the Desk PC Edition work without internet?',
+  'Who else is using StayChat?',
+  'How do I introduce StayChat to another hotel?',
+  'How does the booking engine work?',
   'Can I install it on my phone?',
   'What integrations are supported?',
-  'How do guests find their booking?',
-  'Is my data isolated and secure?',
 ];
 
 module.exports = { MANUAL, FAQ, search, searchManual, searchFaq, SUGGESTIONS, HELP_VERSION };

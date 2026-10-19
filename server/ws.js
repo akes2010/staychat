@@ -9,6 +9,11 @@ const url = require('url');
 let wss = null;
 let heartbeatInterval = null;
 const tenantClients = new Map(); // tenantId -> Set<ws>
+// Room for platform operators: every tenant-less (superadmin) connection joins
+// it, so targeted platform events — e.g. a new Desk PC Edition registration
+// awaiting payment — actually reach the operator console. (broadcast(null, …)
+// is a no-op by design: a falsy tenantId never addresses a room.)
+const SUPERADMIN_ROOM = '__none__';
 const clientMetadata = new WeakMap(); // Store client metadata
 
 // Security settings
@@ -61,9 +66,12 @@ function attach(server) {
     // Superadmin can specify tenant
     if (role === 'superadmin' && query.tenantId) tenantId = query.tenantId;
     
-    // Handle superadmin with no tenant
+    // Handle superadmin with no tenant — they still join the platform room so
+    // broadcastSuperadmins() (and cleanup below) treat them like any client.
     if (!tenantId) {
-      ws.tenantId = '__none__';
+      ws.tenantId = SUPERADMIN_ROOM;
+      if (!tenantClients.has(SUPERADMIN_ROOM)) tenantClients.set(SUPERADMIN_ROOM, new Set());
+      tenantClients.get(SUPERADMIN_ROOM).add(ws);
     } else {
       // Enforce connection limit per tenant
       const currentClients = tenantClients.get(tenantId);
@@ -215,6 +223,14 @@ function broadcastAll(type, payload) {
 }
 
 /**
+ * Send to every platform-operator session (tenant-less superadmins only).
+ * Used for platform-level signals such as new Desk PC Edition registrations.
+ */
+function broadcastSuperadmins(type, payload) {
+  return broadcast(SUPERADMIN_ROOM, type, payload);
+}
+
+/**
  * Get connection statistics
  */
 function getStats() {
@@ -231,4 +247,4 @@ function getStats() {
   return stats;
 }
 
-module.exports = { attach, broadcast, broadcastAll, getStats, closeAll };
+module.exports = { attach, broadcast, broadcastAll, broadcastSuperadmins, getStats, closeAll };

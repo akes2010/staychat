@@ -150,11 +150,27 @@ function check(label, cond) {
   console.log('── Help center public surface ──');
   check('GET /help → 200', (await status('/help', null)) === 200 || (await fetch(BASE + '/help').then(r => r.status)) === 200);
   const help = await fetch(BASE + '/api/help').then(r => r.json());
-  check('GET /api/help → 19 manual sections, 25 FAQs', help.manual.length === 19 && help.faq.length === 25);
+  check('GET /api/help → 20 manual sections, 33 FAQs', help.manual.length === 20 && help.faq.length === 33);
+  check('GET /api/help → Desk PC Edition section + launch-offer FAQ present',
+    !!help.manual.find(s => s.id === 'deskpc-edition') &&
+    !!help.faq.find(f => f.q === 'How much is the Desk PC Edition?'));
   const waHelp = (help.manual.find(s => s.id === 'whatsapp-ai') || {}).body || '';
   check('WhatsApp setup guide covers Meta console steps (token, verify token, app secret, webhook field)', ['Phone Number ID', 'System User', 'Verify Token', 'App Secret', 'webhooks/whatsapp', 'messages'].every(k => waHelp.includes(k)));
   const chat = await fetch(BASE + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'who can see the billing page?' }) }).then(r => r.json());
   check('chat answers billing-visibility question', (chat.reply || '').includes('owner'));
+
+  console.log('── Desk PC Edition operator console ──');
+  const sa = await login('superadmin@staychat.io');
+  const cnt = await fetch(BASE + '/api/selfhost/admin/pending-count', { headers: { Authorization: 'Bearer ' + sa } });
+  const cntBody = await cnt.json();
+  check('superadmin: GET /api/selfhost/admin/pending-count → 200, integer, no-store',
+    cnt.status === 200 && Number.isInteger(cntBody.pending) && (cnt.headers.get('cache-control') || '').includes('no-store'));
+  check('receptionist: GET /api/selfhost/admin/pending-count → 403 (operators only)',
+    (await status('/api/selfhost/admin/pending-count', recep)) === 403);
+  check('unauthenticated: GET /api/selfhost/admin/pending-count → 401',
+    (await fetch(BASE + '/api/selfhost/admin/pending-count')).status === 401);
+  check('receptionist: GET /api/selfhost/admin/orders → 403',
+    (await status('/api/selfhost/admin/orders', recep)) === 403);
 
   console.log('\n' + (failed === 0 ? '═══ ROLE GATES: ' + passed + ' passed, 0 failed ═══' : '═══ ROLE GATES: ' + failed + ' FAILED ═══'));
   process.exit(failed === 0 ? 0 : 1);

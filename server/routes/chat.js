@@ -30,10 +30,13 @@ router.post('/', chatLimiter, (req, res) => {
   if (!message.trim()) return res.status(400).json({ error: 'message is required' });
 
   const entry = search(message);
+  // Context-aware chips: an entry can carry its own follow-up questions so the
+  // conversation stays interactive (falls back to the global starters).
+  const chips = (entry.followups && entry.followups.length ? entry.followups : SUGGESTIONS).slice(0, 4);
   res.json({
     reply: entry.answer,
     topic: entry.title || null,
-    suggestions: SUGGESTIONS.slice(0, 4),
+    suggestions: chips,
   });
 });
 

@@ -9,6 +9,7 @@
     "dev": "node --watch server/index.js",
     "seed": "node server/db/seed.js",
     "icons": "node scripts/generate-icons.js",
+    "package:desk": "node scripts/build-desk-package.js",
     "check": "node server/db/check.js",
     "migrate": "node server/db/migrate.js",
     "test": "node scripts/run-tests.js",

@@ -20,6 +20,15 @@
     label { display:block; font-size:12px; font-weight:600; color:#334155; margin:12px 0 4px; }
     input,select { width:100%; padding:10px 12px; border:1.5px solid #cbd5e1; border-radius:10px; font-size:15px; }
     input:focus,select:focus { outline:none; border-color:#2563eb; }
+    /* Currency selector: the native dropdown popup always renders on a WHITE
+       sheet, so option text must be dark there — the page-level white text on
+       white options made currencies unreadable/unselectable. The closed control
+       is light too, so it matches what the popup shows. */
+    #curSel { background:#fff; color:#0f172a; border:1.5px solid #cbd5e1; font-weight:600; cursor:pointer;
+              appearance:auto; -webkit-appearance:auto; }
+    #curSel option, #curSel optgroup { background:#ffffff !important; color:#0f172a !important; }
+    #curSel:hover { border-color:#94a3b8; }
+    #curSel:focus { border-color:#2563eb; }
     .room { border:1.5px solid #e2e8f0; border-radius:12px; padding:14px; margin-top:10px; cursor:pointer; transition:border-color .15s; }
     .room:hover { border-color:#94a3b8; }
     .room.sel { border-color:#2563eb; background:#eff6ff; }
@@ -127,7 +136,7 @@
         CURRENCY_VIEW = { hotelCode: c.hotelCurrency, displayCode: c.displayCurrency, displaySymbol: c.displaySymbol, rate: c.rate, hotelSymbol: c.hotelSymbol };
         // Selector with the detected currency preselected.
         const sel = document.createElement('select');
-        sel.id = 'curSel'; sel.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font-size:13px';
+        sel.id = 'curSel';        sel.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;border:1.5px solid rgba(255,255,255,.6);background:#fff;color:#0f172a;font-size:13px;font-weight:600;max-width:360px;cursor:pointer';
         sel.innerHTML = '<option value="">' + (c.converted ? '≈ Showing ' + c.displayCode + ' — auto-detected' : c.hotelCode + ' (hotel charges in this)') + '</option>' +
           CURRENCY_OPTS.map(o => '<option value="' + o[0] + '"' + (o[0] === c.displayCurrency ? ' selected' : '') + '>' + o[1] + '</option>').join('') +
           '<option value="' + c.hotelCurrency + '"' + (c.displayCurrency === c.hotelCurrency ? ' selected' : '') + '>' + c.hotelCode + ' — price as charged</option>';

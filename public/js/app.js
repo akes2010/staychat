@@ -93,7 +93,36 @@ function setupSidebar() {
     btn.innerHTML = '<span class="ico">' + item.ico + '</span><span class="nav-label">' + item.label + '</span>';
     nav.appendChild(btn);
   });
+
+  // Superadmin: live count of Desk PC Edition registrations awaiting payment.
+  refreshSelfhostBadge();
 }
+
+// ── Desk PC Edition: pending-orders badge on the Super Admin nav item ───────
+// Fetched at boot, kept live by the selfhost.order_created WS event (the
+// server pushes the fresh count) and re-fetched after confirmations.
+function setSelfhostBadge(n) {
+  const item = document.querySelector('.nav-item[data-page="superadmin"]');
+  if (!item) return;
+  let b = item.querySelector('.sh-badge');
+  if (!n || n <= 0) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('span');
+    b.className = 'badge sh-badge'; // .nav-item .badge styles it (margin-left:auto)
+    item.appendChild(b);
+  }
+  b.textContent = n > 99 ? '99+' : String(n);
+  b.title = n + ' Desk PC Edition registration' + (n === 1 ? '' : 's') + ' awaiting payment';
+}
+
+async function refreshSelfhostBadge() {
+  if (!App.user || App.user.role !== 'superadmin') return;
+  try {
+    const r = await API.get('/api/selfhost/admin/pending-count');
+    setSelfhostBadge(r && r.pending);
+  } catch (e) { /* badge is a convenience — never block the shell */ }
+}
+window.refreshSelfhostBadge = refreshSelfhostBadge;
 
 function toggleSidebar() {
   App.sidebarCollapsed = !App.sidebarCollapsed;
@@ -326,7 +355,16 @@ document.addEventListener('keydown', (e) => {
 
 function registerRealtimeHandlers() {
   // Page modules also attach their own WSClient.on(...) listeners when constructed.
-  WSClient.on('connected', () => { /* no-op, status dot already updates */ });
+  WSClient.on('connected', () => { refreshSelfhostBadge(); }); // re-sync counts after (re)connect
+
+  // A landing-page registration flips the Super Admin badge live (and only
+  // superadmins ever see the badge — other roles ignore the event).
+  WSClient.on('selfhost.order_created', (p) => {
+    if (!App.user || App.user.role !== 'superadmin') return;
+    if (p && typeof p.count === 'number') setSelfhostBadge(p.count);
+    else refreshSelfhostBadge();
+    toast('🖥️ New Desk PC Edition registration — ' + (p && typeof p.count === 'number' ? p.count + ' awaiting payment' : 'check Billing & Approvals'), 'info', 8000);
+  });
 
   // Platform subscription events — global toasts so hotel admins learn about
   // billing state changes wherever they are in the app (the Billing page
