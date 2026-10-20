@@ -267,16 +267,22 @@ PAGES.superadmin = function () {
   };
 
   function plansHTML() {
+    if (state.plans.length === 0) return '<div class="empty-state"><div class="empty-state-icon">📦</div><div class="empty-state-title">No plans yet</div><div class="empty-state-desc">Use “+ Add Plan” to build your subscription catalog.</div></div>';
     return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">' +
-      state.plans.map(p => '<div class="card">' +
+      state.plans.map(p => '<div class="card"' + (p.active ? '' : ' style="opacity:.6"') + '>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-weight:700;font-size:15px">' + escapeHtml(p.name) + '</div>' + (p.active ? badge('Active', 'success') : badge('Inactive', 'default')) + '</div>' +
         (p.description ? '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">' + escapeHtml(p.description) + '</div>' : '') +
         '<div style="display:flex;gap:14px;margin-bottom:10px"><div><div style="font-weight:800;font-size:18px;color:var(--p)">' + formatMoney(p.price_monthly) + '</div><div style="font-size:10px;color:var(--text3)">per month</div></div>' +
           '<div><div style="font-weight:800;font-size:18px;color:var(--p)">' + formatMoney(p.price_yearly) + '</div><div style="font-size:10px;color:var(--text3)">per year</div></div></div>' +
-        (p.features.length ? '<ul style="font-size:12px;color:var(--text2);padding-left:18px;margin-bottom:10px">' + p.features.map(f => '<li>' + escapeHtml(f) + '</li>').join('') + '</ul>' : '') +
-        '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__deletePlan(\'' + p.id + '\')">Delete</button>' +
+        (Array.isArray(p.features) && p.features.length ? '<ul style="font-size:12px;color:var(--text2);padding-left:18px;margin-bottom:10px">' + p.features.map(f => '<li>' + escapeHtml(f) + '</li>').join('') + '</ul>' : '') +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<button class="btn outline sm" onclick="window.__openAddPlan(\'' + p.id + '\')">Edit</button>' +
+          (p.active
+            ? '<button class="btn ghost sm" style="color:var(--warn)" onclick="window.__togglePlan(\'' + p.id + '\',false)">Deactivate</button>'
+            : '<button class="btn accent sm" onclick="window.__togglePlan(\'' + p.id + '\',true)">Activate</button>') +
+          '<button class="btn ghost sm" style="color:var(--error);margin-left:auto" onclick="window.__deletePlan(\'' + p.id + '\')">Delete</button>' +
+        '</div>' +
       '</div>').join('') +
-      (state.plans.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">📦</div><div class="empty-state-title">No plans yet</div></div>' : '') +
     '</div>';
   }
 
@@ -284,7 +290,8 @@ PAGES.superadmin = function () {
     return '<div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Description</th><th>Status</th><th>Action</th></tr></thead><tbody>' +
       state.gateways.map(g => '<tr><td style="font-weight:600">' + escapeHtml(g.name) + '</td><td>' + badge(g.type.replace('_',' '), 'default') + '</td><td style="font-size:12px;color:var(--text3)">' + escapeHtml(g.description || '') + '</td>' +
         '<td><label class="toggle"><input type="checkbox" ' + (g.active ? 'checked' : '') + ' onchange="window.__toggleGateway(\'' + g.id + '\',this.checked)"/><span class="toggle-slider"></span></label></td>' +
-        '<td><button class="btn ghost sm" style="color:var(--error)" onclick="window.__deleteGateway(\'' + g.id + '\')">Delete</button></td></tr>').join('') +
+        '<td style="white-space:nowrap"><button class="btn outline sm" onclick="window.__openEditGateway(\'' + g.id + '\')">Edit</button> ' +
+        '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__deleteGateway(\'' + g.id + '\')">Delete</button></td></tr>').join('') +
       (state.gateways.length === 0 ? '<tr><td colspan="5" style="text-align:center;color:var(--text3)">No gateways configured</td></tr>' : '') +
     '</tbody></table></div>';
   }
@@ -359,28 +366,43 @@ PAGES.superadmin = function () {
   };
 
   // ── Plans ────────────────────────────────────────────────────────────
-  window.__openAddPlan = () => {
-    openModal('Add Subscription Plan',
+  // One modal serves BOTH create and edit — the server's POST /plans and
+  // PATCH /plans/:id cover the whole lifecycle; the missing piece was UI.
+  window.__openAddPlan = (planId) => {
+    const p = planId ? state.plans.find(x => x.id === planId) : null;
+    openModal(p ? 'Edit Plan — ' + escapeHtml(p.name) : 'Add Subscription Plan',
       '<div class="form-row cols-2">' +
-        '<div class="form-group"><label class="form-label">Plan Name</label><input class="form-input" id="pl-name" placeholder="e.g. Growth"/></div>' +
-        '<div class="form-group"><label class="form-label">Monthly Price ($)</label><input class="form-input" type="number" min="0" id="pl-monthly" value="0"/></div>' +
-        '<div class="form-group"><label class="form-label">Yearly Price ($)</label><input class="form-input" type="number" min="0" id="pl-yearly" value="0"/></div>' +
-        '<div class="form-group"><label class="form-label">Features (comma separated)</label><input class="form-input" id="pl-features" placeholder="Unlimited rooms, POS, Accounting…"/></div>' +
+        '<div class="form-group"><label class="form-label">Plan Name</label><input class="form-input" id="pl-name" placeholder="e.g. Growth" value="' + escapeHtml(p ? p.name : '') + '"/></div>' +
+        '<div class="form-group"><label class="form-label">Monthly Price ($)</label><input class="form-input" type="number" min="0" id="pl-monthly" value="' + (p ? p.price_monthly : 0) + '"/></div>' +
+        '<div class="form-group"><label class="form-label">Yearly Price ($)</label><input class="form-input" type="number" min="0" id="pl-yearly" value="' + (p ? p.price_yearly : 0) + '"/></div>' +
+        '<div class="form-group"><label class="form-label">Features (comma separated)</label><input class="form-input" id="pl-features" placeholder="Unlimited rooms, POS, Accounting…" value="' + escapeHtml(p && Array.isArray(p.features) ? p.features.join(', ') : '') + '"/></div>' +
       '</div>' +
-      '<div class="form-group"><label class="form-label">Description</label><input class="form-input" id="pl-desc" placeholder="Who is this plan for?"/></div>',
-      '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__addPlan()">Add Plan</button>'
+      '<div class="form-group"><label class="form-label">Description</label><input class="form-input" id="pl-desc" placeholder="Who is this plan for?" value="' + escapeHtml(p ? (p.description || '') : '') + '"/></div>' +
+      (p ? '<div class="toggle-wrap"><div class="toggle-info"><div class="toggle-label">Active</div><div class="toggle-desc">Inactive plans stay in the database but cannot be assigned to hotels.</div></div><label class="toggle"><input type="checkbox" id="pl-active"' + (p.active ? ' checked' : '') + '/><span class="toggle-slider"></span></label></div>' : ''),
+      '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__savePlan(' + (planId ? '\'' + planId + '\'' : '') + ')">' + (p ? 'Save Changes' : 'Add Plan') + '</button>'
     );
   };
-  window.__addPlan = async () => {
+  window.__savePlan = async (planId) => {
     const name = document.getElementById('pl-name').value.trim();
     if (!name) { toast('Plan name is required', 'error'); return; }
+    const body = {
+      name, description: document.getElementById('pl-desc').value.trim(),
+      priceMonthly: Number(document.getElementById('pl-monthly').value || 0), priceYearly: Number(document.getElementById('pl-yearly').value || 0),
+      features: document.getElementById('pl-features').value.split(',').map(f => f.trim()).filter(Boolean),
+    };
+    const activeEl = document.getElementById('pl-active');
+    if (activeEl) body.active = activeEl.checked;
     try {
-      await API.post('/api/plans/plans', {
-        name, description: document.getElementById('pl-desc').value.trim(),
-        priceMonthly: Number(document.getElementById('pl-monthly').value || 0), priceYearly: Number(document.getElementById('pl-yearly').value || 0),
-        features: document.getElementById('pl-features').value.split(',').map(f => f.trim()).filter(Boolean),
-      });
-      toast('Plan added', 'success'); closeModal(); state.plans = await API.get('/api/plans/plans'); render();
+      if (planId) { await API.patch('/api/plans/plans/' + planId, body); toast('Plan updated', 'success'); }
+      else { await API.post('/api/plans/plans', body); toast('Plan added', 'success'); }
+      closeModal(); state.plans = await API.get('/api/plans/plans'); render();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  window.__togglePlan = async (id, val) => {
+    try {
+      await API.patch('/api/plans/plans/' + id, { active: val });
+      toast(val ? 'Plan activated' : 'Plan deactivated', val ? 'success' : 'warn');
+      state.plans = await API.get('/api/plans/plans'); render();
     } catch (err) { toast(err.message, 'error'); }
   };
   window.__deletePlan = (id) => {
@@ -420,6 +442,34 @@ PAGES.superadmin = function () {
       try { await API.del('/api/plans/gateways/' + id); toast('Gateway deleted', 'warn'); state.gateways = await API.get('/api/plans/gateways'); render(); }
       catch (err) { toast(err.message, 'error'); }
     });
+  };
+  window.__openEditGateway = (id) => {
+    const g = state.gateways.find(x => x.id === id);
+    if (!g) return;
+    openModal('Edit Gateway — ' + escapeHtml(g.name),
+      '<div class="form-row cols-2">' +
+        '<div class="form-group"><label class="form-label">Name</label><input class="form-input" id="gw-name" value="' + escapeHtml(g.name) + '"/></div>' +
+        '<div class="form-group"><label class="form-label">Type</label><select class="form-select" id="gw-type">' +
+          ['bank_transfer','pos','crypto','paypal','payoneer','airtm','card','other'].map(t => '<option value="' + t + '"' + (g.type === t ? ' selected' : '') + '>' + t.replace('_',' ') + '</option>').join('') +
+        '</select></div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Description</label><input class="form-input" id="gw-desc" value="' + escapeHtml(g.description || '') + '"/></div>' +
+      '<div class="toggle-wrap"><div class="toggle-info"><div class="toggle-label">Active</div><div class="toggle-desc">Off = hidden from the payment options hotels see.</div></div><label class="toggle"><input type="checkbox" id="gw-active"' + (g.active ? ' checked' : '') + '/><span class="toggle-slider"></span></label></div>',
+      '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__saveGateway(\'' + id + '\')">Save Changes</button>'
+    );
+  };
+  window.__saveGateway = async (id) => {
+    const name = document.getElementById('gw-name').value.trim();
+    if (!name) { toast('Gateway name is required', 'error'); return; }
+    try {
+      await API.patch('/api/plans/gateways/' + id, {
+        name, type: document.getElementById('gw-type').value,
+        description: document.getElementById('gw-desc').value.trim(),
+        active: document.getElementById('gw-active').checked,
+      });
+      toast('Gateway updated', 'success'); closeModal();
+      state.gateways = await API.get('/api/plans/gateways'); render();
+    } catch (err) { toast(err.message, 'error'); }
   };
 
   window.__openAddTenant = () => {

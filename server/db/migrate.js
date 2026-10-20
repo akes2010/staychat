@@ -1,5 +1,6 @@
 // server/db/migrate.js
 // Creates the full multi-tenant schema. Safe to run multiple times (IF NOT EXISTS).
+const { nanoid } = require('nanoid');
 const db = require('./connection');
 
 function migrate() {
@@ -1161,6 +1162,24 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
     );
     CREATE INDEX IF NOT EXISTS idx_idem_created ON idempotency_keys(created_at);
   `);
+
+  // ══════════════════════════════════════════════════════════
+  // PAYMENT GATEWAY CATALOG — backfill defaults on upgraded databases
+  // ══════════════════════════════════════════════════════════
+  // A database seeded before this catalog existed keeps an EMPTY
+  // payment_gateways table (seed.js only runs on first boot), which made the
+  // Super Admin "Payment Gateways" tab look absent in production. Insert the
+  // same defaults seed.js uses — once, and only while the table is empty, so
+  // rows the operator added, renamed or deliberately removed are never touched.
+  if (db.prepare('SELECT COUNT(*) c FROM payment_gateways').get().c === 0) {
+    const insGw = db.prepare('INSERT INTO payment_gateways (id, name, type, description) VALUES (?,?,?,?)');
+    [['Bank Transfer', 'bank_transfer', 'Direct bank-to-bank transfer'],
+     ['POS Terminal', 'pos', 'Card payment via physical POS terminal'],
+     ['Cryptocurrency', 'crypto', 'BTC/USDT and other crypto payments'],
+     ['PayPal', 'paypal', 'International guest payments via PayPal']]
+      .forEach(([n, t, d]) => insGw.run('gw_' + nanoid(10), n, t, d));
+    console.log('✓ Backfilled the default payment gateway catalog (table was empty)');
+  }
 
   // ══════════════════════════════════════════════════════════
   // ANALYZE — Update query planner statistics
