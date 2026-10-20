@@ -222,11 +222,52 @@ function openUserMenu() {
       '<div style="font-weight:700;font-size:14px">' + escapeHtml(App.user.name || '') + '</div>' +
       '<div style="font-size:12px;color:var(--text3)">' + escapeHtml(App.user.email || '') + '</div></div>' +
     '<button class="user-menu-item" onclick="window.__openThemePicker()">🎨 Choose your theme</button>' +
+    '<button class="user-menu-item" onclick="window.__openChangePassword()">🔒 Change password</button>' +
     '<button class="user-menu-item" onclick="window.__doLogout && window.__doLogout()">⎋ Sign out</button>';
   document.body.appendChild(menu);
   const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); } };
   setTimeout(() => document.addEventListener('click', close), 0);
 }
+
+// ── Change password (self-service) ─────────────────────────────────────────
+// The server endpoint POST /api/auth/change-password (requireAuth only) has
+// always existed — but nothing in the app ever called it, so no signed-in user
+// could change their own password. This gives it a UI. It works for the
+// platform superadmin too: the identity comes from the session token, not from
+// the tenant's user list. On success the server revokes the user's refresh
+// tokens, so we sign out deliberately instead of letting the next refresh fail.
+window.__openChangePassword = function () {
+  openModal('Change Password',
+    '<div class="form-group"><label class="form-label">Current password</label>' +
+      '<input class="form-input" type="password" id="cp-current" autocomplete="current-password"></div>' +
+    '<div class="form-group"><label class="form-label">New password</label>' +
+      '<input class="form-input" type="password" id="cp-new" autocomplete="new-password"></div>' +
+    '<div class="form-group"><label class="form-label">Repeat new password</label>' +
+      '<input class="form-input" type="password" id="cp-confirm" autocomplete="new-password"></div>' +
+    '<p style="font-size:11.5px;color:var(--text3)">8+ characters with an uppercase letter, a lowercase letter, a number and a symbol. You will be signed out once to apply the change — everywhere.</p>',
+    '<button class="btn outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn primary" id="cp-save">Update password</button>');
+  document.getElementById('cp-save').onclick = async () => {
+    const cur = document.getElementById('cp-current').value;
+    const next = document.getElementById('cp-new').value;
+    const again = document.getElementById('cp-confirm').value;
+    const btn = document.getElementById('cp-save');
+    const strong = p => p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p);
+    if (!cur) return toast('Enter your current password.', 'warn');
+    if (!strong(next)) return toast('New password needs 8+ characters with an uppercase letter, a lowercase letter, a number and a symbol.', 'warn');
+    if (next !== again) return toast('The two new passwords do not match.', 'warn');
+    btn.disabled = true; btn.textContent = 'Updating…';
+    try {
+      await API.post('/api/auth/change-password', { currentPassword: cur, newPassword: next });
+      closeModal();
+      toast('Password changed. Signing you out to apply it — log back in with your new password.', 'success', 4000);
+      setTimeout(() => (window.__doLogout ? window.__doLogout() : (location.href = '/app')), 1500);
+    } catch (err) {
+      toast(err.message || 'Could not change the password.', 'error');
+      btn.disabled = false; btn.textContent = 'Update password';
+    }
+  };
+};
 
 // ── SaaS: plan banner ───────────────────────────────────────────────────
 // The plan/trial state stays visible to the whole team (transparency), but the

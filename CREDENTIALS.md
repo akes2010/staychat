@@ -43,7 +43,7 @@ reactivates a deactivated account and revokes its existing sessions.
 
 ## After first login
 
-1. Change the password (Users & Permissions → your account).
+1. Change the password any time: top-right account menu (👤) → 🔒 Change password.
 2. On a fresh deployment, set real secrets in `.env`:
    `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`,
    `CREDENTIALS_ENCRYPTION_KEY` — and keep `.env` out of git (it is gitignored).
