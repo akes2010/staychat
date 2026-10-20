@@ -41,7 +41,7 @@ function resolveSubdomain(req) {
 }
 
 function publicTenant(res, subdomain) {
-  // 'trial' hotels are on a full-feature 14-day trial: their public booking
+  // 'trial' hotels are on a full-feature 30-day trial: their public booking
   // channel MUST work (it's the core feature they are trying). Only 'suspended'
   // (expired trial / deactivated) hotels are closed.
   const tenant = db.prepare(`SELECT * FROM tenants WHERE subdomain = ? AND status IN ('active','trial')`).get(subdomain);
@@ -108,7 +108,18 @@ router.get('/guest-currency', async (req, res) => {
   const requested = req.query.currency ? String(req.query.currency).toUpperCase() : null;
   const valid = requested && (rates[requested] || requested === hotelCode || requested === 'USD') ? requested : null;
   const displayCode = valid || detected || hotelCode;
-  const rate = displayCode === hotelCode ? 1 : rates[displayCode] || (displayCode === 'USD' ? 1 : null);
+
+  // Cross rate: stored rates are USD-based (1 USD = X). To show ANY currency
+  // pair correctly, divide out the hotel's USD rate:
+  //   rate = USD→display ÷ USD→hotel   (e.g. NGN hotel, USD guest:
+  //   1 ÷ 1580 ≈ 0.00063 — a ₦65,000 room shows ≈ $41, not "$65,000").
+  // 1 = same currency; null = no rate known (guest sees the hotel amount).
+  let rate = 1;
+  if (displayCode !== hotelCode) {
+    const hotelPerUsd = hotelCode === 'USD' ? (rates.USD || 1) : rates[hotelCode];
+    const displayPerUsd = displayCode === 'USD' ? (rates.USD || 1) : rates[displayCode];
+    rate = (hotelPerUsd && displayPerUsd) ? displayPerUsd / hotelPerUsd : null;
+  }
 
   res.json({
     hotelCurrency: hotelCode,           // what the folio is charged in

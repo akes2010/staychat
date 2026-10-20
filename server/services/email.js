@@ -162,15 +162,15 @@ function signupWelcomeEmail({ hotelName, ownerName, subdomain, plan, trialEndsAt
   const bookUrl = APP_URL ? APP_URL + '/book.html?hotel=' + encodeURIComponent(subdomain || '') + '&v=2' : null;
   const appUrl = APP_URL ? APP_URL + '/app' : null;
   const html = wrap('Welcome to StayChat OS, ' + (ownerName || 'there') + '!',
-    '<p style="font-size:14px;line-height:1.7">Your hotel <b>' + escapeHtml(hotelName) + '</b> is live on a 14-day free trial of the <b>' + escapeHtml(plan || 'Starter') + '</b> plan' +
+    '<p style="font-size:14px;line-height:1.7">Your hotel <b>' + escapeHtml(hotelName) + '</b> is live on a 30-day free trial of the <b>' + escapeHtml(plan || 'Starter') + '</b> plan' +
     (trialEndsAt ? ' (until ' + escapeHtml(String(trialEndsAt).slice(0, 10)) + ')' : '') + '. Every feature is unlocked — add your rooms, connect WhatsApp, and take bookings.</p>' +
     (paymentReference ? refBox('PAYMENT REFERENCE (activates your plan)', paymentReference) : '') +
     (bookUrl ? '<p style="font-size:13px;color:#475569">Your public booking page:<br><a href="' + bookUrl + '" style="color:#2563eb">' + escapeHtml(bookUrl) + '</a></p>' : '') +
     (appUrl ? '<p style="margin:18px 0 0"><a href="' + appUrl + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;padding:11px 22px;font-weight:700;font-size:14px">Open my dashboard →</a></p>' : ''));
   return {
-    subject: 'Your StayChat OS trial is live — 14 days, every feature',
+    subject: 'Your StayChat OS trial is live — 30 days, every feature',
     html,
-    text: 'Welcome to StayChat OS!\n\n' + hotelName + ' is live on a 14-day trial of the ' + (plan || 'Starter') + ' plan.' +
+    text: 'Welcome to StayChat OS!\n\n' + hotelName + ' is live on a 30-day trial of the ' + (plan || 'Starter') + ' plan.' +
       (paymentReference ? '\n\nPayment reference: ' + paymentReference : '') +
       (bookUrl ? '\n\nBooking page: ' + bookUrl : '') + (appUrl ? '\nDashboard: ' + appUrl : ''),
   };

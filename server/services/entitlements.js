@@ -15,7 +15,7 @@
 
 const db = require('../db/connection');
 
-const TRIAL_DAYS = 14;
+const TRIAL_DAYS = 30;
 
 // ── Plan catalog ──────────────────────────────────────────────────────────
 // maxRooms/maxUsers/dailyBookingCap: null = unlimited.

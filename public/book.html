@@ -4,56 +4,61 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Book Your Stay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/marketing.css"/>
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-           background:linear-gradient(160deg,#0f1b2d 0%,#1a2f4a 60%,#22405f 100%);
+body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10), transparent),
+           linear-gradient(160deg,#0A1220 0%,#0E1930 60%,#13233C 100%);
            min-height:100vh; padding:24px 16px; }
     .wrap { max-width:960px; margin:0 auto; }
     .brand { color:#fff; text-align:center; margin-bottom:24px; }
-    .brand h1 { font-size:26px; font-weight:800; }
-    .brand .sub { color:rgba(255,255,255,.75); font-size:14px; margin-top:4px; }
-    .notice { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25);
-              color:#fff; border-radius:12px; padding:10px 14px; font-size:13px; margin-bottom:20px; display:none; }
-    .card { background:#fff; border-radius:16px; padding:24px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+    .brand h1 { font-family:'Bricolage Grotesque','Segoe UI',sans-serif; font-size:26px; font-weight:800; letter-spacing:-.01em; }
+    .brand .sub { color:#9FB0C8; font-size:14px; margin-top:4px; }
+    .notice { background:rgba(91,224,140,.10); border:1px solid rgba(91,224,140,.32);
+              color:#DDF4E6; border-radius:12px; padding:10px 14px; font-size:13px; margin-bottom:20px; display:none; }
+    .card { background:#fff; border-radius:24px; padding:24px; box-shadow:0 24px 60px rgba(0,0,0,.4); }
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    label { display:block; font-size:12px; font-weight:600; color:#334155; margin:12px 0 4px; }
-    input,select { width:100%; padding:10px 12px; border:1.5px solid #cbd5e1; border-radius:10px; font-size:15px; }
-    input:focus,select:focus { outline:none; border-color:#2563eb; }
+    label { display:block; font-size:12px; font-weight:600; color:var(--ink2); margin:12px 0 4px; }
+    input,select { width:100%; padding:10px 12px; border:1.5px solid #CBD9D0; border-radius:11px; font-size:15px; font-family:inherit;
+                   background:#fff; color:var(--ink); transition:border-color .15s, box-shadow .15s; }
+    input:focus,select:focus { outline:none; border-color:var(--green-deep); box-shadow:0 0 0 3px rgba(0,109,47,.12); }
     /* Currency selector: the native dropdown popup always renders on a WHITE
        sheet, so option text must be dark there — the page-level white text on
        white options made currencies unreadable/unselectable. The closed control
        is light too, so it matches what the popup shows. */
-    #curSel { background:#fff; color:#0f172a; border:1.5px solid #cbd5e1; font-weight:600; cursor:pointer;
+    #curSel { background:#fff; color:#0f172a; border:1.5px solid #CBD9D0; font-weight:600; cursor:pointer;
               appearance:auto; -webkit-appearance:auto; }
     #curSel option, #curSel optgroup { background:#ffffff !important; color:#0f172a !important; }
     #curSel:hover { border-color:#94a3b8; }
-    #curSel:focus { border-color:#2563eb; }
-    .room { border:1.5px solid #e2e8f0; border-radius:12px; padding:14px; margin-top:10px; cursor:pointer; transition:border-color .15s; }
+    #curSel:focus { border-color:var(--green-deep); }
+    .room { border:1.5px solid #DCE5DF; border-radius:14px; padding:14px; margin-top:10px; cursor:pointer; transition:border-color .15s, background .15s; }
     .room:hover { border-color:#94a3b8; }
-    .room.sel { border-color:#2563eb; background:#eff6ff; }
+    .room.sel { border-color:var(--green-deep); background:#EAF7EF; }
     .room .top { display:flex; justify-content:space-between; align-items:baseline; }
     .room .num { font-weight:800; font-size:16px; }
-    .room .price { font-weight:800; color:#2563eb; }
+    .room .price { font-weight:800; color:var(--green-deeper); }
     .room .meta { font-size:12px; color:#64748b; margin-top:2px; }
     .tabs { display:flex; gap:8px; margin-bottom:6px; }
-    .tab { flex:1; padding:10px; border:1.5px solid #e2e8f0; background:#f8fafc; color:#475569;
-           border-radius:10px; font-size:14px; font-weight:700; cursor:pointer; }
-    .tab.active { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
+    .tab { flex:1; padding:10px; border:1.5px solid #DCE5DF; background:#F3F6F4; color:var(--ink2);
+           border-radius:var(--pill); font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s; }
+    .tab.active { border-color:var(--green-deep); background:#EAF7EF; color:var(--green-deeper); }
     .fac-extra { display:none; }
-    button { width:100%; margin-top:18px; padding:13px; background:#2563eb; color:#fff; border:none;
-             border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
-    button:disabled { opacity:.55; cursor:default; }
-    .err { display:none; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;
+    button { width:100%; margin-top:18px; padding:13px; background:var(--green-deep); color:#fff; border:none;
+             border-radius:var(--pill); font-size:15px; font-weight:700; cursor:pointer; font-family:inherit; transition:filter .2s, transform .15s; }
+    button:hover { filter:brightness(1.08); transform:translateY(-1px); }
+    button:disabled { opacity:.55; cursor:default; transform:none; filter:none; }
+    .err { display:none; background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA;
            border-radius:10px; padding:10px 12px; font-size:13px; margin-top:14px; }
     .ok { display:none; text-align:center; padding:10px 0; }
     .ok .big { font-size:40px; }
-    .ok h2 { font-size:20px; margin:8px 0 4px; }
-    .ok .code { font-family:monospace; font-size:30px; font-weight:800; letter-spacing:3px;
-                background:#eff6ff; border:2px dashed #2563eb; color:#1d4ed8; border-radius:12px;
+    .ok h2 { font-family:'Bricolage Grotesque','Segoe UI',sans-serif; font-size:20px; margin:8px 0 4px; }
+    .ok .code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:30px; font-weight:800; letter-spacing:3px;
+                background:#EAF9F0; border:2px dashed var(--green-deep); color:var(--green-deeper); border-radius:14px;
                 padding:12px; margin:14px 0; user-select:all; }
-    .ok .detail { color:#475569; font-size:14px; line-height:1.7; }
-    .hint { text-align:center; color:rgba(255,255,255,.6); font-size:12px; margin-top:18px; }
+    .ok .detail { color:var(--ink2); font-size:14px; line-height:1.7; }
+    .hint { text-align:center; color:#9FB0C8; font-size:12px; margin-top:18px; }
     @media (max-width:640px){ .grid { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -121,7 +126,10 @@
     function moneyHtml(hotelSymbol, hotelAmount) {
       if (!CURRENCY_VIEW || CURRENCY_VIEW.rate == null || CURRENCY_VIEW.displayCode === CURRENCY_VIEW.hotelCode) return hotelSymbol + ' ' + Number(hotelAmount).toLocaleString();
       const conv = hotelAmount * CURRENCY_VIEW.rate;
-      return '<span title="Charged in ' + CURRENCY_VIEW.hotelCode + '">' + CURRENCY_VIEW.displaySymbol + ' ' + Math.round(conv).toLocaleString() +
+      // Whole numbers for normal room amounts; keep 2 decimals when the value
+      // is small so it never collapses to a misleading "0".
+      const shown = conv >= 10 ? Math.round(conv).toLocaleString() : conv.toFixed(2);
+      return '<span title="Charged in ' + CURRENCY_VIEW.hotelCode + '">' + CURRENCY_VIEW.displaySymbol + ' ' + shown +
              ' <small style="opacity:.75;font-size:.85em">(≈ ' + hotelSymbol + Number(hotelAmount).toLocaleString() + ' charged)</small></span>';
     }
 
@@ -134,6 +142,9 @@
         if (!r.ok) return;
         const c = await r.json();
         CURRENCY_VIEW = { hotelCode: c.hotelCurrency, displayCode: c.displayCurrency, displaySymbol: c.displaySymbol, rate: c.rate, hotelSymbol: c.hotelSymbol };
+        // Prices may already be on screen (slow detection vs. fast search) —
+        // repaint them in the guest's currency as soon as the view arrives.
+        rerenderPrices();
         // Selector with the detected currency preselected.
         const sel = document.createElement('select');
         sel.id = 'curSel';        sel.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;border:1.5px solid rgba(255,255,255,.6);background:#fff;color:#0f172a;font-size:13px;font-weight:600;max-width:360px;cursor:pointer';

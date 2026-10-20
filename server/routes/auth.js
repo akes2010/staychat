@@ -220,7 +220,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     });
     doRegister();
 
-    // Self-service SaaS onboarding: the new hotel lands on a 14-day full-feature
+    // Self-service SaaS onboarding: the new hotel lands on a 30-day full-feature
     // trial of the requested plan (default Starter). The booking engine is
     // enabled so a trial hotel can exercise the whole funnel end-to-end.
     const requestedPlan = PLAN_IDS.includes(req.body.plan) ? req.body.plan : 'starter';
@@ -232,7 +232,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     // a floor, room categories with tiered rates, and 8 real rooms (2 suites,
     // 4 standard, 2 deluxe) the desk can book, check in and settle today.
     seedStarterWorkspace(tenantId);
-    billing.logEvent(tenantId, 'trial.started', '14-day trial of the ' + requestedPlan + ' plan started (ends ' + trialEndsAt + ')');
+    billing.logEvent(tenantId, 'trial.started', '30-day trial of the ' + requestedPlan + ' plan started (ends ' + trialEndsAt + ')');
 
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
     const accessToken = issueSession(res, user);

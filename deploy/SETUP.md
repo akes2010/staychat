@@ -15,8 +15,7 @@ npm run smoke
 This copies the repo to a throwaway directory *exactly as a fresh VPS would
 receive it* (no node_modules, no data, no .env), generates real production
 secrets, migrates the schema from zero, seeds and verifies demo logins, boots
-in production mode, then walks the real first hour — public landing + booking
-page, a live self-service signup on the 14-day trial, the auto-seeded starter
+in production mode, then walks the real first hour — public landing + booking  page, a live self-service signup on the 30-day trial, the auto-seeded starter
 inventory (8 bookable rooms), and a tenant-scoped API call. Exit 0 = the repo
 deploys as-is. The full smoke must pass BEFORE pushing a release.
 

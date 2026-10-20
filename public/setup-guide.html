@@ -6,58 +6,63 @@
   <title>Setup Guide — StayChat OS</title>
   <meta name="description" content="Step-by-step StayChat OS setup: connect WhatsApp with Meta, customise the hotel to your preferences, and run day-to-day front-desk operations.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
-  <meta name="theme-color" content="#006d2f"/>
+  <meta name="theme-color" content="#0A1220"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/marketing.css"/>
   <style>
-    :root {
-      --p:#006d2f; --p-light:#008a3b; --p-dark:#004d20;
-      --a:#25d366;
-      --bg:#f0f4f8; --surface:#ffffff; --surface2:#f7f9fb;
-      --border:#e2e8f0; --border-dark:#cbd5e1;
-      --text:#0f172a; --text2:#475569; --text3:#94a3b8;
-      --grad:linear-gradient(135deg,#008a3b,#25d366);
-      --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+:root {
+      --p:#006D2F; --p-light:#008A3B; --p-dark:#005526;
+      --a:#5BE08C;
+      --bg:#F3F6F4; --surface:#ffffff; --surface2:#F3F6F4;
+      --border:#DCE5DF; --border-dark:#CBD9D0;
+      --text:#0F1B14; --text2:#3E4F45; --text3:#6B7F73;
     }
-    *{margin:0;padding:0;box-sizing:border-box}
     html{scroll-behavior:smooth}
-    body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.65}
-    a{color:var(--p-light);text-decoration:none}
+    body{font-family:'Instrument Sans','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.65}
+    a{color:var(--p);text-decoration:none}
     a:hover{text-decoration:underline}
     .wrap{max-width:880px;margin:0 auto;padding:0 22px}
-    header.top{background:linear-gradient(135deg,#004d20,#008a3b);color:#fff;padding:48px 0 40px}
+    header.top{background:linear-gradient(160deg,#0A1220 0%,#10203A 100%);color:#fff;padding:48px 0 40px}
     header.top .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
-    .logo{font-weight:800;font-size:18px;display:flex;align-items:center;gap:8px;color:#fff}
-    .logo .dot{width:10px;height:10px;border-radius:50%;background:#fff;opacity:.85}
-    h1{font-size:clamp(26px,4.5vw,40px);font-weight:800;letter-spacing:-.5px;margin:24px 0 10px}
-    header.top p.sub{color:rgba(255,255,255,.82);font-size:16px;max-width:620px}
+    .logo{font-family:'Bricolage Grotesque','Segoe UI',sans-serif;font-weight:800;font-size:18px;display:flex;align-items:center;gap:9px;color:#fff}
+    .logo:hover{text-decoration:none}
+    .logo .dot{width:10px;height:10px;border-radius:50%;background:#5BE08C;box-shadow:0 0 0 4px rgba(91,224,140,.16)}
+    h1{font-family:'Bricolage Grotesque','Segoe UI',sans-serif;font-size:clamp(26px,4.5vw,40px);font-weight:800;letter-spacing:-.02em;margin:24px 0 10px}
+    header.top p.sub{color:#B9C8DC;font-size:16px;max-width:620px}
     .part-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:26px}
-    .part-btn{color:#fff;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:8px 18px;font-size:13px;font-weight:700;text-decoration:none}
-    .part-btn:hover{background:rgba(255,255,255,.22);text-decoration:none}
-    nav.toc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 22px;margin:-28px auto 0;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+    .part-btn{color:#fff;background:rgba(91,224,140,.10);border:1px solid rgba(91,224,140,.35);border-radius:999px;padding:8px 18px;font-size:13px;font-weight:700;text-decoration:none;transition:background .2s}
+    .part-btn:hover{background:rgba(91,224,140,.20);text-decoration:none}
+    nav.toc{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:18px 22px;margin:-28px auto 0;position:relative;box-shadow:0 10px 30px rgba(10,18,32,.10)}
     nav.toc b{display:block;font-size:13px;color:var(--p-dark);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
     nav.toc a{display:inline-block;margin:3px 6px 3px 0;font-size:13.5px}
     section{padding:52px 0;border-bottom:1px solid var(--border)}
     section:last-of-type{border-bottom:none}
-    .part-tag{display:inline-block;font-size:11.5px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#fff;padding:6px 14px;border-radius:20px;margin-bottom:14px;background:var(--grad)}
-    h2{font-size:clamp(22px,3.2vw,30px);font-weight:800;letter-spacing:-.4px;margin-bottom:8px}
+    .part-tag{display:inline-block;font-size:11.5px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#06170D;padding:6px 14px;border-radius:999px;margin-bottom:14px;background:#5BE08C}
+    h2{font-family:'Bricolage Grotesque','Segoe UI',sans-serif;font-size:clamp(22px,3.2vw,30px);font-weight:800;letter-spacing:-.02em;margin-bottom:8px}
     p.lead{color:var(--text2);font-size:15.5px;max-width:640px;margin-bottom:28px}
-    .step{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 24px;margin-bottom:16px;position:relative;box-shadow:0 2px 10px rgba(0,0,0,.04)}
-    .step .n{position:absolute;top:-14px;left:20px;width:30px;height:30px;border-radius:50%;background:var(--grad);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px}
+    .step{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:22px 24px;margin-bottom:16px;position:relative;box-shadow:0 2px 10px rgba(10,18,32,.04)}
+    .step .n{position:absolute;top:-14px;left:20px;width:30px;height:30px;border-radius:50%;background:var(--p);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px}
     .step h3{font-size:16px;font-weight:800;margin:6px 0 8px;padding-left:6px}
     .step p,.step li{font-size:13.5px;color:var(--text2)}
     .step ul,.step ol{margin:8px 0 4px 22px}
     .step li{margin-bottom:5px}
-    .step code, .tip code{background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:12.5px;font-family:'JetBrains Mono',monospace;color:var(--p-dark)}
-    .tip{background:rgba(37,211,102,.07);border:1px solid rgba(0,138,59,.25);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--text2);margin-top:12px}
+    .step code, .tip code{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--p-dark)}
+    .tip{background:rgba(91,224,140,.10);border:1px solid rgba(0,109,47,.25);border-radius:12px;padding:12px 16px;font-size:13px;color:var(--text2);margin-top:12px}
     .tip b{color:var(--p-dark)}
-    .warn{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;font-size:13px;color:#92400e;margin-top:12px}
-    .warn b{color:#b45309}
+    .warn{background:#FFFBEB;border:1px solid #FDE68A;border-radius:12px;padding:12px 16px;font-size:13px;color:#92400E;margin-top:12px}
+    .warn b{color:#B45309}
     kbd{background:var(--surface2);border:1px solid var(--border-dark);border-bottom-width:2px;border-radius:5px;padding:0 6px;font-size:12px;font-family:monospace}
     table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:13px;margin-top:14px}
     th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--border)}
     th{background:var(--surface2);font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--p-dark)}
     td:first-child{font-weight:700;white-space:nowrap}
     tr:last-child td{border-bottom:none}
-    footer{border-top:1px solid var(--border);background:var(--surface);padding:30px 0;color:var(--text2);font-size:13px;text-align:center}
+    footer{border-top:1px solid #1E3350;background:#0A1220;padding:30px 0;color:#9FB0C8;font-size:13px;text-align:center}
+    footer b{color:#FFFFFF}
+    footer a{color:#C9D6E8}
+    footer a:hover{color:#FFFFFF}
     @media(max-width:600px){ .wrap{padding:0 16px} section{padding:40px 0} .step{padding:18px 18px 18px 20px} nav.toc{margin-top:-22px} }
   </style>
 </head>

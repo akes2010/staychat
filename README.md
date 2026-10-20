@@ -9,7 +9,7 @@ JWT auth with httpOnly cookies, WebSocket real-time updates, and a vanilla-JS fr
 The platform is a complete SaaS + PWA out of the box:
 
 - **Self-service signup & trials** — `/signup.html` creates the hotel workspace, starts a
-  14-day full-feature trial of the chosen plan and (non-blockingly) records a plan request
+  30-day full-feature trial of the chosen plan and (non-blockingly) records a plan request
   with a payment reference (`SC-XXXXXXXX`).
 - **Real entitlement gating** — every plan has a feature list and usage limits
   (`server/services/entitlements.js`). Guarded routes answer `402 UPGRADE_REQUIRED` with a

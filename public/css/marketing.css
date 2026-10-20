@@ -1,0 +1,91 @@
+/* public/css/marketing.css — the StayChat OS public-page design system.
+   Mirrors public/landing.html: deep navy surfaces, mint-green actions, warm
+   amber focus, Bricolage Grotesque display + Instrument Sans body.
+   Pages layer their own layout rules on top; nothing here is page-specific. */
+
+:root {
+  --navy:#0A1220; --navy-card:#101B2E; --navy-line:#1E3350; --navy-line2:#2E6B49;
+  --green:#5BE08C; --green-deep:#006D2F; --green-deeper:#005526; --green-soft:rgba(91,224,140,.10);
+  --bg:#F3F6F4; --bg-alt:#E6EEE9; --surface:#FFFFFF; --line:#DCE5DF; --line2:#CBD9D0;
+  --ink:#0F1B14; --ink2:#3E4F45; --ink3:#6B7F73;
+  --on-dark:#EAF0F8; --on-dark2:#B9C8DC; --on-dark3:#9FB0C8; --on-dark-link:#C9D6E8;
+  --amber:#F5B942; --danger:#C0392B; --danger-soft:rgba(192,57,43,.08);
+  --font:'Instrument Sans','Segoe UI',system-ui,sans-serif;
+  --display:'Bricolage Grotesque','Segoe UI',sans-serif;
+  --radius:16px; --radius-lg:24px; --pill:999px;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { font-family:var(--font); color:var(--ink); line-height:1.55; -webkit-font-smoothing:antialiased; }
+a { color:var(--green-deep); text-decoration:none; }
+a:hover { text-decoration:underline; }
+:focus-visible { outline:3px solid var(--amber); outline-offset:3px; border-radius:6px; }
+img { max-width:100%; }
+
+/* display + section headings */
+h1, h2, h3, .display { font-family:var(--display); }
+
+/* kicker chip above headings (light sections) */
+.kicker { display:inline-block; font-size:13px; letter-spacing:.14em; text-transform:uppercase;
+          font-weight:600; color:var(--green-deep); }
+.kicker.on-dark { color:var(--green); }
+
+/* buttons — pill, mint-first */
+.btn { display:inline-flex; align-items:center; justify-content:center; text-decoration:none;
+       font-weight:600; border-radius:var(--pill); min-height:44px; padding:0 22px; font-size:15px;
+       cursor:pointer; border:none; font-family:inherit; line-height:1;
+       transition:transform .15s ease, filter .2s ease, background .2s ease, border-color .2s ease, color .2s ease; }
+.btn:hover { transform:translateY(-1px); filter:brightness(1.04); text-decoration:none; }
+.btn:active { transform:translateY(0) scale(.99); }
+.btn:disabled { opacity:.55; cursor:default; transform:none; filter:none; }
+.btn-green { background:var(--green); color:#06170D; }
+.btn-white { background:#FFFFFF; color:#06170D; }
+.btn-deep { background:var(--green-deep); color:#FFFFFF; }
+.btn-outline-dark { border:1.5px solid #4A5F7F; color:#FFFFFF; background:transparent; }
+.btn-outline-light { border:1.5px solid var(--line2); color:var(--ink); background:var(--surface); }
+.btn-outline-mint { border:1.5px solid #9FD9B4; color:#FFFFFF; background:transparent; }
+.btn-lg { min-height:52px; font-size:16px; padding:0 28px; }
+.btn-full { width:100%; }
+
+/* form controls — dark-surface flavor (navy pages) */
+.field-label { display:block; font-size:12px; font-weight:700; letter-spacing:.4px;
+               text-transform:uppercase; margin:14px 0 5px; }
+.input-dark { width:100%; background:var(--navy); border:1.5px solid var(--navy-line); border-radius:11px;
+              color:var(--on-dark); padding:11px 13px; font-size:14.5px; font-family:inherit; outline:none;
+              transition:border-color .15s ease, box-shadow .15s ease; }
+.input-dark:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(91,224,140,.16); }
+.input-dark::placeholder { color:#61738C; }
+
+/* form controls — light-surface flavor (white cards) */
+.input-light { width:100%; background:var(--surface); border:1.5px solid var(--line2); border-radius:11px;
+               color:var(--ink); padding:11px 13px; font-size:15px; font-family:inherit; outline:none;
+               transition:border-color .15s ease, box-shadow .15s ease; }
+.input-light:focus { border-color:var(--green-deep); box-shadow:0 0 0 3px rgba(0,109,47,.12); }
+
+/* error banners */
+.err-dark { display:none; background:rgba(255,138,123,.10); border:1px solid rgba(255,138,123,.4);
+            color:#FF8A7B; padding:10px 13px; border-radius:10px; font-size:13px; margin-bottom:14px; }
+.err-light { display:none; background:#FEF2F2; border:1px solid #FECACA; color:#B91C1C;
+             padding:10px 13px; border-radius:10px; font-size:13px; margin-bottom:14px; }
+
+/* booking-code box (the BE-XXXXXX star of the show) */
+.codebox { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-weight:800; letter-spacing:3px;
+           user-select:all; text-align:center; border-radius:14px; padding:12px; }
+.codebox.on-light { background:#EAF9F0; border:2px dashed var(--green-deep); color:var(--green-deeper); }
+
+/* status pills */
+.badge { display:inline-block; padding:4px 12px; border-radius:var(--pill); font-size:12px; font-weight:700; }
+.badge.ok { background:#DCFCE7; color:#166534; }
+.badge.wait { background:#FEF3C7; color:#92400e; }
+.badge.no { background:#FEE2E2; color:#991B1B; }
+
+/* logo lockups */
+.logo-mark { width:36px; height:36px; border-radius:10px; background:var(--green);
+             display:inline-flex; align-items:center; justify-content:center; flex:none; }
+.logo-dot { width:10px; height:10px; border-radius:50%; background:var(--green); display:inline-block; flex:none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior:auto; }
+  *, *::before, *::after { animation-duration:.001s !important; transition-duration:.001s !important; }
+}

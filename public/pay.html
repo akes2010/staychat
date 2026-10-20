@@ -5,25 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Payment — StayChat OS</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
-  <meta name="theme-color" content="#0a1220"/>
+  <meta name="theme-color" content="#0A1220"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/marketing.css"/>
   <style>
-    :root { --bg:#0a1220; --surface:#121f36; --border:#1e2f4d; --text:#e8eef8; --muted:#93a5c4; --p:#4f8cff; --accent:#22d3a7; --grad:linear-gradient(135deg,#4f8cff,#22d3a7); }
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text);
+:root { --bg:#0A1220; --surface:#101B2E; --border:#1E3350; --text:#EAF0F8; --muted:#9FB0C8; --p:#5BE08C; --accent:#5BE08C; }
+    body { background:radial-gradient(700px 350px at 50% -10%, rgba(91,224,140,.10), transparent), var(--bg); color:var(--text);
            min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; line-height:1.6; }
-    .card { width:min(520px,100%); background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:36px; text-align:center; }
-    .logo { font-weight:800; font-size:17px; display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:22px; }
-    .logo .dot { width:10px; height:10px; border-radius:50%; background:var(--grad); }
-    h1 { font-size:20px; margin-bottom:6px; }
+    .card { width:min(520px,100%); background:var(--surface); border:1px solid var(--border); border-radius:24px; padding:36px; text-align:center; }
+    .logo { font-family:'Bricolage Grotesque','Segoe UI',sans-serif; font-weight:800; font-size:17px;
+            display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:22px; color:#FFFFFF; }
+    .logo .dot { width:10px; height:10px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px rgba(91,224,140,.16); }
+    h1 { font-family:'Bricolage Grotesque','Segoe UI',sans-serif; font-size:20px; margin-bottom:6px; color:#FFFFFF; }
     .sub { color:var(--muted); font-size:13.5px; margin-bottom:24px; }
-    .ref { background:var(--bg); border:1.5px dashed var(--p); border-radius:14px; padding:20px; margin-bottom:22px; }
-    .ref .code { font-size:30px; font-weight:800; letter-spacing:3px; margin:4px 0 2px; }
+    .ref { background:var(--bg); border:1.5px dashed var(--green); border-radius:16px; padding:20px; margin-bottom:22px; }
+    .ref .code { font-family:'Bricolage Grotesque','Segoe UI',sans-serif; font-size:30px; font-weight:800;
+                 letter-spacing:3px; margin:4px 0 2px; color:var(--amber); user-select:all; }
     .ref small { color:var(--muted); font-size:11px; letter-spacing:1.5px; }
-    .copy { background:var(--grad); color:#06101f; border:none; border-radius:10px; padding:9px 22px; font-weight:800; cursor:pointer; margin-top:10px; }
+    .copy { background:var(--green); color:#06170D; border:none; border-radius:var(--pill); padding:9px 22px;
+            font-weight:800; cursor:pointer; margin-top:10px; font-family:inherit; transition:filter .2s, transform .15s; }
+    .copy:hover { filter:brightness(1.05); transform:translateY(-1px); }
     ol { text-align:left; color:var(--muted); font-size:13.5px; padding-left:20px; margin-bottom:24px; }
     ol li { margin-bottom:8px; }
     ol b { color:var(--text); }
-    a.back { color:var(--p); font-size:13px; font-weight:600; }
+    a.back { color:var(--green); font-size:13px; font-weight:600; }
+    a.back:hover { text-decoration:underline; }
   </style>
 </head>
 <body>

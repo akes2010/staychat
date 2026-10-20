@@ -8,7 +8,7 @@
 //   3. node server/db/seed.js      (demo tenants, real data)
 //   4. node server/db/check.js     (every demo login verified)
 //   5. boot server in production mode → health/landing 200
-//   6. self-service signup → 14-day trial tenant created → starter rooms real
+//   6. self-service signup → 30-day trial tenant created → starter rooms real
 //   7. login as demo admin → tenant APIs answer
 // Exit 0 = the repo is deployable as-is. Any failure exits 1 with the reason.
 'use strict';

@@ -11,7 +11,7 @@ Use **two browsers** (or one normal + one private window).
 ### Public side
 
 - [ ] `https://staychatos.com` — landing page loads, padlock valid
-- [ ] `https://staychatos.com/signup` — sign up a **test hotel** (14-day
+- [ ] `https://staychatos.com/signup` — sign up a **test hotel** (30-day
       full-feature trial, auto-seeded: floor, categories, **8 bookable rooms**)
 - [ ] `https://staychatos.com/book.html` — the public booking engine: search
       the test hotel, pick a room, complete a booking end-to-end
@@ -52,7 +52,7 @@ Output ends with the backup path used. After the wipe:
       wipe** — if not, sign it up again (takes 60 seconds, that's the point)
 
 Then sign up real hotels at `https://staychatos.com/signup` — each gets its
-own isolated workspace, starter inventory and 14-day trial.
+own isolated workspace, starter inventory and 30-day trial.
 
 ---
 

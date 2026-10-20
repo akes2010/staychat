@@ -19,7 +19,7 @@ const express = require('express');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
-const { PLAN_CATALOG, FEATURE_LABELS, resolveState, ensurePlansSeeded } = require('../services/entitlements');
+const { PLAN_CATALOG, FEATURE_LABELS, TRIAL_DAYS, resolveState, ensurePlansSeeded } = require('../services/entitlements');
 const billing = require('../services/billing');
 
 const router = express.Router();
@@ -38,7 +38,7 @@ router.get('/pricing', (req, res) => {
       dailyBookingCap: p.dailyBookingCap, features: p.features,
       featureLabels: p.features.map(f => FEATURE_LABELS[f] || f),
     })),
-    trialDays: 14,
+    trialDays: TRIAL_DAYS,
     currency: 'USD',
   });
 });

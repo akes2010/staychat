@@ -4,26 +4,30 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Guest Wi-Fi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/marketing.css"/>
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-           min-height:100vh; display:flex; align-items:center; justify-content:center;
-           background:linear-gradient(160deg,#0f1b2d 0%,#1a2f4a 60%,#22405f 100%); padding:20px; }
-    .card { background:#fff; border-radius:16px; padding:36px 32px; width:100%; max-width:420px;
-            box-shadow:0 24px 60px rgba(0,0,0,.35); }
-    h1 { font-size:20px; margin-bottom:4px; }
-    .sub { color:#64748b; font-size:13px; margin-bottom:24px; }
-    label { display:block; font-size:12px; font-weight:600; color:#334155; margin:12px 0 4px; }
-    input { width:100%; padding:11px 12px; border:1.5px solid #cbd5e1; border-radius:10px; font-size:15px; }
-    input:focus { outline:none; border-color:#2563eb; }
-    button { width:100%; margin-top:20px; padding:12px; background:#2563eb; color:#fff; border:none;
-             border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
-    button:disabled { opacity:.6; cursor:default; }
-    .err { display:none; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;
+body { background:radial-gradient(700px 350px at 50% -10%, rgba(91,224,140,.10), transparent),
+           linear-gradient(160deg,#0A1220 0%,#0E1930 60%,#13233C 100%);
+           min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+    .card { background:#fff; border-radius:24px; padding:36px 32px; width:100%; max-width:420px;
+            box-shadow:0 24px 60px rgba(0,0,0,.4); }
+    h1 { font-family:'Bricolage Grotesque','Segoe UI',sans-serif; font-size:20px; margin-bottom:4px; }
+    .sub { color:var(--ink2); font-size:13px; margin-bottom:24px; }
+    label { display:block; font-size:12px; font-weight:600; color:var(--ink2); margin:12px 0 4px; }
+    input { width:100%; padding:11px 12px; border:1.5px solid #CBD9D0; border-radius:11px; font-size:15px; font-family:inherit; }
+    input:focus { outline:none; border-color:var(--green-deep); box-shadow:0 0 0 3px rgba(0,109,47,.12); }
+    button { width:100%; margin-top:20px; padding:12px; background:var(--green-deep); color:#fff; border:none;
+             border-radius:var(--pill); font-size:15px; font-weight:700; cursor:pointer; font-family:inherit; transition:filter .2s; }
+    button:hover { filter:brightness(1.08); }
+    button:disabled { opacity:.6; cursor:default; filter:none; }
+    .err { display:none; background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA;
            border-radius:10px; padding:10px 12px; font-size:13px; margin-top:14px; }
-    .result { display:none; margin-top:20px; background:#f1f5f9; border-radius:12px; padding:18px; }
+    .result { display:none; margin-top:20px; background:#EAF7EF; border:1px solid #DCE5DF; border-radius:14px; padding:18px; }
     .result .row { display:flex; justify-content:space-between; padding:5px 0; font-size:14px; }
-    .result .row b { font-family:monospace; font-size:15px; user-select:all; }
+    .result .row b { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:15px; user-select:all; }
     .hint { text-align:center; font-size:12px; color:#94a3b8; margin-top:18px; }
   </style>
 </head>

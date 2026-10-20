@@ -15,7 +15,7 @@ Open **`https://staychatos.com/signup`** and fill in:
 | Your name | becomes the **hotel_admin** (owner) account |
 | Email | your login forever — also where plan invoices go |
 | Password | 8+ chars with upper + lower + digit + special character |
-| Plan | pick the tier you want; you start on a **14-day full-feature trial**, no card required |
+| Plan | pick the tier you want; you start on a **30-day full-feature trial**, no card required |
 
 On submit the platform provisions your workspace **instantly and
 automatically**:

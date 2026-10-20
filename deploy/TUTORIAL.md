@@ -250,7 +250,7 @@ deployment**. No SSH needed ever again.
 The smoke test already proved this works; now do it on your live domain:
 
 1. **Public side** — open `https://<domain>/signup`, sign up a *test* hotel:
-   you get a 14-day full-feature trial, auto-seeded starter workspace
+   you get a 30-day full-feature trial, auto-seeded starter workspace
    (floor, categories, 8 real bookable rooms), booking engine enabled.
 2. **That hotel's desk** — log in as the new hotel admin, create a booking,
    check the guest in, take a payment, settle, check out. Watch the live

@@ -4,47 +4,54 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Booking Confirmation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/marketing.css"/>
   <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-           background:linear-gradient(160deg,#0f1b2d 0%,#1a2f4a 60%,#22405f 100%);
+body { background:radial-gradient(800px 400px at 50% -10%, rgba(91,224,140,.10), transparent),
+           linear-gradient(160deg,#0A1220 0%,#0E1930 60%,#13233C 100%);
            min-height:100vh; padding:24px 16px; }
     .wrap { max-width:560px; margin:0 auto; }
-    .card { background:#fff; border-radius:16px; padding:28px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+    .card { background:#fff; border-radius:24px; padding:28px; box-shadow:0 24px 60px rgba(0,0,0,.4); }
     .lookup { display:none; }
     .lookup.open { display:block; }
-    .lookup label { display:block; font-size:12px; font-weight:600; color:#334155; margin:12px 0 4px; }
-    .lookup input { width:100%; padding:10px 12px; border:1.5px solid #cbd5e1; border-radius:10px; font-size:15px; }
-    .lookup input:focus { outline:none; border-color:#2563eb; }
-    .lookup button { width:100%; margin-top:16px; padding:12px; background:#2563eb; color:#fff; border:none;
-             border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
-    .err { display:none; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;
+    .lookup h1 { font-family:'Bricolage Grotesque','Segoe UI',sans-serif; }
+    .lookup label { display:block; font-size:12px; font-weight:600; color:var(--ink2); margin:12px 0 4px; }
+    .lookup input { width:100%; padding:10px 12px; border:1.5px solid #CBD9D0; border-radius:11px; font-size:15px; font-family:inherit; }
+    .lookup input:focus { outline:none; border-color:var(--green-deep); box-shadow:0 0 0 3px rgba(0,109,47,.12); }
+    .lookup button { width:100%; margin-top:16px; padding:12px; background:var(--green-deep); color:#fff; border:none;
+             border-radius:var(--pill); font-size:15px; font-weight:700; cursor:pointer; font-family:inherit; transition:filter .2s; }
+    .lookup button:hover { filter:brightness(1.08); }
+    .err { display:none; background:#FEF2F2; color:#B91C1C; border:1px solid #FECACA;
            border-radius:10px; padding:10px 12px; font-size:13px; margin-top:14px; }
     .slip { display:none; }
     .slip.open { display:block; }
-    .slip-head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #1d4ed8; padding-bottom:12px; }
-    .slip-head h1 { font-size:20px; color:#1d4ed8; }
+    .slip-head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid var(--green-deep); padding-bottom:12px; }
+    .slip-head h1 { font-size:20px; color:var(--green-deeper); }
     .slip-head .tel { font-size:12px; color:#64748b; margin-top:4px; line-height:1.5; }
-    .badge { display:inline-block; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; }
-    .badge.ok { background:#dcfce7; color:#166534; }
-    .badge.wait { background:#fef9c3; color:#854d0e; }
-    .badge.no { background:#fee2e2; color:#991b1b; }
+    .badge { display:inline-block; padding:4px 12px; border-radius:999px; font-size:12px; font-weight:700; }
+    .badge.ok { background:#DCFCE7; color:#166534; }
+    .badge.wait { background:#FEF3C7; color:#92400e; }
+    .badge.no { background:#FEE2E2; color:#991B1B; }
     .code { text-align:center; margin:18px 0; }
     .code .lbl { font-size:11px; letter-spacing:2px; color:#64748b; font-weight:700; }
-    .code .val { font-family:monospace; font-size:32px; font-weight:800; letter-spacing:4px; color:#1d4ed8;
-                 border:2px dashed #2563eb; border-radius:12px; padding:10px; margin-top:6px; user-select:all; }
+    .code .val { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:32px; font-weight:800; letter-spacing:4px; color:var(--green-deeper);
+                 border:2px dashed var(--green-deep); border-radius:14px; padding:10px; margin-top:6px; user-select:all; background:#EAF9F0; }
     table { width:100%; border-collapse:collapse; margin-top:8px; }
-    td { padding:7px 0; font-size:14px; border-bottom:1px solid #f1f5f9; }
+    td { padding:7px 0; font-size:14px; border-bottom:1px solid #F0F4F1; }
     td:first-child { color:#64748b; font-size:12px; width:40%; }
     td:last-child { font-weight:600; text-align:right; }
-    .total td:last-child { font-size:16px; font-weight:800; color:#1d4ed8; }
-    .fineprint { font-size:11px; color:#94a3b8; margin-top:16px; line-height:1.6; border-top:1px dashed #e2e8f0; padding-top:12px; }
+    .total td:last-child { font-size:16px; font-weight:800; color:var(--green-deeper); }
+    .fineprint { font-size:11px; color:#94a3b8; margin-top:16px; line-height:1.6; border-top:1px dashed #DCE5DF; padding-top:12px; }
     .actions { display:flex; gap:10px; margin-top:18px; }
     .actions button { flex:1; margin-top:0; }
-    .btn2 { padding:11px; border-radius:10px; border:1.5px solid #cbd5e1; background:#fff; color:#334155;
-            font-size:14px; font-weight:600; cursor:pointer; }
-    .btn1 { padding:11px; border-radius:10px; border:none; background:#2563eb; color:#fff;
-            font-size:14px; font-weight:700; cursor:pointer; }
+    .btn2 { padding:11px; border-radius:var(--pill); border:1.5px solid #CBD9D0; background:#fff; color:var(--ink2);
+            font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; }
+    .btn2:hover { border-color:var(--green-deep); }
+    .btn1 { padding:11px; border-radius:var(--pill); border:none; background:var(--green-deep); color:#fff;
+            font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; transition:filter .2s; }
+    .btn1:hover { filter:brightness(1.08); }
     @media print {
       body { background:#fff; padding:0; }
       .card { box-shadow:none; border-radius:0; padding:10mm; }

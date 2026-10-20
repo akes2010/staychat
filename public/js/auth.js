@@ -60,7 +60,7 @@ async function doSignup() {
     const data = await API.post('/api/auth/register', { hotelName, name, email, password });
     if (!data || !data.user) throw new Error('Invalid response from server');
     startApp(data.user, data.accessToken, data.tenant, data.entitlements);
-    toast('Welcome to StayChat OS! Your 14-day trial has started — full features, no card required.', 'success', 6000);
+    toast('Welcome to StayChat OS! Your 30-day trial has started — full features, no card required.', 'success', 6000);
   } catch (err) {
     console.error('Signup error:', err);
     showAuthError(err.message || 'Could not create your account.');

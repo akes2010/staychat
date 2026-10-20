@@ -58,7 +58,7 @@ Two guarantees are built into every path below — you never configure them:
 | What | Where it's used |
 |---|---|
 | `https://staychatos.com` | main app, staff + superadmin login |
-| `https://staychatos.com/signup` | self-service hotel registration (14-day trial) |
+| `https://staychatos.com/signup` | self-service hotel registration (30-day trial) |
 | `https://staychatos.com/book.html` | public booking engine (per-hotel links) |
 | `https://staychatos.com/api/webhooks/...` | WhatsApp + payment-gateway callbacks |
 | `wss://staychatos.com/ws` | live updates (proxied by Caddy automatically) |
