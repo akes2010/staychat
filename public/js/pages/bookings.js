@@ -324,7 +324,7 @@ PAGES.bookings = function () {
       '<div id="nb-ota-wrap">' + (source === 'ota' ? otaSectionHTML(extRef, prepaid) : '') + '</div>' +
       '<div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.03em;margin:6px 0 8px">Payment (optional)</div>' +
       '<div id="nb-pay-wrap">' + paySectionHTML(payAmount) + '</div>' +
-      '<div class="form-group"><label class="form-label">Notes</label><input class="form-input" id="nb-notes" placeholder="Special requests…"/></div>' +
+      '<div class="form-group"><label class="form-label">Notes</label><input class="form-input" id="nb-notes" placeholder="Special requests…"/></div>',
       '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__submitBooking()">Create Reservation</button>',
       { wide: true }
     );

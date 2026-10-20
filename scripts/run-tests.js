@@ -18,6 +18,7 @@ const FAST = [
   'test-ws-auth.js',
   'test-ota-flow.sh',
   'verify-booking-payment.js',
+  'test-reports-csv.js',
   'test-whatsapp-webhook-e2e.js',
   'test-security-probes.js',
 ];

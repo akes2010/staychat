@@ -249,7 +249,12 @@ function runReport(req, res, done) {
         break;
       }
       default:
-        return res.status(404).json({ error: 'Unknown report type: ' + type });
+        res.status(404).json({ error: 'Unknown report type: ' + type });
+        // done() MUST fire here too: the CSV endpoint runs this engine with a
+        // fake response and sends the real reply from the callback — a bare
+        // `return` skipped it and the request hung forever (HTTP 000).
+        if (done) done();
+        return;
     }
     res.json({ type, period: period || 'daily', range, ...result });
   } catch (err) {
