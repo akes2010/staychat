@@ -20,6 +20,21 @@ fs.mkdirSync(SHOTS, { recursive: true });
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// The hotel name is local data — tenants get renamed on any deployment — so
+// anchor the render assertion on what THIS server's public booking-engine API
+// reports for the subdomain, not on a hardcoded demo literal. The property
+// under test is "book.html renders the tenant's branding from the API"; this
+// still catches empty/undefined/'[object Object]' output and a page showing
+// the wrong hotel, while surviving seed drift.
+async function hotelNameFrom(origin) {
+  try {
+    const r = await fetch(origin + '/api/booking-engine/config?subdomain=hospitally');
+    if (!r.ok) return null;
+    const name = (await r.json()).hotelName;
+    return name ? String(name).trim() : null;
+  } catch (e) { return null; }
+}
+
 function waitHealthy() {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -121,7 +136,10 @@ async function connectCdp(port) {
     await goto(BASE + '/book.html?hotel=hospitally');
     await shot('01-book-page');
     const hotel = await evaljs('document.getElementById("h-name").textContent');
-    hotel.includes('Hospitally') ? ok('booking page renders hotel: ' + hotel) : bad('hotel name wrong: ' + hotel);
+    const expectedHotel = await hotelNameFrom(BASE);
+    hotel && expectedHotel && hotel.trim() === expectedHotel
+      ? ok('booking page renders hotel: ' + hotel)
+      : bad('hotel name wrong: rendered ' + JSON.stringify(hotel) + ', API says ' + JSON.stringify(expectedHotel));
     const tabsVisible = await evaljs('!!document.getElementById("tab-facilities") && document.getElementById("tab-facilities").style.display !== "none"');
     tabsVisible ? ok('Facilities tab visible') : bad('Facilities tab missing/hidden');
 
@@ -187,7 +205,10 @@ async function connectCdp(port) {
       await goto('http://localhost:3000/book.html?hotel=hospitally');
       await shot('07-live-book-page');
       const liveHotel = await evaljs('document.getElementById("h-name").textContent');
-      liveHotel.includes('Hospitally') ? ok('LIVE server book page renders: ' + liveHotel) : bad('live page: ' + liveHotel);
+      const liveExpected = await hotelNameFrom('http://localhost:3000');
+      liveHotel && liveExpected && liveHotel.trim() === liveExpected
+        ? ok('LIVE server book page renders: ' + liveHotel)
+        : bad('live page: rendered ' + JSON.stringify(liveHotel) + ', API says ' + JSON.stringify(liveExpected));
       await goto('http://localhost:3000/book.html?hotel=hospitally#fac');
     } catch (e) { console.log('  (live-site shot skipped: ' + e.message + ')'); }
 

@@ -83,6 +83,9 @@ PAGES.superadmin = function () {
     const stripe = s.stripe_secret_key || { set: false };
     const paystack = s.paystack_secret_key || { set: false };
     const flutterwave = s.flutterwave_secret_key || { set: false };
+    const flutterwavePk = s.flutterwave_public_key || { set: false };
+    const korapay = s.korapay_secret_key || { set: false };
+    const korapayPk = s.korapay_public_key || { set: false };
     const opay = s.opay_secret_key || { set: false };
     const payoneer = s.payoneer_client_secret || { set: false };
     const airtm = s.airtm_api_token || { set: false };
@@ -110,9 +113,16 @@ PAGES.superadmin = function () {
           '</div>' +
           '<div style="background:var(--surface2);border-radius:12px;padding:14px">' +
             '<div style="font-weight:700;font-size:13px;margin-bottom:2px">Flutterwave</div>' +
-            '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">' + (flutterwave.set ? 'Configured (' + escapeHtml(flutterwave.hint || '') + ')' : 'Not configured') + '</div>' +
-            '<input class="form-input" id="pb-flutterwave" placeholder="FLWSECK-…" style="margin-bottom:8px"/>' +
+            '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">' + (flutterwave.set ? 'Secret ' + escapeHtml(flutterwave.hint || '') : 'Secret not configured') + (flutterwavePk.set ? ' &middot; Public ' + escapeHtml(flutterwavePk.hint || '') : '') + '</div>' +
+            '<input class="form-input" id="pb-flutterwave" placeholder="FLWSECK-… (live secret key)" style="margin-bottom:8px"/>' +
+            '<input class="form-input" id="pb-flutterwave-pub" placeholder="FLWPUBK-… (live public key)" style="margin-bottom:8px"/>' +
             '<input class="form-input" id="pb-flutterwave-wh" placeholder="verif-hash secret"/>' +
+          '</div>' +
+          '<div style="background:var(--surface2);border-radius:12px;padding:14px">' +
+            '<div style="font-weight:700;font-size:13px;margin-bottom:2px">Korapay (Kora)</div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">' + (korapayPk.set || korapay.set ? ('Public ' + escapeHtml(korapayPk.hint || '—') + ' &middot; Secret ' + escapeHtml(korapay.hint || '—')) : 'Not configured — both keys required') + '</div>' +
+            '<input class="form-input" id="pb-korapay-pub" placeholder="pk_live_… (live public key)" style="margin-bottom:8px"/>' +
+            '<input class="form-input" id="pb-korapay" placeholder="sk_live_… (live secret key)"/>' +
           '</div>' +
           '<div style="background:var(--surface2);border-radius:12px;padding:14px">' +
             '<div style="font-weight:700;font-size:13px;margin-bottom:2px">OPay</div>' +
@@ -143,6 +153,7 @@ PAGES.superadmin = function () {
             '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.stripe || '') + '</code><br/>' +
             '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.paystack || '') + '</code><br/>' +
             '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.flutterwave || '') + '</code><br/>' +
+            '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.korapay || '') + '</code><br/>' +
             '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.opay || '') + '</code><br/>' +
             '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.payoneer || '') + '</code><br/>' +
             '<code style="color:var(--p)">' + escapeHtml(pb.webhookUrls?.airtm || '') + '</code><br/>' +
@@ -228,7 +239,10 @@ PAGES.superadmin = function () {
     const stripeWh = document.getElementById('pb-stripe-wh');
     const paystack = document.getElementById('pb-paystack');
     const flutterwave = document.getElementById('pb-flutterwave');
+    const flutterwavePub = document.getElementById('pb-flutterwave-pub');
     const flutterwaveWh = document.getElementById('pb-flutterwave-wh');
+    const korapay = document.getElementById('pb-korapay');
+    const korapayPub = document.getElementById('pb-korapay-pub');
     const opay = document.getElementById('pb-opay');
     const payoneer = document.getElementById('pb-payoneer');
     const airtm = document.getElementById('pb-airtm');
@@ -237,7 +251,10 @@ PAGES.superadmin = function () {
     if (stripeWh && stripeWh.value.trim() !== '') body.stripe_webhook_secret = stripeWh.value.trim();
     if (paystack && paystack.value !== '') body.paystack_secret_key = paystack.value;
     if (flutterwave && flutterwave.value.trim() !== '') body.flutterwave_secret_key = flutterwave.value.trim();
+    if (flutterwavePub && flutterwavePub.value.trim() !== '') body.flutterwave_public_key = flutterwavePub.value.trim();
     if (flutterwaveWh && flutterwaveWh.value.trim() !== '') body.flutterwave_webhook_secret = flutterwaveWh.value.trim();
+    if (korapay && korapay.value.trim() !== '') body.korapay_secret_key = korapay.value.trim();
+    if (korapayPub && korapayPub.value.trim() !== '') body.korapay_public_key = korapayPub.value.trim();
     if (opay && opay.value.trim() !== '') body.opay_secret_key = opay.value.trim();
     if (payoneer && payoneer.value.trim() !== '') body.payoneer_client_secret = payoneer.value.trim();
     if (airtm && airtm.value.trim() !== '') body.airtm_api_token = airtm.value.trim();

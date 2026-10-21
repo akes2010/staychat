@@ -58,7 +58,15 @@ function resolvePlatformBaseUrl(req) {
 
 function isAutoPaymentsEnabled() {
   return ['stripe_secret_key', 'paystack_secret_key', 'flutterwave_secret_key', 'opay_secret_key', 'payoneer_client_secret', 'airtm_api_token']
-    .some(k => platformSettings.has(k));
+    .some(k => platformSettings.has(k)) || isKorapayConfigured();
+}
+
+// Korapay needs BOTH keys: the live PUBLIC key (pk_…) authenticates the
+// checkout-initialize call, the live SECRET key (sk_…) verifies charges and
+// signs webhooks. One without the other cannot move money, so auto-payments
+// only count Korapay as configured when both are present.
+function isKorapayConfigured() {
+  return platformSettings.has('korapay_public_key') && platformSettings.has('korapay_secret_key');
 }
 
 async function createStripeCheckout(sub, plan, baseUrl) {
@@ -115,6 +123,7 @@ async function createPaystackCheckout(sub, plan, baseUrl) {
 
 async function createFlutterwaveCheckout(sub, plan, baseUrl) {
   const secret = platformSettings.get('flutterwave_secret_key');
+  const publicKey = platformSettings.get('flutterwave_public_key');
   const res = await fetch('https://api.flutterwave.com/v3/payments', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
@@ -131,9 +140,53 @@ async function createFlutterwaveCheckout(sub, plan, baseUrl) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.status !== 'success' || !data.data?.link) {
+    // The secret-key API call failed. The LIVE PUBLIC key authenticates
+    // Flutterwave's own hosted payment page, so try that before giving up —
+    // the same SC- reference (tx_ref) still settles via the webhook either way.
+    if (publicKey) {
+      const hosted = new URL('https://checkout.flutterwave.com/v3/hosted/pay');
+      hosted.searchParams.set('public_key', publicKey);
+      hosted.searchParams.set('tx_ref', sub.payment_reference);
+      hosted.searchParams.set('amount', String(sub.amount));
+      hosted.searchParams.set('currency', 'USD');
+      hosted.searchParams.set('redirect_url', baseUrl + '/pay?ref=' + sub.payment_reference);
+      hosted.searchParams.set('customer_email', sub.tenant_email || 'billing@staychat.io');
+      hosted.searchParams.set('customizations[title]', 'StayChat OS — ' + plan.name + ' plan');
+      hosted.searchParams.set('customizations[description]', sub.billing_cycle === 'yearly' ? 'Yearly subscription' : 'Monthly subscription');
+      return { url: hosted.toString(), sessionId: sub.payment_reference, provider: 'flutterwave' };
+    }
     throw Object.assign(new Error('Flutterwave checkout failed: ' + (data.message || res.status)), { status: 502 });
   }
   return { url: data.data.link, sessionId: sub.payment_reference, provider: 'flutterwave' };
+}
+
+// Korapay (Kora) — hosted checkout redirect. The initialize call authenticates
+// with the live PUBLIC key (Bearer pk_…); amounts are MAJOR units (Kora does
+// not use kobo/minor units — see their official API collection: 6000 = ₦6,000).
+// The SC- reference is passed as `reference` and doubles as the gateway ref the
+// webhook settles against.
+async function createKorapayCheckout(sub, plan, baseUrl) {
+  const publicKey = platformSettings.get('korapay_public_key');
+  const res = await fetch('https://api.korapay.com/merchant/api/v1/charges/initialize', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + publicKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      amount: sub.amount, // major units — NOT multiplied by 100
+      currency: 'USD',
+      reference: sub.payment_reference,
+      narration: 'StayChat OS — ' + plan.name + ' plan (' + (sub.billing_cycle === 'yearly' ? 'yearly' : 'monthly') + ')',
+      redirect_url: baseUrl + '/pay?ref=' + sub.payment_reference,
+      notification_url: baseUrl + '/api/webhooks/platform/korapay',
+      customer: { name: sub.tenant_name || 'Hotel', email: sub.tenant_email || 'billing@staychat.io' },
+      merchant_bears_cost: false,
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.status || !data.data?.checkout_url) {
+    throw Object.assign(new Error('Korapay checkout failed: ' + (data.message || res.status)), { status: 502 });
+  }
+  return { url: data.data.checkout_url, sessionId: sub.payment_reference, provider: 'korapay' };
 }
 
 async function createOpayCheckout(sub, plan, baseUrl) {
@@ -200,15 +253,7 @@ async function createCheckoutSession(tenant, planId, billingCycle, req) {
   sub.tenant_name = tenant.name || null;
 
   try {
-    const checkout = process.env.PLATFORM_GATEWAY === 'paystack' && platformSettings.has('paystack_secret_key')
-      ? await createPaystackCheckout(sub, plan, resolvePlatformBaseUrl(req))
-      : platformSettings.has('flutterwave_secret_key') && !platformSettings.has('stripe_secret_key') && !platformSettings.has('paystack_secret_key')
-        ? await createFlutterwaveCheckout(sub, plan, resolvePlatformBaseUrl(req))
-        : platformSettings.has('opay_secret_key') && !platformSettings.has('stripe_secret_key') && !platformSettings.has('paystack_secret_key')
-          ? await createOpayCheckout(sub, plan, resolvePlatformBaseUrl(req))
-          : platformSettings.has('stripe_secret_key')
-            ? await createStripeCheckout(sub, plan, resolvePlatformBaseUrl(req))
-            : await createPaystackCheckout(sub, plan, resolvePlatformBaseUrl(req));
+    const checkout = await buildHostedCheckout(sub, plan, resolvePlatformBaseUrl(req));
 
     db.prepare('UPDATE platform_subscriptions SET payment_method = ?, gateway_ref = COALESCE(?, gateway_ref) WHERE id = ?')
       .run(checkout.provider, checkout.sessionId, sub.id);
@@ -239,6 +284,28 @@ async function createCheckoutSession(tenant, planId, billingCycle, req) {
     }
     return base;
   }
+}
+
+// Which hosted-checkout provider serves this request. PLATFORM_GATEWAY pins
+// one explicitly (any configured gateway); otherwise the first configured
+// gateway wins in the pre-Korapay order — Stripe > Paystack > Flutterwave >
+// Korapay > OPay — so existing deployments keep their current provider.
+async function buildHostedCheckout(sub, plan, base) {
+  const has = k => platformSettings.has(k);
+  const pinned = process.env.PLATFORM_GATEWAY;
+  if (pinned === 'korapay' && isKorapayConfigured()) return createKorapayCheckout(sub, plan, base);
+  if (pinned === 'paystack' && has('paystack_secret_key')) return createPaystackCheckout(sub, plan, base);
+  if (pinned === 'flutterwave' && has('flutterwave_secret_key')) return createFlutterwaveCheckout(sub, plan, base);
+  if (pinned === 'opay' && has('opay_secret_key')) return createOpayCheckout(sub, plan, base);
+  if (pinned === 'stripe' && has('stripe_secret_key')) return createStripeCheckout(sub, plan, base);
+  // Unpinned: preserve the original precedence exactly, with Korapay slotted
+  // between Flutterwave and OPay (only reached when Stripe/Paystack/Flutterwave
+  // are all unconfigured).
+  if (has('flutterwave_secret_key') && !has('stripe_secret_key') && !has('paystack_secret_key')) return createFlutterwaveCheckout(sub, plan, base);
+  if (isKorapayConfigured() && !has('stripe_secret_key') && !has('paystack_secret_key') && !has('flutterwave_secret_key')) return createKorapayCheckout(sub, plan, base);
+  if (has('opay_secret_key') && !has('stripe_secret_key') && !has('paystack_secret_key')) return createOpayCheckout(sub, plan, base);
+  if (has('stripe_secret_key')) return createStripeCheckout(sub, plan, base);
+  return createPaystackCheckout(sub, plan, base);
 }
 
 function countPending() {

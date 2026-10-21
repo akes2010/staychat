@@ -62,6 +62,18 @@ const SERVICE_DEFINITIONS = {
     docs: 'https://developer.flutterwave.com/docs',
   },
 
+  korapay: {
+    name: 'Korapay (Kora)',
+    category: 'payment_gateway',
+    baseUrl: 'https://api.korapay.com/merchant/api/v1',
+    credentials: [
+      { key: 'public_key', label: 'Public Key', required: true, public: true },
+      { key: 'secret_key', label: 'Secret Key', required: true, public: false },
+    ],
+    testMode: { key: 'test_mode', default: false },
+    docs: 'https://developers.korapay.com/docs',
+  },
+
   square: {
     name: 'Square',
     category: 'payment_gateway',

@@ -59,7 +59,8 @@ full key back):
 |---|---|
 | Stripe | `sk_live_…` + webhook secret `whsec_…` |
 | Paystack | `sk_live_…` |
-| Flutterwave | `FLWSECK-…` + `verif-hash` webhook secret |
+| Flutterwave | `FLWSECK-…` + `verif-hash` webhook secret (+ `FLWPUBK-…` public key as the hosted-page fallback) |
+| Korapay (Kora) | **both** `pk_live_…` public key (authenticates checkout) **and** `sk_live_…` secret key (verifies charges, signs webhooks) |
 | OPay | merchant secret key |
 | Payoneer / Airtm / Crypto | shared settlement webhook secret |
 
@@ -70,11 +71,12 @@ Then register the webhook at each gateway (URLs are listed on that same page):
 | Stripe | `https://staychatos.com/api/webhooks/platform/stripe` |
 | Paystack | `https://staychatos.com/api/webhooks/platform/paystack` |
 | Flutterwave | `https://staychatos.com/api/webhooks/platform/flutterwave` |
+| Korapay | `https://staychatos.com/api/webhooks/platform/korapay` |
 | OPay | `https://staychatos.com/api/webhooks/platform/opay` |
 | Payoneer/Airtm/Crypto | `https://staychatos.com/api/webhooks/platform/manual` |
 
-Stripe/Paystack/Flutterwave/OPay run hosted checkout — subscriptions activate
-**automatically** on payment. The others confirm via the settlement webhook or
+Stripe/Paystack/Flutterwave/Korapay/OPay run hosted checkout — subscriptions
+activate **automatically** on payment. The others confirm via the settlement webhook or
 the manual `SC-` approval flow (always available as fallback).
 
 > Works through Cloudflare's proxy — webhooks are plain HTTPS POSTs.

@@ -18,7 +18,10 @@ const SECRET_KEYS = new Set([
   'stripe_secret_key',
   'paystack_secret_key',
   'flutterwave_secret_key',
+  'flutterwave_public_key',
   'flutterwave_webhook_secret',
+  'korapay_secret_key',
+  'korapay_public_key',
   'opay_secret_key',
   'payoneer_client_secret',
   'airtm_api_token',
@@ -30,6 +33,7 @@ const SECRET_KEYS = new Set([
 // internal — e.g. the cached webhook endpoint secret after verification.
 const VISIBLE_KEYS = [
   'stripe_secret_key', 'paystack_secret_key', 'flutterwave_secret_key',
+  'flutterwave_public_key', 'korapay_secret_key', 'korapay_public_key',
   'opay_secret_key', 'payoneer_client_secret', 'airtm_api_token',
   'crypto_webhook_secret', 'platform_base_url',
 ];

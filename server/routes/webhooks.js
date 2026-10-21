@@ -332,6 +332,89 @@ router.post('/platform/flutterwave', express.json({
   }
 });
 
+// Korapay: verify x-korapay-signature (HMAC-SHA256 of ONLY the `data` object,
+// signed with the platform secret key). Kora signs their own serialization of
+// `data`; the raw body may carry extra fields (`event`) and float amounts like
+// `100.00` that don't round-trip through JSON.parse/stringify identically, so
+// we accept EITHER the re-serialized object (Kora's documented recipe) OR the
+// exact on-the-wire bytes of the data object — both are covered by the same
+// secret, so neither widens trust. A forged signature activates nothing.
+// Kora retries non-2xx for up to 72h, so we always ack fast and never let an
+// activation depend on response timing.
+function korapayDataCandidates(rawBody) {
+  const out = [];
+  const raw = rawBody ? rawBody.toString('utf8') : '';
+  // Exact bytes of the top-level "data" object (brace-matched, string-aware).
+  let i = 0;
+  while (i < raw.length) {
+    const m = raw.indexOf('"data"', i);
+    if (m === -1) break;
+    let j = m + 5;
+    while (j < raw.length && /\s/.test(raw[j])) j++;
+    if (raw[j] === ':') {
+      j++;
+      while (j < raw.length && /\s/.test(raw[j])) j++;
+      if (raw[j] === '{') {
+        let depth = 0, inStr = false, esc = false, end = -1;
+        for (let k = j; k < raw.length; k++) {
+          const ch = raw[k];
+          if (inStr) {
+            if (esc) esc = false;
+            else if (ch === '\\') esc = true;
+            else if (ch === '"') inStr = false;
+          } else if (ch === '"') inStr = true;
+          else if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) { end = k; break; } }
+        }
+        if (end !== -1) { out.push(raw.slice(j, end + 1)); break; }
+      }
+    }
+    i = m + 5;
+  }
+  return out;
+}
+
+router.post('/platform/korapay', express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}), (req, res) => {
+  const secretKey = platformSettings.get('korapay_secret_key');
+  if (!secretKey) {
+    return res.status(503).json({ error: 'Platform Korapay secret key is not configured' });
+  }
+  const signature = String(req.headers['x-korapay-signature'] || '');
+  if (!signature) return res.status(403).json({ error: 'Missing Korapay signature' });
+  const candidates = korapayDataCandidates(req.rawBody);
+  try {
+    const re = JSON.stringify((req.body || {}).data);
+    if (re && re !== '[object Object]') candidates.push(re);
+  } catch (_) { /* circular — raw candidate above still applies */ }
+  const verified = candidates.some(c =>
+    timingSafeEqualStr(signature, crypto.createHmac('sha256', secretKey).update(c).digest('hex')));
+  if (!verified) return res.status(403).json({ error: 'Invalid Korapay signature' });
+
+  res.status(200).json({ received: true });
+
+  try {
+    const data = (req.body && req.body.data) || {};
+    if (req.body.event !== 'charge.success' || data.status !== 'success') return;
+    const reference = data.reference || data.payment_reference;
+    if (!reference) return;
+    // Kora supports dynamic currency conversion — a charge settled in another
+    // currency must never auto-activate a USD subscription (NGN 29,000 would
+    // otherwise pass a numeric >= check against $29). Operator reconciles it.
+    if (data.currency && String(data.currency).toUpperCase() !== 'USD') {
+      console.warn('[korapay] charge', reference, 'settled in', data.currency, 'instead of USD — operator review needed');
+      return;
+    }
+    const amount = Number(data.amount) || 0; // major units, same as checkout
+    const approved = approveSubscriptionByGatewayRef('korapay', reference, { amount });
+    // Not a subscription charge → might be a Desk PC Edition order.
+    if (!approved) tryConfirmSelfhost('korapay', reference, { amount });
+  } catch (err) {
+    console.error('Platform Korapay webhook processing error:', err);
+  }
+});
+
 // OPay: HMAC-SHA256 of the raw body with the merchant secret key, sent in
 // the Authorization header on their webhookPosts.
 router.post('/platform/opay', express.json({

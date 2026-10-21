@@ -21,8 +21,10 @@ const FAST = [
   'test-reports-csv.js',
   'test-whatsapp-webhook-e2e.js',
   'test-security-probes.js',
+  'test-korapay.js',
 ];
 const BROWSER = [
+  'browser-test-platform-billing.js',
   'browser-test-settle-modal.js',
   'browser-test-logout.js',
   'browser-test-offline-sync.js',

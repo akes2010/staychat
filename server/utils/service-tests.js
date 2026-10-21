@@ -69,6 +69,15 @@ const PROBES = {
     return fail(r.json?.message || `Flutterwave returned HTTP ${r.status}`);
   },
 
+  // Korapay — read-only balances endpoint validates the secret key.
+  async korapay(c) {
+    const r = await httpGet('https://api.korapay.com/merchant/api/v1/balances', {
+      Authorization: 'Bearer ' + c.secret_key,
+    });
+    if (r.ok && r.json?.status !== false) return ok('Authenticated with Korapay');
+    return fail(r.json?.message || `Korapay returned HTTP ${r.status}`);
+  },
+
   // Twilio — fetch the account resource; proves SID + auth token.
   async twilio(c) {
     const r = await httpGet(

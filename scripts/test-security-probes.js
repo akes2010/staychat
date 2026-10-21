@@ -11,6 +11,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const Database = require('better-sqlite3');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = Number(process.env.PORT) || 4425;
@@ -56,6 +57,19 @@ async function req(method, p, token, body) {
   for (const ext of ['-wal', '-shm']) {
     if (fs.existsSync(path.join(ROOT, 'data', 'staychat.db' + ext))) fs.copyFileSync(path.join(ROOT, 'data', 'staychat.db' + ext), path.join(dataDir, 'staychat.db' + ext));
   }
+  // Section 5 asserts 503 for UNCONFIGURED gateways. Local dev databases
+  // routinely carry real keys saved through Super Admin → Billing, and a
+  // configured gateway correctly answers 403 for a forged signature — so the
+  // precondition has to be created here, not inherited from whatever state the
+  // developer's data/ happens to be in. (Configured-and-forged is covered by
+  // scripts/test-korapay.js and the other per-gateway suites.)
+  const raw = new Database(path.join(dataDir, 'staychat.db'));
+  raw.prepare(`DELETE FROM platform_settings WHERE key IN
+      ('stripe_secret_key','stripe_webhook_secret','paystack_secret_key',
+       'flutterwave_secret_key','flutterwave_public_key','flutterwave_webhook_secret',
+       'korapay_secret_key','korapay_public_key','opay_secret_key',
+       'payoneer_client_secret','airtm_api_token','crypto_webhook_secret')`).run();
+  raw.close();
   srv = spawn('node', [path.join(ROOT, 'server', 'index.js')], {
     env: Object.assign({}, process.env, { PORT: String(PORT), DATA_DIR: dataDir, NODE_ENV: 'production' }),
     stdio: 'ignore',
@@ -131,11 +145,14 @@ async function req(method, p, token, body) {
   check('t1 PATCH t2 guest → 404 (no cross-tenant mutation)', p3.status === 404, 'got ' + p3.status);
   const p5 = await req('POST', '/api/inbox/conversations/' + conv2 + '/messages', t1, { body: 'intrusion' });
   check('t1 POST message into t2 conversation → 404', p5.status === 404, 'got ' + p5.status);
-  // settings must always reflect the caller's own tenant
+  // settings must always reflect the caller's own tenant. Tenants get renamed
+  // on any deployment, so anchor on the hotel we provisioned in THIS run
+  // instead of a hardcoded demo literal — that assertion is strictly stronger
+  // (it pins the exact row) and survives local data drift.
   const s1 = (await req('GET', '/api/settings', t1)).data || {};
   const s2 = (await req('GET', '/api/settings', t2)).data || {};
-  check('t1 settings return t1 hotel', s1.name === 'Hospitally Grand Resort', 'got ' + s1.name);
-  check('t2 settings return its own hotel', !!s2.name && s2.name !== 'Hospitally Grand Resort', 'got ' + s2.name);
+  check('t2 settings return the hotel just provisioned', s2.name === 'Isolation Probe Hotel ' + stamp, 'got ' + s2.name);
+  check('t1 settings return t1 hotel (never t2\'s)', !!s1.name && s1.name !== s2.name, 'got ' + s1.name);
 
   // ── 3. SQL-injection probes ──────────────────────────────────────────────
   console.log('\n── SQL-injection probes ──');
@@ -191,9 +208,12 @@ async function req(method, p, token, body) {
   check('manual settlement webhook unconfigured → 503 (fail closed)', manual.status === 503, 'got ' + manual.status);
   const stripe = await fetch(BASE + '/api/webhooks/platform/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Stripe-Signature': 't=1763000000,v1=deadbeef' }, body: flwBody });
   check('stripe platform webhook unconfigured → 503 (fail closed)', stripe.status === 503, 'got ' + stripe.status);
+  const koraBody = JSON.stringify({ event: 'charge.success', data: { reference: 'SC-forged', amount: 99, currency: 'USD', status: 'success' } });
+  const kora = await plain('/api/webhooks/platform/korapay', { 'x-korapay-signature': 'deadbeef' }, koraBody);
+  check('korapay webhook unconfigured → 503 (fail closed)', kora.status === 503, 'got ' + kora.status);
   // Forged-subscription danger check: a passing forged webhook would activate
   // a subscription without money. Provider responses above must never be 200.
-  const forgedActivation = [flw, opay, manual, stripe].some(x => x.status === 200);
+  const forgedActivation = [flw, opay, manual, stripe, kora].some(x => x.status === 200);
   check('no forged payload activated anything', !forgedActivation);
 
   // ── 6. Theme endpoint: whitelist validation (stored-XSS guard) ──────────

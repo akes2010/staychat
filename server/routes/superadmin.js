@@ -28,6 +28,7 @@ router.get('/platform-billing', (req, res) => {
       stripe: base + '/api/webhooks/platform/stripe',
       paystack: base + '/api/webhooks/platform/paystack',
       flutterwave: base + '/api/webhooks/platform/flutterwave',
+      korapay: base + '/api/webhooks/platform/korapay',
       opay: base + '/api/webhooks/platform/opay',
       payoneer: base + '/api/webhooks/platform/manual',
       airtm: base + '/api/webhooks/platform/manual',
@@ -39,7 +40,9 @@ router.get('/platform-billing', (req, res) => {
 router.put('/platform-billing', (req, res) => {
   const allowed = [
     'stripe_secret_key', 'paystack_secret_key', 'flutterwave_secret_key',
-    'flutterwave_webhook_secret', 'opay_secret_key',
+    'flutterwave_public_key', 'flutterwave_webhook_secret',
+    'korapay_secret_key', 'korapay_public_key',
+    'opay_secret_key',
     'payoneer_client_secret', 'airtm_api_token', 'crypto_webhook_secret',
     'stripe_webhook_secret', 'platform_base_url',
   ];

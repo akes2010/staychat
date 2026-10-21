@@ -112,6 +112,14 @@ async function loginAdmin() {
   const db = new Database(path.join(dataDir, 'staychat.db'));
   db.prepare(`UPDATE tenants SET wa_phone_id='111111111111111', wa_token='e2e_test_token', wa_verify_token=?, wa_app_secret=?, wa_connected=1, ai_enabled=0 WHERE subdomain=?`)
     .run(VERIFY_TOKEN, APP_SECRET, SUB);
+  // The fail-closed probe in section 2 needs A hotel with no app secret. Seed
+  // that hotel in the scratch copy rather than assuming the developer's
+  // database still ships a particular demo tenant — with the seed pruned or
+  // renamed, the probe hit 404 (unknown subdomain) and stopped testing the
+  // behaviour it exists for: configured-but-secretless must refuse, not accept.
+  db.prepare(`INSERT INTO tenants (id, name, subdomain, plan, status, wa_app_secret, wa_connected)
+              VALUES ('tenant_e2e_unconf', 'Unconfigured WhatsApp Hotel', 'savanna', 'starter', 'active', NULL, 0)
+              ON CONFLICT(subdomain) DO UPDATE SET wa_app_secret = NULL, wa_connected = 0`).run();
   db.close();
 
   const srv = spawn('node', [path.join(ROOT, 'server', 'index.js')], {
