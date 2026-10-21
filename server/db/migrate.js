@@ -1182,6 +1182,55 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
   }
 
   // ══════════════════════════════════════════════════════════
+  // GYM — fitness-centre inventory (gyms) + member registrations
+  // (gym_bookings). Each gym carries its facilities, type, capacity and the
+  // daily/monthly/yearly registration prices a member pays. Registrations are
+  // date-ranged memberships ([start_date, end_date] inclusive) with per-gym
+  // capacity enforcement over overlapping periods. Purely additive — existing
+  // tables untouched. See server/routes/gym.js.
+  // ══════════════════════════════════════════════════════════
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gyms (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'Standard',
+      facilities TEXT DEFAULT '[]',
+      description TEXT,
+      capacity INTEGER NOT NULL DEFAULT 20,
+      price_daily REAL NOT NULL DEFAULT 0,
+      price_monthly REAL NOT NULL DEFAULT 0,
+      price_yearly REAL NOT NULL DEFAULT 0,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_gyms_tenant ON gyms(tenant_id);
+
+    CREATE TABLE IF NOT EXISTS gym_bookings (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      gym_id TEXT NOT NULL REFERENCES gyms(id) ON DELETE CASCADE,
+      member_name TEXT NOT NULL,
+      member_phone TEXT,
+      member_email TEXT,
+      room_number TEXT,
+      registration_type TEXT NOT NULL DEFAULT 'daily' CHECK(registration_type IN ('daily','monthly','yearly')),
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      paid INTEGER DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed','cancelled')),
+      notes TEXT,
+      created_by TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_gymbookings_tenant ON gym_bookings(tenant_id, start_date);
+    CREATE INDEX IF NOT EXISTS idx_gymbookings_gym ON gym_bookings(gym_id, start_date);
+  `);
+
+  // ══════════════════════════════════════════════════════════
   // ANALYZE — Update query planner statistics
   // ══════════════════════════════════════════════════════════
   try {

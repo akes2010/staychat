@@ -212,6 +212,7 @@ app.use('/api/chat', require('./routes/chat'));
 app.use('/api/help', require('./routes/help'));
 app.use('/api/pool', require('./routes/pool'));
 app.use('/api/halls', require('./routes/halls'));
+app.use('/api/gym', require('./routes/gym'));
 app.use('/api/guests', require('./routes/guests'));
 app.use('/api/blocklist', require('./routes/blocklist'));
 app.use('/api/orders', require('./routes/orders'));

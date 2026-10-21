@@ -27,6 +27,7 @@ const CAPABILITIES = [
   'bookings.manage',
   'pool.use', 'pool.manage',
   'halls.use', 'halls.manage',
+  'gym.use', 'gym.manage',
   'housekeeping.manage',
   'maintenance.manage',
   'guests.manage',
@@ -53,7 +54,7 @@ const ROLE_DEFAULTS = {
     'dashboard.view', 'rooms.manage', 'inbox.use', 'orders.manage',
     // NOTE: no 'pos.use' — the restaurant/bar till is for cashier/barman (and
     // managers). Front desk handles ROOM bills via Payments, not POS tickets.
-    'bookings.manage', 'pool.use', 'halls.use', 'housekeeping.manage',
+    'bookings.manage', 'pool.use', 'halls.use', 'gym.use', 'housekeeping.manage',
     'maintenance.manage', 'guests.manage', 'payments.use', 'analytics.view',
     'attendance.use', 'eod.use',
   ],

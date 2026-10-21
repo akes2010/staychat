@@ -12,6 +12,7 @@ const CAPABILITY_LABELS = {
   'bookings.manage': 'Manage Bookings & Reservations',
   'pool.use': 'Book / Operate Pool', 'pool.manage': 'Manage Pools, Pricing & Cancellations',
   'halls.use': 'Book / Operate Halls', 'halls.manage': 'Manage Halls, Pricing & Cancellations',
+  'gym.use': 'Book / Register Gym Members', 'gym.manage': 'Manage Gyms, Pricing & Cancellations',
   'housekeeping.manage': 'Manage Housekeeping', 'maintenance.manage': 'Manage Maintenance', 'guests.manage': 'Manage Guests',
   'analytics.view': 'View Analytics', 'staff.manage': 'Manage Staff Directory',
   'shifts.manage': 'Define Shifts', 'attendance.use': 'Clock In / Out',

@@ -61,6 +61,7 @@ const PLAN_CATALOG = {
       'eod',                 // end-of-day department closings
       'pool_bookings',
       'hall_events',
+      'gym_bookings',
       'integrations_full',   // locks, IPTV, IoT, controllers (API Integrations page)
       'staff_shifts',        // shifts & attendance module
     ]),
@@ -102,6 +103,7 @@ const FEATURE_LABELS = {
   eod: 'End-of-day closings',
   pool_bookings: 'Pool bookings',
   hall_events: 'Hall & event bookings',
+  gym_bookings: 'Gym management & registrations',
   integrations_full: 'Door locks, IPTV, IoT & controller integrations',
   staff_shifts: 'Shifts & attendance',
   multi_property: 'Multi-property portfolio',
