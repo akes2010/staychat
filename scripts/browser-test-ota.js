@@ -10,6 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 const { normalizeRoomsInCopy } = require('./lib/normalize-rooms');
 
 const ROOT = path.join(__dirname, '..');
@@ -98,7 +99,7 @@ async function connectCdp(port) {
   catch (e) { console.error('server failed to boot:\n' + serverLog.slice(-2000)); process.exit(1); }
 
   // 2. Launch Chromium with CDP
-  const cdpPort = 9223;
+  const cdpPort = await freePort(); // free port per run — no fixed-port collisions
   const userDataDir = fs.mkdtempSync('/tmp/chrome-test-profile.');
   const chrome = spawn('chromium', [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
@@ -128,7 +129,20 @@ async function connectCdp(port) {
   }
   async function goto(url) {
     await cdp.send('Page.navigate', { url });
-    await sleep(1200);
+    // Condition, not the clock — but never TRUST a single CDP evaluate issued
+    // during navigation: the response can be lost with the torn-down context
+    // and the await hangs forever (observed under memory pressure). Race each
+    // probe with a short timeout and bound the whole wait.
+    const t0 = Date.now();
+    while (Date.now() - t0 < 15000) {
+      const st = await Promise.race([
+        evaljs(`location.href + '|' + document.readyState`).catch(() => null),
+        new Promise(r => setTimeout(() => r('probe-timeout'), 1000)),
+      ]);
+      if (st === url + '|complete') break;
+      await sleep(150);
+    }
+    await sleep(700); // let fetch-rendered content settle before assertions
   }
 
   try {

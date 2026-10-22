@@ -14,6 +14,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4323;
@@ -46,20 +47,21 @@ function waitHealthy() {
 async function withBrowser(fn) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(PROFILE, { recursive: true });
-  for (let i = 0; i < 20; i++) {
-    try { await fetch('http://localhost:9229/json/version'); throw new Error('port 9229 busy — a previous chromium instance is still shutting down'); }
-    catch (e) { if (e instanceof TypeError) break; await sleep(250); }
-  }
+  // A free OS-assigned DevTools port per run: the old fixed 9229 (shared by
+  // five suites) relied on a busy-wait that gave up silently after 5s — the
+  // next suite could then attach to the PREVIOUS browser and assert against
+  // the wrong page. Only the chromium we just spawned can answer here.
+  const port = await freePort();
   const chrome = spawn('chromium', ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-popup-blocking',
-    `--user-data-dir=${PROFILE}`, '--remote-debugging-port=9229', 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${PROFILE}`, `--remote-debugging-port=${port}`, 'about:blank'], { stdio: 'ignore' });
   try {
     let devtoolsUp = false;
     for (let i = 0; i < 40 && !devtoolsUp; i++) {
-      try { const v = await fetch('http://localhost:9229/json/version').then(r => r.json()); devtoolsUp = !!v.webSocketDebuggerUrl; }
+      try { const v = await fetch(`http://localhost:${port}/json/version`).then(r => r.json()); devtoolsUp = !!v.webSocketDebuggerUrl; }
       catch (e) { await sleep(250); }
     }
     if (!devtoolsUp) throw new Error('our chromium DevTools endpoint never came up');
-    const list = await fetch('http://localhost:9229/json').then(r => r.json());
+    const list = await fetch(`http://localhost:${port}/json`).then(r => r.json());
     const ws = new WebSocket(list.find(t => t.type === 'page').webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
     await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
     let id = 0; const pending = new Map();

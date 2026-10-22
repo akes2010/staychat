@@ -21,6 +21,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4318;
@@ -54,22 +55,23 @@ function waitHealthy() {
 async function withBrowser(fn) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(PROFILE, { recursive: true });
-  for (let i = 0; i < 20; i++) {
-    try { await fetch('http://localhost:9231/json/version'); throw new Error('port 9231 busy'); }
-    catch (e) { if (e instanceof TypeError) break; await sleep(250); }
-  }
+  // A free OS-assigned DevTools port per run: the old fixed 9231 (also
+  // checkout-flow's port) relied on a busy-wait that gave up silently after
+  // 5s — this suite could then attach to the PREVIOUS browser and assert
+  // against the wrong page. Only our chromium can answer here.
+  const port = await freePort();
   const chrome = spawn('chromium', ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-popup-blocking',
-    `--user-data-dir=${PROFILE}`, '--remote-debugging-port=9231', 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${PROFILE}`, `--remote-debugging-port=${port}`, 'about:blank'], { stdio: 'ignore' });
   try {
     let devtoolsUp = false;
     for (let i = 0; i < 40 && !devtoolsUp; i++) {
       try {
-        const v = await fetch('http://localhost:9231/json/version').then(r => r.json());
+        const v = await fetch(`http://localhost:${port}/json/version`).then(r => r.json());
         devtoolsUp = !!v.webSocketDebuggerUrl;
       } catch (e) { await sleep(250); }
     }
     if (!devtoolsUp) throw new Error('chromium DevTools endpoint never came up');
-    const list = await fetch('http://localhost:9231/json').then(r => r.json());
+    const list = await fetch(`http://localhost:${port}/json`).then(r => r.json());
     const ws = new WebSocket(list.find(t => t.type === 'page').webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
     await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
     let id = 0; const pending = new Map();
@@ -136,7 +138,12 @@ async function withBrowser(fn) {
       })()`, true, 20000);
       if (!ready) {
         const diag = await evl(`({ user: !!(window.App && App.user), perms: ((window.App && App.permissions) || []).length, appVisible: document.getElementById('app').classList.contains('visible') })`);
-        return bad('session/permissions never became ready — ' + JSON.stringify(diag));
+        const page = await evl(`({ href: location.href, ready: document.readyState, scripts: document.scripts.length })`).catch(() => null);
+        const probe = await Promise.race([
+          fetch(BASE + '/js/countries.js').then(r => r.status + '/' + (r.headers.get('content-length') || '?')).catch(e => 'ERR ' + e.message),
+          new Promise(r => setTimeout(() => r('TIMEOUT(3s)'), 3000)),
+        ]);
+        return bad('session/permissions never became ready — ' + JSON.stringify(diag) + ' page=' + JSON.stringify(page) + ' serverProbe=' + probe);
       }
 
       // ── 1. Menu Manager page + injected header button ───────────────────
@@ -250,9 +257,22 @@ async function withBrowser(fn) {
 
       // ── 8. Full reload: categories persist server-side ──────────────────
       await evl(`location.reload()`).catch(() => {});
-      await sleep(1800);
-      await evl(`tryRestoreSession()`); await sleep(1500);
-      const restored = await waitFor(evl, `!!(window.App && App.user)`, true, 10000);
+      // Condition, not the clock: the reload re-fetches ~40 scripts, so a
+      // fixed sleep raced tryRestoreSession() (still undefined → silent
+      // no-op). Wait for the shell, then restore with the throttled retry
+      // the boot path uses.
+      const shellBack = await waitFor(evl, `typeof tryRestoreSession === 'function'`, true, 20000);
+      if (shellBack !== true) return bad('app shell did not come back after reload');
+      await evl(`tryRestoreSession()`);
+      const restored = await waitFor(evl, `(() => {
+        if (window.App && App.user) return true;
+        const now = Date.now();
+        if (!window.__mcLastRestore || now - window.__mcLastRestore > 700) {
+          window.__mcLastRestore = now;
+          try { Promise.resolve(tryRestoreSession()).catch(() => {}); } catch (e) {}
+        }
+        return false;
+      })()`, true, 20000);
       if (!restored) return bad('session did not survive the reload');
       await evl(`navigate('menu')`); await sleep(900);
       const hdrAgain = await evl(`!!Array.from(document.querySelectorAll('#content .page-header button')).find(x => x.textContent.trim() === '+ New Category')`);

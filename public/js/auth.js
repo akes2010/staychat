@@ -133,14 +133,30 @@ function showInstallButtonIfAvailable() {
 }
 
 // Attempt silent session restore on page load (refresh-token cookie may still be valid)
+//
+// Exactly ONE refresh runs per page at a time: the refresh token is single-
+// use server-side and presenting it twice concurrently revokes EVERY session
+// for the user (rotation guard in server/routes/auth.js). Boot restore
+// (app.js),401-retry loops and explicit calls can all ask for a restore at
+// once — they share the in-flight request instead of racing it; a later call
+// (a retry loop) starts fresh once it settles.
+let __restoreInflight = null;
 async function tryRestoreSession() {
+  if (__restoreInflight) return __restoreInflight;
+  __restoreInflight = (async () => {
+    try {
+      // The refresh call itself returns a fresh user+tenant+accessToken, so a
+      // separate /me call beforehand is redundant — this also fixes session
+      // restore silently failing if /me succeeded but refresh then failed.
+      const refreshed = await API.post('/api/auth/refresh', {});
+      startApp(refreshed.user, refreshed.accessToken, refreshed.tenant, refreshed.entitlements);
+    } catch (e) {
+      // No valid session — show login screen (already visible by default).
+    }
+  })();
   try {
-    // The refresh call itself returns a fresh user+tenant+accessToken, so a
-    // separate /me call beforehand is redundant — this also fixes session
-    // restore silently failing if /me succeeded but refresh then failed.
-    const refreshed = await API.post('/api/auth/refresh', {});
-    startApp(refreshed.user, refreshed.accessToken, refreshed.tenant, refreshed.entitlements);
-  } catch (e) {
-    // No valid session — show login screen (already visible by default).
+    return await __restoreInflight;
+  } finally {
+    __restoreInflight = null;
   }
 }

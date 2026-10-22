@@ -17,6 +17,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4325; // unique — every suite must own its port (4319 is offline-sync's)
@@ -54,22 +55,23 @@ function waitHealthy() {
 async function withBrowser(fn) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(PROFILE, { recursive: true });
-  for (let i = 0; i < 20; i++) {
-    try { await fetch('http://localhost:9229/json/version'); throw new Error('port 9229 busy — a previous chromium instance is still shutting down'); }
-    catch (e) { if (e instanceof TypeError) break; await sleep(250); }
-  }
+  // A free OS-assigned DevTools port per run: the old fixed 9229 (shared by
+  // five suites) relied on a busy-wait that gave up silently after 5s — the
+  // next suite could then attach to the PREVIOUS browser and assert against
+  // the wrong page. Only the chromium we just spawned can answer here.
+  const port = await freePort();
   const chrome = spawn('chromium', ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-popup-blocking',
-    `--user-data-dir=${PROFILE}`, '--remote-debugging-port=9229', 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${PROFILE}`, `--remote-debugging-port=${port}`, 'about:blank'], { stdio: 'ignore' });
   try {
     let devtoolsUp = false;
     for (let i = 0; i < 40 && !devtoolsUp; i++) {
       try {
-        const v = await fetch('http://localhost:9229/json/version').then(r => r.json());
+        const v = await fetch(`http://localhost:${port}/json/version`).then(r => r.json());
         devtoolsUp = !!v.webSocketDebuggerUrl;
       } catch (e) { await sleep(250); }
     }
     if (!devtoolsUp) throw new Error('our chromium DevTools endpoint never came up');
-    const list = await fetch('http://localhost:9229/json').then(r => r.json());
+    const list = await fetch(`http://localhost:${port}/json`).then(r => r.json());
     const ws = new WebSocket(list.find(t => t.type === 'page').webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
     await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
     let id = 0; const pending = new Map();
@@ -138,7 +140,16 @@ async function withBrowser(fn) {
       // page load and tryRestoreSession() silently no-ops (the same race
       // browser-test-changepw.js documents).
       const ready = await waitFor(evl, `typeof tryRestoreSession === 'function' && typeof API !== 'undefined'`, true, 20000);
-      if (ready !== true) return bad('app shell never became ready (tryRestoreSession/API missing)');
+      if (ready !== true) {
+        const diag = await evl(`({ href: location.href, ready: document.readyState, scripts: document.scripts.length, app: typeof App !== 'undefined' })`).catch(() => null);
+        // Probe the SAME static file from the TEST process: separates "server
+        // stopped serving" from "the browser's own fetch stalled".
+        const probe = await Promise.race([
+          fetch(BASE + '/js/countries.js').then(r => r.status + '/' + (r.headers.get('content-length') || '?')).catch(e => 'ERR ' + e.message),
+          new Promise(r => setTimeout(() => r('TIMEOUT(3s)'), 3000)),
+        ]);
+        return bad('app shell never became ready — page=' + JSON.stringify(diag) + ' serverProbe=' + probe);
+      }
       const login = await evl(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: '${SA_EMAIL}', password: '${SA_PASSWORD}' }) }).then(r => r.status)`);
       if (login !== 200) return bad('superadmin login failed (HTTP ' + login + ')');
       ok('superadmin signed in inside the browser');

@@ -17,6 +17,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4319;
@@ -50,22 +51,22 @@ function waitHealthy() {
 async function withBrowser(fn) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(PROFILE, { recursive: true });
-  for (let i = 0; i < 20; i++) {
-    try { await fetch('http://localhost:9232/json/version'); throw new Error('port 9232 busy'); }
-    catch (e) { if (e instanceof TypeError) break; await sleep(250); }
-  }
+  // A free OS-assigned DevTools port per run: the old fixed 9232 busy-wait
+  // gave up silently after 5s, letting a lingering previous chromium answer
+  // these fetches — assertions then ran against the wrong page.
+  const port = await freePort();
   const chrome = spawn('chromium', ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-popup-blocking',
-    `--user-data-dir=${PROFILE}`, '--remote-debugging-port=9232', 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${PROFILE}`, `--remote-debugging-port=${port}`, 'about:blank'], { stdio: 'ignore' });
   try {
     let devtoolsUp = false;
     for (let i = 0; i < 40 && !devtoolsUp; i++) {
       try {
-        const v = await fetch('http://localhost:9232/json/version').then(r => r.json());
+        const v = await fetch(`http://localhost:${port}/json/version`).then(r => r.json());
         devtoolsUp = !!v.webSocketDebuggerUrl;
       } catch (e) { await sleep(250); }
     }
     if (!devtoolsUp) throw new Error('chromium DevTools endpoint never came up');
-    const list = await fetch('http://localhost:9232/json').then(r => r.json());
+    const list = await fetch(`http://localhost:${port}/json`).then(r => r.json());
     const ws = new WebSocket(list.find(t => t.type === 'page').webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
     await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
     let id = 0; const pending = new Map();
@@ -130,7 +131,12 @@ async function withBrowser(fn) {
       })()`, true, 20000);
       if (!ready) {
         const diag = await evl(`({ user: !!(window.App && App.user), perms: ((window.App && App.permissions) || []).length, appVisible: document.getElementById('app').classList.contains('visible') })`);
-        return bad('session/permissions never became ready — ' + JSON.stringify(diag));
+        const page = await evl(`({ href: location.href, ready: document.readyState, scripts: document.scripts.length })`).catch(() => null);
+        const probe = await Promise.race([
+          fetch(BASE + '/js/countries.js').then(r => r.status + '/' + (r.headers.get('content-length') || '?')).catch(e => 'ERR ' + e.message),
+          new Promise(r => setTimeout(() => r('TIMEOUT(3s)'), 3000)),
+        ]);
+        return bad('session/permissions never became ready — ' + JSON.stringify(diag) + ' page=' + JSON.stringify(page) + ' serverProbe=' + probe);
       }
 
       // ── 1. Sidebar + page ───────────────────────────────────────────────

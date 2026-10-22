@@ -10,6 +10,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4289;
@@ -72,7 +73,7 @@ async function connectCdp(port) {
   try { await waitHealthy(); ok('test server healthy on ' + PORT); }
   catch (e) { console.error(serverLog.slice(-1000)); process.exit(1); }
 
-  const cdpPort = 9239;
+  const cdpPort = await freePort(); // free port per run — no fixed-port collisions
   const userDataDir = fs.mkdtempSync('/tmp/chrome-sui-profile.');
   const chrome = spawn('chromium', [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',

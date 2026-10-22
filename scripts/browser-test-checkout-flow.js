@@ -15,13 +15,14 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 const { normalizeRoomsInCopy } = require('./lib/normalize-rooms');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4313;
 const BASE = 'http://localhost:' + PORT;
 const PROFILE = '/tmp/staychat-checkout-flow-profile';
-const CDP = 'http://localhost:9231';
+let CDP = null; // our chromium's free DevTools base URL (set in withBrowser)
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // Poll an expression until it equals `want` — fixed sleeps race a loaded
@@ -52,8 +53,13 @@ function waitHealthy() {
 async function withBrowser(fn) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(PROFILE, { recursive: true });
+  // A free OS-assigned DevTools port per run (9231 was also menu-categories'
+  // fixed port, and this suite had no stale-port pre-check at all) — only
+  // our chromium can answer on it.
+  const port = await freePort();
+  CDP = 'http://localhost:' + port;
   const chrome = spawn('chromium', ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-popup-blocking',
-    `--user-data-dir=${PROFILE}`, '--remote-debugging-port=9231', 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${PROFILE}`, `--remote-debugging-port=${port}`, 'about:blank'], { stdio: 'ignore' });
   try {
     for (let i = 0; i < 40; i++) { try { await fetch(CDP + '/json/version'); break; } catch (e) { await sleep(250); } }
     const list = await fetch(CDP + '/json').then(r => r.json());
@@ -95,7 +101,16 @@ async function withBrowser(fn) {
       // page load and tryRestoreSession()/API silently no-op (the same race
       // browser-test-changepw.js documents).
       const ready = await waitFor(evl, `typeof tryRestoreSession === 'function' && typeof API !== 'undefined'`, true, 20000);
-      if (ready !== true) return bad('app shell never became ready (tryRestoreSession/API missing)');
+      if (ready !== true) {
+        const diag = await evl(`({ href: location.href, ready: document.readyState, scripts: document.scripts.length, app: typeof App !== 'undefined' })`).catch(() => null);
+        // Probe the SAME static file from the TEST process: separates "server
+        // stopped serving" from "the browser's own fetch stalled".
+        const probe = await Promise.race([
+          fetch(BASE + '/js/countries.js').then(r => r.status + '/' + (r.headers.get('content-length') || '?')).catch(e => 'ERR ' + e.message),
+          new Promise(r => setTimeout(() => r('TIMEOUT(3s)'), 3000)),
+        ]);
+        return bad('app shell never became ready — page=' + JSON.stringify(diag) + ' serverProbe=' + probe);
+      }
       const login = await evl(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'reception@hospitally.com', password: 'Demo@123456' }) }).then(r => r.status)`);
       if (login !== 200) return bad('receptionist login failed (HTTP ' + login + ')');
       ok('receptionist signed in inside the browser');

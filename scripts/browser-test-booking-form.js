@@ -11,6 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4279;
@@ -71,7 +72,7 @@ async function connectCdp(port) {
   try { await waitHealthy(); ok('test server healthy on ' + PORT); }
   catch (e) { console.error('server failed to boot'); process.exit(1); }
 
-  const cdpPort = 9227;
+  const cdpPort = await freePort(); // free port per run — no fixed-port collisions
   const userDataDir = fs.mkdtempSync('/tmp/chrome-bform-profile.');
   const chrome = spawn('chromium', [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',

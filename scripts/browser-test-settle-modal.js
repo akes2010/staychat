@@ -14,12 +14,16 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 const { normalizeRoomsInCopy } = require('./lib/normalize-rooms');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 4311;
 const BASE = 'http://localhost:' + PORT;
 const PROFILE = '/tmp/staychat-settle-test-profile';
+// Our chromium's free DevTools base URL — set in withBrowser, read by the
+// print-popup target polls below (they run outside withBrowser's scope).
+let CDP = null;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // Poll an expression until it equals `want` — fixed sleeps race a loaded
@@ -51,25 +55,26 @@ function waitHealthy() {
 async function withBrowser(fn) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(PROFILE, { recursive: true });
-  // Refuse to start if a previous run's DevTools endpoint is still alive —
-  // connecting to a stale browser made assertions evaluate on the wrong page.
-  for (let i = 0; i < 20; i++) {
-    try { await fetch('http://localhost:9229/json/version'); throw new Error('port 9229 busy — a previous chromium instance is still shutting down'); }
-    catch (e) { if (e instanceof TypeError) break; await sleep(250); }
-  }
+  // A free OS-assigned DevTools port per run: the old fixed 9229 (shared by
+  // five suites) relied on a busy-wait that gave up silently after 5s — the
+  // next suite could then attach to the PREVIOUS browser and assert against
+  // the wrong page (the exact hazard this suite documented but couldn't
+  // prevent). Only the chromium we just spawned can answer here.
+  const port = await freePort();
+  CDP = 'http://localhost:' + port;
   const chrome = spawn('chromium', ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-popup-blocking',
-    `--user-data-dir=${PROFILE}`, '--remote-debugging-port=9229', 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${PROFILE}`, `--remote-debugging-port=${port}`, 'about:blank'], { stdio: 'ignore' });
   try {
     // Wait until OUR chromium answers, not just any listener on the port.
     let devtoolsUp = false;
     for (let i = 0; i < 40 && !devtoolsUp; i++) {
       try {
-        const v = await fetch('http://localhost:9229/json/version').then(r => r.json());
+        const v = await fetch(`http://localhost:${port}/json/version`).then(r => r.json());
         devtoolsUp = !!v.webSocketDebuggerUrl;
       } catch (e) { await sleep(250); }
     }
     if (!devtoolsUp) throw new Error('our chromium DevTools endpoint never came up');
-    const list = await fetch('http://localhost:9229/json').then(r => r.json());
+    const list = await fetch(CDP + '/json').then(r => r.json());
     const ws = new WebSocket(list.find(t => t.type === 'page').webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
     await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
     let id = 0; const pending = new Map();
@@ -117,7 +122,16 @@ async function withBrowser(fn) {
       // page load and tryRestoreSession()/API silently no-op (the same race
       // browser-test-changepw.js documents).
       const ready = await waitFor(evl, `typeof tryRestoreSession === 'function' && typeof API !== 'undefined'`, true, 20000);
-      if (ready !== true) return bad('app shell never became ready (tryRestoreSession/API missing)');
+      if (ready !== true) {
+        const diag = await evl(`({ href: location.href, ready: document.readyState, scripts: document.scripts.length, app: typeof App !== 'undefined' })`).catch(() => null);
+        // Probe the SAME static file from the TEST process: separates "server
+        // stopped serving" from "the browser's own fetch stalled".
+        const probe = await Promise.race([
+          fetch(BASE + '/js/countries.js').then(r => r.status + '/' + (r.headers.get('content-length') || '?')).catch(e => 'ERR ' + e.message),
+          new Promise(r => setTimeout(() => r('TIMEOUT(3s)'), 3000)),
+        ]);
+        return bad('app shell never became ready — page=' + JSON.stringify(diag) + ' serverProbe=' + probe);
+      }
       // Sign in from the page itself so the httpOnly cookies land in the jar.
       const login = await evl(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'reception@hospitally.com', password: 'Demo@123456' }) }).then(r => r.status)`);
       if (login !== 200) return bad('receptionist login failed (HTTP ' + login + ')');
@@ -185,7 +199,7 @@ async function withBrowser(fn) {
       ok('change-due updates live: ' + changeShown.trim());
 
       console.log('── Confirm the settlement and check the guest out');
-      const targetsBefore = await fetch('http://localhost:9229/json').then(r => r.json());
+      const targetsBefore = await fetch(CDP + '/json').then(r => r.json());
       const beforeIds = new Set(targetsBefore.map(t => t.id));
       await evl(`window.__confirmSettle()`);
       await waitFor(evl, `(document.querySelector('.modal-title') || {}).textContent || ''`, '✅ SETTLEMENT RECEIPT');
@@ -195,7 +209,7 @@ async function withBrowser(fn) {
       // AUTO-PRINT: the print popup must have opened BY ITSELF (cash or card).
       let popup = null;
       for (let i = 0; i < 30 && !popup; i++) {
-        const targetsAfter = await fetch('http://localhost:9229/json').then(r => r.json());
+        const targetsAfter = await fetch(CDP + '/json').then(r => r.json());
         popup = targetsAfter.find(t => t.type === 'page' && !beforeIds.has(t.id));
         if (!popup) await sleep(150);
       }

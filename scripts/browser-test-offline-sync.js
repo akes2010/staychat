@@ -18,6 +18,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const { freePort } = require('./lib/free-port');
 const { normalizeRoomsInCopy } = require('./lib/normalize-rooms');
 
 const ROOT = path.join(__dirname, '..');
@@ -55,22 +56,23 @@ function waitHealthy() {
 async function withBrowser(fn) {
   fs.rmSync(PROFILE, { recursive: true, force: true });
   fs.mkdirSync(PROFILE, { recursive: true });
-  for (let i = 0; i < 20; i++) {
-    try { await fetch('http://localhost:9229/json/version'); throw new Error('port 9229 busy — a previous chromium instance is still shutting down'); }
-    catch (e) { if (e instanceof TypeError) break; await sleep(250); }
-  }
+  // A free OS-assigned DevTools port per run: the old fixed 9229 (shared by
+  // five suites) relied on a busy-wait that gave up silently after 5s — the
+  // next suite could then attach to the PREVIOUS browser and assert against
+  // the wrong page. Only the chromium we just spawned can answer here.
+  const port = await freePort();
   const chrome = spawn('chromium', ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-popup-blocking',
-    `--user-data-dir=${PROFILE}`, '--remote-debugging-port=9229', 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${PROFILE}`, `--remote-debugging-port=${port}`, 'about:blank'], { stdio: 'ignore' });
   try {
     let devtoolsUp = false;
     for (let i = 0; i < 40 && !devtoolsUp; i++) {
       try {
-        const v = await fetch('http://localhost:9229/json/version').then(r => r.json());
+        const v = await fetch(`http://localhost:${port}/json/version`).then(r => r.json());
         devtoolsUp = !!v.webSocketDebuggerUrl;
       } catch (e) { await sleep(250); }
     }
     if (!devtoolsUp) throw new Error('our chromium DevTools endpoint never came up');
-    const list = await fetch('http://localhost:9229/json').then(r => r.json());
+    const list = await fetch(`http://localhost:${port}/json`).then(r => r.json());
     const ws = new WebSocket(list.find(t => t.type === 'page').webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
     await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
     let id = 0; const pending = new Map();
@@ -117,15 +119,36 @@ const apiGet = (p, token) => fetch(BASE + p, { headers: { Authorization: 'Bearer
     await withBrowser(async ({ send, evl }) => {
       console.log('── Sign in to the real app ──');
       await evl(`location.href = '${BASE}/app'`).catch(() => {});
-      await sleep(1500);
+      const landed = await waitFor(evl, `location.href`, `${BASE}/app`);
+      if (landed !== `${BASE}/app`) return bad('never reached the app — at ' + landed);
+      await sleep(1200);
       const login = await evl(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'reception@hospitally.com', password: 'Demo@123456' }) }).then(r => r.status)`);
       if (login !== 200) return bad('receptionist login failed (HTTP ' + login + ')');
       ok('receptionist signed in inside the browser');
       // Publish the fresh session into window.App exactly like the app does
       // on reload (same call the settle suite uses).
       await evl(`tryRestoreSession()`);
-      const booted = await waitFor(evl, '!!(window.App && App.user)', true, 12000);
-      if (booted !== true) return bad('app did not boot after login');
+      // Condition, not the clock: the boot path also restores (app.js), so
+      // under battery load one attempt can lose the refresh-token rotation
+      // race and get swallowed — RETRY (throttled; failed refreshes never
+      // rotate tokens, so this is safe) until actually ready.
+      const booted = await waitFor(evl, `(() => {
+        if (window.App && App.user) return true;
+        const now = Date.now();
+        if (!window.__mcLastRestore || now - window.__mcLastRestore > 700) {
+          window.__mcLastRestore = now;
+          try { Promise.resolve(tryRestoreSession()).catch(() => {}); } catch (e) {}
+        }
+        return false;
+      })()`, true, 20000);
+      if (booted !== true) {
+        const page = await evl(`({ href: location.href, ready: document.readyState, scripts: document.scripts.length })`).catch(() => null);
+        const probe = await Promise.race([
+          fetch(BASE + '/js/countries.js').then(r => r.status + '/' + (r.headers.get('content-length') || '?')).catch(e => 'ERR ' + e.message),
+          new Promise(r => setTimeout(() => r('TIMEOUT(3s)'), 3000)),
+        ]);
+        return bad('app did not boot after login — page=' + JSON.stringify(page) + ' serverProbe=' + probe);
+      }
       ok('app booted with a session');
       const offlineReady = await waitFor(evl, '!!(window.Offline && document.getElementById("offline-queue-badge"))', true, 8000);
       if (offlineReady !== true) return bad('offline module / badge missing — check index.html script tag');
