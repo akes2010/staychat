@@ -613,6 +613,8 @@ function migrate() {
       tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
       outlet TEXT NOT NULL DEFAULT 'restaurant' CHECK(outlet IN ('restaurant','bar')),
       label TEXT NOT NULL DEFAULT 'Walk-in',
+      table_id TEXT REFERENCES pos_tables(id) ON DELETE SET NULL,
+      covers INTEGER,
       guest_name TEXT,
       guest_id TEXT REFERENCES guests(id) ON DELETE SET NULL,
       room_number TEXT,
@@ -634,6 +636,9 @@ function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_pos_tenant ON pos_tickets(tenant_id, status);
     CREATE INDEX IF NOT EXISTS idx_pos_outlet ON pos_tickets(tenant_id, outlet, status);
+    -- (idx_pos_table on table_id is created AFTER the guarded ADD COLUMN
+    --  in the backfill section below — on existing databases the CREATE
+    --  TABLE above is skipped, so the column does not exist yet here.)
 
     -- ══════════════════════════════════════════════════════════
     -- STAFF
@@ -1280,6 +1285,11 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
   const tenantColsLate = db.prepare('PRAGMA table_info(tenants)').all().map(c => c.name);
   if (!tenantColsLate.includes('logo')) db.exec('ALTER TABLE tenants ADD COLUMN logo TEXT');
   if (!tenantColsLate.includes('address')) db.exec('ALTER TABLE tenants ADD COLUMN address TEXT');
+  // POS table picker: which table seats an open ticket + its party size.
+  const posTicketCols = db.prepare('PRAGMA table_info(pos_tickets)').all().map(c => c.name);
+  if (!posTicketCols.includes('table_id')) db.exec('ALTER TABLE pos_tickets ADD COLUMN table_id TEXT');
+  if (!posTicketCols.includes('covers')) db.exec('ALTER TABLE pos_tickets ADD COLUMN covers INTEGER');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_pos_table ON pos_tickets(table_id, status)');
 
   // ══════════════════════════════════════════════════════════
   // ANALYZE — Update query planner statistics

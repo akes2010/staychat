@@ -25,6 +25,7 @@ const FAST = [
   'verify-menu-categories-http.js',
   'verify-tables-http.js',
   'verify-tenant-settings-http.js',
+  'verify-pos-tables-http.js',
 ];
 const BROWSER = [
   'browser-test-platform-billing.js',
@@ -37,6 +38,7 @@ const BROWSER = [
   'browser-test-menu-categories.js',
   'browser-test-tables.js',
   'browser-test-tenant-branding.js',
+  'browser-test-pos-tables.js',
 ];
 
 const args = process.argv.slice(2);

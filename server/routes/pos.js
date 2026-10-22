@@ -82,6 +82,46 @@ router.get('/summary', (req, res) => {
   res.json(summary);
 });
 
+// GET /api/pos/tables — table picker data for the New Ticket flow: this
+// tenant's ACTIVE tables with live occupancy (an open ticket seated at them).
+// Rides the router's own pos.use gate, so any terminal operator can pick a
+// table without needing the Tables & Seating management page.
+router.get('/tables', (req, res) => {
+  const tables = db.prepare('SELECT * FROM pos_tables WHERE tenant_id = ? AND active = 1 ORDER BY location, name').all(req.tenantId);
+  const seated = db.prepare("SELECT id, table_id FROM pos_tickets WHERE tenant_id = ? AND status = 'open' AND table_id IS NOT NULL").all(req.tenantId);
+  const seatedBy = new Map(seated.map(s => [s.table_id, s.id]));
+  res.json(tables.map(t => ({
+    id: t.id, name: t.name, sitting: t.sitting, chairs: t.chairs, persons: t.persons, location: t.location,
+    occupied: seatedBy.has(t.id), ticketId: seatedBy.get(t.id) || null,
+  })));
+});
+
+// ── Table-picker validation (shared by open + re-seat) ────────────────────
+function cleanCovers(v) {
+  if (v === undefined) return { covers: undefined };
+  if (v === null || v === '') return { covers: null };
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 50) return { error: 'covers must be a whole number between 1 and 50' };
+  return { covers: n };
+}
+// The picked table must exist, be active, belong to this terminal's outlet,
+// be free of OTHER open tickets, and have room for the party.
+function validateSeat(tenantId, outlet, tableId, covers, excludeTicketId) {
+  const table = db.prepare('SELECT * FROM pos_tables WHERE id = ? AND tenant_id = ?').get(tableId, tenantId);
+  if (!table) return { status: 404, error: 'Table not found' };
+  if (!table.active) return { status: 409, error: table.name + ' is not active' };
+  if (table.location !== outlet) {
+    return { status: 400, error: table.name + ' is a ' + table.location + ' table — it cannot seat a ' + outlet + ' ticket' };
+  }
+  const clash = db.prepare(`SELECT id FROM pos_tickets WHERE tenant_id = ? AND status = 'open' AND table_id = ?${excludeTicketId ? ' AND id != ?' : ''}`)
+    .get(...(excludeTicketId ? [tenantId, table.id, excludeTicketId] : [tenantId, table.id]));
+  if (clash) return { status: 409, error: table.name + ' is already seated (open ticket ' + clash.id + ')' };
+  if (covers && covers > table.persons) {
+    return { status: 400, error: table.name + ' seats ' + table.persons + ' persons — a party of ' + covers + ' does not fit' };
+  }
+  return { table };
+}
+
 router.get('/tickets/:id', (req, res) => {
   const t = db.prepare('SELECT * FROM pos_tickets WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!t) return res.status(404).json({ error: 'Ticket not found' });
@@ -93,12 +133,37 @@ router.post('/tickets', (req, res) => {
   const { outlet, label, guestName, guestId, roomNumber, note, cashierName } = req.body;
   if (!['restaurant', 'bar'].includes(outlet)) return res.status(400).json({ error: 'outlet must be "restaurant" or "bar"' });
 
+  // ── Table picker: validate the seat before the ticket exists ────────────
+  const coversClean = cleanCovers(req.body.covers);
+  if (coversClean.error) return res.status(400).json({ error: coversClean.error });
+  const seatCovers = coversClean.covers === undefined ? null : coversClean.covers;
+  let seatTableId = null;
+  let seatLabel = null;
+  if (req.body.tableId) {
+    const seat = validateSeat(req.tenantId, outlet, req.body.tableId, seatCovers, null);
+    if (seat.error) return res.status(seat.status).json({ error: seat.error });
+    seatTableId = seat.table.id;
+    seatLabel = seat.table.name; // the ticket label mirrors the table, so every
+                                 // existing view (cards, receipts, closed list)
+                                 // shows it without touching that code
+  }
+
   const id = 'pos_' + nanoid(10);
   const taxPct = req.tenant.pos_tax_pct || 0;
   const servicePct = req.tenant.pos_service_pct || 0;
   db.prepare(`INSERT INTO pos_tickets (id, tenant_id, outlet, label, guest_name, guest_id, room_number, note, tax_pct, service_pct, opened_by, cashier_name)
               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, req.tenantId, outlet, label || (outlet === 'bar' ? 'Bar Tab' : 'Walk-in'), guestName || null, guestId || null, roomNumber || null, note || null, taxPct, servicePct, req.user.name, cashierName || req.user.name);
+
+  // Seat the ticket at the picked table / record the party size. The INSERT
+  // above stays untouched — label only changes when a table was picked.
+  if (seatTableId !== null || seatCovers !== null) {
+    const seatCols = { table_id: seatTableId, covers: seatCovers };
+    if (seatLabel !== null) seatCols.label = seatLabel;
+    const seatSet = Object.keys(seatCols).map(k => `${k} = @${k}`).join(', ');
+    db.prepare(`UPDATE pos_tickets SET ${seatSet} WHERE id = @id`).run({ ...seatCols, id });
+    audit(req, 'pos.ticket_seat', 'pos_ticket', id, { tableId: seatTableId, covers: seatCovers });
+  }
 
   const ticket = db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(id);
   audit(req, 'pos.ticket_open', 'pos_ticket', id, { outlet, label });
@@ -119,12 +184,44 @@ router.patch('/tickets/:id', (req, res) => {
   const fields = { label: 'label', guestName: 'guest_name', guestId: 'guest_id', roomNumber: 'room_number', note: 'note', discountPct: 'discount_pct', servicePct: 'service_pct', taxPct: 'tax_pct' };
   const updates = {};
   Object.entries(fields).forEach(([bodyKey, col]) => { if (req.body[bodyKey] !== undefined) updates[col] = req.body[bodyKey]; });
+  // ── Table picker while open: re-seat the ticket or adjust the party ─────
+  if (req.body.tableId !== undefined || req.body.covers !== undefined) {
+    const seatCoversClean = cleanCovers(req.body.covers);
+    if (seatCoversClean.error) return res.status(400).json({ error: seatCoversClean.error });
+    if (seatCoversClean.covers !== undefined) updates.covers = seatCoversClean.covers;
+    if (req.body.tableId !== undefined) {
+      if (req.body.tableId === null || req.body.tableId === '') {
+        updates.table_id = null; // unseated — the label stays as-is
+      } else {
+        const party = 'covers' in updates ? updates.covers : t.covers;
+        const seat = validateSeat(req.tenantId, t.outlet, req.body.tableId, party, t.id);
+        if (seat.error) return res.status(seat.status).json({ error: seat.error });
+        updates.table_id = seat.table.id;
+        updates.label = seat.table.name; // re-seat syncs the label
+      }
+    }
+    // covers-only change must still fit the table the ticket already sits at
+    if ('covers' in updates && !('table_id' in updates) && t.table_id && updates.covers) {
+      const cur = db.prepare('SELECT name, persons FROM pos_tables WHERE id = ?').get(t.table_id);
+      if (cur && updates.covers > cur.persons) {
+        return res.status(400).json({ error: cur.name + ' seats ' + cur.persons + ' persons — a party of ' + updates.covers + ' does not fit' });
+      }
+    }
+  }
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields to update' });
   // Discount / service / tax percentages change what the guest is charged, so they
   // are a pricing decision — a plain pos.use terminal operator must not set them.
   const priceLevers = ['discount_pct', 'service_pct', 'tax_pct'].filter(k => updates[k] !== undefined);
   if (priceLevers.length && !hasPermission(req.user, 'pos.manage_products')) {
     return res.status(403).json({ error: 'Only a manager or owner can change discount, service or tax rates on a ticket (pos.manage_products)' });
+  }
+  // Seat changes are part of the record — audit them like opens are (only
+  // once every validation above has passed).
+  if ('table_id' in updates || 'covers' in updates) {
+    audit(req, 'pos.ticket_seat', 'pos_ticket', t.id, {
+      tableId: 'table_id' in updates ? updates.table_id : t.table_id,
+      covers: 'covers' in updates ? updates.covers : t.covers,
+    });
   }
   const setClause = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE pos_tickets SET ${setClause}, updated_at = datetime('now') WHERE id = @id`).run({ ...updates, id: t.id });

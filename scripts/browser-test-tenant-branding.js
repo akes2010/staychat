@@ -115,7 +115,24 @@ async function withBrowser(fn) {
       const login = await evl(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: '${adminEmail}', password: 'Demo@123456' }) }).then(r => r.status)`).catch(() => 0);
       if (login !== 200) return bad('admin login failed (HTTP ' + login + ')');
       ok('hotel admin signed in inside the browser');
-      await evl(`tryRestoreSession()`); await sleep(1500);
+      await evl(`tryRestoreSession()`);
+      // Condition, not the clock: navigate() is capability-gated. The boot path
+      // also restores (app.js), so under battery load one attempt can lose the
+      // refresh-token rotation race and get swallowed — RETRY (throttled; failed
+      // refreshes never rotate tokens, so this is safe) until actually ready.
+      const ready = await waitFor(evl, `(() => {
+        if (window.App && App.user && Array.isArray(App.permissions) && App.permissions.length > 0) return true;
+        const now = Date.now();
+        if (!window.__mcLastRestore || now - window.__mcLastRestore > 700) {
+          window.__mcLastRestore = now;
+          try { Promise.resolve(tryRestoreSession()).catch(() => {}); } catch (e) {}
+        }
+        return false;
+      })()`, true, 20000);
+      if (!ready) {
+        const diag = await evl(`({ user: !!(window.App && App.user), perms: ((window.App && App.permissions) || []).length, appVisible: document.getElementById('app').classList.contains('visible') })`);
+        return bad('session/permissions never became ready — ' + JSON.stringify(diag));
+      }
 
       // ── 1. Settings → Tenant Branding card ──────────────────────────────
       await evl(`navigate('settings')`); await sleep(900);

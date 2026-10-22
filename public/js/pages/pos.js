@@ -106,7 +106,7 @@ PAGES.pos = function () {
     const count = t.items.reduce((s, i) => s + i.qty, 0);
     return '<div class="pos-ticket-card ' + t.outlet + '" onclick="window.__posOpenTicket(\'' + t.id + '\')">' +
       '<div class="pos-ticket-label">' + escapeHtml(t.label) + '</div>' +
-      '<div class="pos-ticket-sub">' + escapeHtml(t.guest_name || 'Walk-in') + (t.room_number ? ' · Rm ' + escapeHtml(t.room_number) : '') + '</div>' +
+      '<div class="pos-ticket-sub">' + escapeHtml(t.guest_name || 'Walk-in') + (t.room_number ? ' · Rm ' + escapeHtml(t.room_number) : '') + (t.covers ? ' · ' + t.covers + ' 👥' : '') + '</div>' +
       '<div class="pos-ticket-total">' + formatMoney(t.total) + '</div>' +
       '<div class="pos-ticket-meta"><span>' + count + ' item' + (count === 1 ? '' : 's') + '</span><span>' + timeAgo(t.created_at) + '</span></div>' +
     '</div>';
@@ -120,8 +120,27 @@ PAGES.pos = function () {
   // ── New ticket ────────────────────────────────────────────────────────
   window.__posNewTicket = async () => {
     try { await ensureMenuAndContext(); } catch (err) { toast(err.message, 'error'); return; }
+    // Fresh table list per open — occupancy changes while the board is used.
+    try { state.posTables = await API.get('/api/pos/tables'); } catch (e) { state.posTables = []; }
     const occupiedRooms = state.rooms.filter(r => r.status === 'occupied');
     openModal('New ' + (state.outlet === 'bar' ? 'Bar Tab' : 'Restaurant Ticket'),
+      '<div style="margin-bottom:14px">' +
+        (state.posTables && state.posTables.filter(x => x.location === state.outlet).length
+          ? '<label class="form-label">Pick a table — seated tables are locked</label>' +
+            '<div style="display:flex;flex-wrap:wrap;gap:8px" id="pos-table-chips">' +
+              state.posTables.filter(x => x.location === state.outlet).map(x => {
+                const open = x.occupied
+                  ? '<button type="button" class="pill" data-table-id="' + x.id + '" disabled style="opacity:.45;cursor:not-allowed" title="Seated — an open ticket is already here">'
+                  : '<button type="button" class="pill" data-table-id="' + x.id + '" onclick="window.__posPickTable(\'' + x.id + '\')">';
+                return open +
+                  escapeHtml(x.name) + ' <span style="font-size:10px;opacity:.8">' + x.persons + '👤</span>' + (x.occupied ? ' 🔒' : '');
+              }).join('') +
+            '</div>'
+          : '<div style="font-size:12px;color:var(--text3)">No ' + (state.outlet === 'bar' ? 'bar' : 'restaurant') +
+            ' tables yet — type any label below, or add tables in Tables &amp; Seating.</div>') +
+        '<div class="form-group" style="margin:12px 0 0"><label class="form-label">Party Size (optional — must fit the table)</label>' +
+        '<input class="form-input" type="number" min="1" max="50" step="1" id="pt-covers" placeholder="e.g. 4" style="max-width:160px"/></div>' +
+      '</div>' +
       '<div class="form-row cols-2" style="margin-bottom:14px">' +
         '<div class="form-group"><label class="form-label">' + (state.outlet === 'bar' ? 'Tab Name' : 'Table') + '</label><input class="form-input" id="pt-label" placeholder="' + (state.outlet === 'bar' ? 'e.g. Bar Seat 3' : 'e.g. Table 5') + '"/></div>' +
         '<div class="form-group"><label class="form-label">Guest Name (optional)</label><input class="form-input" id="pt-guest" placeholder="Walk-in"/></div></div>' +
@@ -130,10 +149,39 @@ PAGES.pos = function () {
       '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__posCreateTicket()">Open Ticket</button>'
     );
   };
+  window.__posPickTable = (id) => {
+    const t = (state.posTables || []).find(x => x.id === id);
+    if (!t || t.occupied) return;
+    const input = document.getElementById('pt-label');
+    if (!input) return;
+    const chips = document.querySelectorAll('#pos-table-chips .pill');
+    const isSame = input.dataset.tableId === id;
+    chips.forEach(c => c.classList.remove('active'));
+    if (isSame) { // toggle off — back to free text
+      delete input.dataset.tableId;
+      input.value = '';
+      return;
+    }
+    input.value = t.name;
+    input.dataset.tableId = id;
+    const chip = document.querySelector('#pos-table-chips .pill[data-table-id="' + id + '"]');
+    if (chip) chip.classList.add('active');
+    const covers = Number((document.getElementById('pt-covers') || {}).value || 0);
+    if (covers && covers > t.persons) toast('A party of ' + covers + ' does not fit ' + t.name + ' (' + t.persons + ' persons)', 'warn');
+  };
+
   window.__posCreateTicket = async () => {
     const label = document.getElementById('pt-label').value.trim();
     const roomNumber = document.getElementById('pt-room').value;
     const room = state.rooms.find(r => r.number === roomNumber);
+    // Picker: seat only if the label still matches the picked table (the
+    // operator may have typed their own label over it).
+    const labelEl = document.getElementById('pt-label');
+    const pickedId = labelEl && labelEl.dataset.tableId;
+    const picked = pickedId ? (state.posTables || []).find(x => x.id === pickedId) : null;
+    const tableId = picked && picked.name === label ? picked.id : null;
+    const coversEl = document.getElementById('pt-covers');
+    const covers = coversEl && coversEl.value !== '' ? Number(coversEl.value) : null;
     try {
       const ticket = await API.post('/api/pos/tickets', {
         outlet: state.outlet,
@@ -141,6 +189,8 @@ PAGES.pos = function () {
         guestName: document.getElementById('pt-guest').value.trim() || (room ? room.guest_name : '') || null,
         roomNumber: roomNumber || null,
         cashierName: state.terminal ? state.terminal.cashierName : undefined,
+        ...(tableId ? { tableId } : {}),
+        ...(covers !== null ? { covers } : {}),
       });
       toast('Ticket opened', 'success');
       state.tickets.push(ticket);
