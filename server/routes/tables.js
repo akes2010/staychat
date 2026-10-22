@@ -5,6 +5,11 @@
 // which outlet it belongs to (location: restaurant | bar — the same outlet
 // domain the POS uses) and an active flag a manager can flip without losing
 // the row — mirroring the halls/pool/gym module structure.
+//
+// The list also carries LIVE occupancy: an open POS ticket seated at the
+// table (ticket_id / covers / opened_at) so the management page doubles as a
+// floor-status board. POST /bulk seeds a whole outlet at once for setup
+// ("Bar Seat 1..12") without colliding with tables that already exist.
 const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
@@ -19,7 +24,10 @@ router.use(requireAuth, resolveTenant, requireTenant, requirePermission('tables.
 const SITTINGS = ['Standard', 'Booth', 'Window Side', 'Bar Counter', 'Lounge', 'Outdoor', 'VIP / Private'];
 const LOCATIONS = ['restaurant', 'bar'];
 
-function serializeTable(t) { return { ...t, active: !!t.active }; }
+function serializeTable(t) {
+  return { ...t, active: !!t.active, occupied: !!t.ticket_id, ticket_id: t.ticket_id || null,
+           covers: t.ticket_covers !== undefined ? t.ticket_covers : null, opened_at: t.opened_at || null };
+}
 
 // cleanFields(body, partial) → { error } on invalid input, else { values }
 // with the cleaned fields that were supplied (partial) — a create validates
@@ -58,10 +66,71 @@ function cleanFields(body, partial) {
   return { values: out };
 }
 
-// ── Tables (inventory) ─────────────────────────────────────────────────────
+// ── Tables (inventory + live occupancy) ───────────────────────────────────
 router.get('/', (req, res) => {
   const rows = db.prepare('SELECT * FROM pos_tables WHERE tenant_id = ? ORDER BY location, name').all(req.tenantId);
-  res.json(rows.map(serializeTable));
+  // One open ticket per seated table (validateSeat in routes/pos.js blocks
+  // double-seating) — a Map join keeps the row list flat even if a race ever
+  // left two opens behind.
+  const seated = db.prepare("SELECT id, table_id, covers, created_at FROM pos_tickets WHERE tenant_id = ? AND status = 'open' AND table_id IS NOT NULL")
+    .all(req.tenantId);
+  const byTable = new Map();
+  for (const s of seated) if (!byTable.has(s.table_id)) byTable.set(s.table_id, s);
+  res.json(rows.map(t => {
+    const s = byTable.get(t.id);
+    return serializeTable(s ? { ...t, ticket_id: s.id, ticket_covers: s.covers, opened_at: s.created_at } : t);
+  }));
+});
+
+// ── Bulk setup — seed an outlet's floor in one call ────────────────────────
+// Body: { location, count, prefix?, startAt?, sitting?, chairs?, persons? }.
+// Names are "<prefix> <n>"; numbers that already exist in the outlet are
+// SKIPPED (reported back) so re-running setup never 409s or duplicates rows.
+router.post('/bulk', requirePermission('tables.manage'), (req, res) => {
+  const body = req.body || {};
+  const location = body.location === undefined ? 'restaurant' : body.location;
+  if (!LOCATIONS.includes(location)) return res.status(400).json({ error: 'location must be restaurant or bar' });
+
+  const count = Number(body.count);
+  if (!Number.isInteger(count) || count < 1 || count > 100) {
+    return res.status(400).json({ error: 'count must be a whole number between 1 and 100' });
+  }
+  const startAt = body.startAt === undefined ? 1 : Number(body.startAt);
+  if (!Number.isInteger(startAt) || startAt < 0 || startAt > 10000) {
+    return res.status(400).json({ error: 'startAt must be a whole number between 0 and 10000' });
+  }
+  const prefix = String(body.prefix === undefined ? 'Table' : body.prefix).trim().replace(/\s+/g, ' ');
+  if (!prefix || prefix.length > 40) return res.status(400).json({ error: 'prefix must be 1–40 characters' });
+
+  // Sitting / chairs / persons reuse the single-table validators (partial
+  // mode — `name` is generated below, so cleanFields must not demand one).
+  const shaped = cleanFields({ sitting: body.sitting, chairs: body.chairs, persons: body.persons, location }, true);
+  if (shaped.error) return res.status(400).json({ error: shaped.error });
+
+  const existing = db.prepare('SELECT name FROM pos_tables WHERE tenant_id = ? AND location = ? COLLATE NOCASE')
+    .all(req.tenantId, location).map(r => r.name.toLowerCase());
+
+  const created = [];
+  const skipped = [];
+  const insert = db.transaction(() => {
+    for (let i = 0; i < count; i++) {
+      const name = (prefix + ' ' + (startAt + i)).slice(0, 60);
+      if (existing.includes(name.toLowerCase())) { skipped.push(name); continue; }
+      const id = 'tbl_' + nanoid(10);
+      db.prepare(`INSERT INTO pos_tables (id, tenant_id, name, sitting, chairs, persons, location, active)
+                  VALUES (?,?,?,?,?,?,?,1)`)
+        .run(id, req.tenantId, name, shaped.values.sitting || 'Standard', shaped.values.chairs || 4,
+             shaped.values.persons || 4, location);
+      existing.push(name.toLowerCase()); // duplicates within the batch itself
+      const table = db.prepare('SELECT * FROM pos_tables WHERE id = ?').get(id);
+      created.push(serializeTable(table));
+      broadcast(req.tenantId, 'table.created', serializeTable(table));
+    }
+  });
+  insert();
+
+  audit(req, 'tables.bulk_create', 'pos_table', null, { location, count, created: created.length, skipped: skipped.length, prefix });
+  res.status(201).json({ created, skipped });
 });
 
 router.post('/', requirePermission('tables.manage'), (req, res) => {

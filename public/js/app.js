@@ -47,11 +47,15 @@ function getNavItems() {
     { page: 'engine', ico: '🌐', label: 'Booking Engine', cap: 'bookings.manage' },
     { page: 'inbox', ico: '💬', label: 'WhatsApp Inbox', cap: 'inbox.use' },
     { page: 'orders', ico: '🍽', label: 'Room Service', cap: 'orders.manage' },
-    { page: 'pos', ico: '🧾', label: 'Point of Sale', cap: 'pos.use' },
+    // ── Restaurant & Bar — the F&B block lives under one sidebar section
+    // header (items must stay contiguous: setupSidebar prints the header once
+    // per run of sectioned items and a closing divider when it ends).
+    { page: 'pos', ico: '🧾', label: 'Point of Sale', cap: 'pos.use', section: 'Restaurant & Bar' },
+    { page: 'menu', ico: '📋', label: 'Menu Manager', cap: 'menu.manage', section: 'Restaurant & Bar' },
+    { page: 'tables', ico: '🪑', label: 'Tables', cap: 'tables.use', section: 'Restaurant & Bar' },
     { page: 'pool', ico: '🏊', label: 'Pool Bookings', cap: 'pool.use' },
     { page: 'halls', ico: '🎪', label: 'Halls & Events', cap: 'halls.use' },
     { page: 'gym', ico: '🏋️', label: 'Gym & Fitness', cap: 'gym.use' },
-    { page: 'tables', ico: '🪑', label: 'Tables', cap: 'tables.use' },
     { page: 'misc', ico: '🧺', label: 'Other Services', cap: 'orders.manage' },
     { page: 'housekeeping', ico: '🧹', label: 'Housekeeping', cap: 'housekeeping.manage' },
     { page: 'maintenance', ico: '🔧', label: 'Maintenance', cap: 'maintenance.manage' },
@@ -61,7 +65,6 @@ function getNavItems() {
     { page: 'staff', ico: '👥', label: 'Staff', cap: 'staff.manage' },
     { page: 'shifts', ico: '🕐', label: 'Shifts & Attendance', cap: 'attendance.use' },
     { page: 'eod', ico: '🌙', label: 'End of Day', cap: 'eod.use' },
-    { page: 'menu', ico: '📋', label: 'Menu Manager', cap: 'menu.manage' },
     { page: 'payments', ico: '💳', label: 'Payments', cap: 'payments.use' },
     { page: 'accounting', ico: '📒', label: 'Accounting', cap: 'accounting.view' },
     { page: 'users', ico: '🔐', label: 'Users & Permissions', cap: 'users.manage' },
@@ -86,8 +89,16 @@ function setupSidebar() {
   nav.innerHTML = '';
   let lastSection = '';
   getNavItems().forEach(item => {
-    if (item.section && item.section !== lastSection) {
-      const sep = document.createElement('div'); sep.className = 'sb-section'; sep.textContent = item.section; nav.appendChild(sep); lastSection = item.section;
+    if ((item.section || '') !== lastSection) {
+      if (item.section) {
+        // Entering a group — print its header.
+        const sep = document.createElement('div'); sep.className = 'sb-section'; sep.textContent = item.section; nav.appendChild(sep);
+      } else if (lastSection) {
+        // Leaving a group — close it visually so the flat items below don't
+        // read as part of the section (e.g. Pool under "Restaurant & Bar").
+        const end = document.createElement('div'); end.className = 'sb-section sb-divider'; nav.appendChild(end);
+      }
+      lastSection = item.section || '';
     }
     const btn = document.createElement('button');
     btn.className = 'nav-item' + (App.page === item.page ? ' active' : '');

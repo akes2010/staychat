@@ -10,7 +10,11 @@
 //   • a duplicate name is rejected by the UI flow (server 409, no new row),
 //   • location filter pills narrow the list,
 //   • the active toggle flips a table inactive (and back),
-//   • editing changes sitting + chairs, and delete removes the row.
+//   • editing changes sitting + chairs, and delete removes the row,
+//   • Quick Add bulk-seeds a numbered floor ("Bar Seat 1…5") in one call
+//     and is idempotent when the same numbers are re-submitted,
+//   • a table seated by a live POS ticket is badged "Seated" on the page
+//     and the header counts the seated tables.
 'use strict';
 const { spawn } = require('child_process');
 const http = require('http');
@@ -147,6 +151,23 @@ async function withBrowser(fn) {
       if (navInfo && navInfo.label.includes('Tables') && navInfo.visible) ok('sidebar renders the "Tables" nav item');
       else bad('sidebar tables nav item missing — ' + JSON.stringify(navInfo));
 
+      // The F&B block is grouped under a "Restaurant & Bar" section header:
+      // header → Point of Sale → Menu Manager → Tables → closing divider.
+      const groupInfo = await evl(`(() => {
+        const kids = Array.from(document.getElementById('sb-nav').children);
+        const names = kids.map(k => k.classList.contains('sb-section')
+          ? (k.classList.contains('sb-divider') ? '[DIVIDER]' : '[' + k.textContent.trim() + ']')
+          : k.getAttribute('data-page'));
+        return { hdr: names.indexOf('[Restaurant & Bar]'), pos: names.indexOf('pos'),
+                 menu: names.indexOf('menu'), tables: names.indexOf('tables'),
+                 divider: names.indexOf('[DIVIDER]') };
+      })()`);
+      if (groupInfo && groupInfo.hdr >= 0 && groupInfo.pos === groupInfo.hdr + 1 &&
+          groupInfo.menu === groupInfo.hdr + 2 && groupInfo.tables === groupInfo.hdr + 3 &&
+          groupInfo.divider === groupInfo.hdr + 4) {
+        ok('sidebar groups POS → Menu Manager → Tables under "Restaurant & Bar" with a closing divider');
+      } else bad('F&B sidebar grouping wrong — ' + JSON.stringify(groupInfo));
+
       await evl(`navigate('tables')`); await sleep(800);
       const h1 = await waitFor(evl, `(document.querySelector('#content .page-header h1') || {}).textContent || ''`, 'Tables & Seating');
       if (h1 === 'Tables & Seating') ok('navigate("tables") opens the Tables & Seating page');
@@ -275,6 +296,80 @@ async function withBrowser(fn) {
       const nFinal = await waitFor(evl, `API.get('/api/tables').then(t => t.length)`, 1);
       if (nFinal === 1) ok('confirmed delete removes the table (1 left)');
       else bad('delete did not persist — n=' + nFinal);
+
+      // The active filter is still "bar" from section 5, but the last bar
+      // table was just deleted. Reset to "all" so the bulk-seed assertions
+      // target a visible list (a filter that matches nothing would render the
+      // "no tables in this location" state regardless of how many rows exist).
+      await evl(`window.__tableFilter('all')`);
+      const resetOk = await waitFor(evl, `document.getElementById('content').textContent.includes('Quick Add')`, true);
+      if (resetOk) ok('page renders the manage header (Quick Add + Add Table) with a table present');
+      else bad('manage header missing after resetting the filter');
+
+      const qaClicked = await evl(`(() => {
+        const btn = Array.from(document.querySelectorAll('#content button')).find(b => b.textContent.includes('Quick Add'));
+        if (btn) btn.click();
+        return !!btn;
+      })()`);
+      if (qaClicked) ok('Quick Add button opens the bulk-setup dialog');
+      else bad('Quick Add button missing from the page header');
+      const modalUp = await waitFor(evl, `!!document.getElementById('bq-count')`, true);
+      if (!modalUp) return bad('Quick Add modal did not open');
+      await evl(`(() => {
+        document.getElementById('bq-loc').value = 'bar';
+        document.getElementById('bq-prefix').value = 'Bar Seat';
+        document.getElementById('bq-count').value = '5';
+        document.getElementById('bq-start').value = '1';
+        document.getElementById('bq-sitting').value = 'Bar Counter';
+        document.getElementById('bq-chairs').value = '2';
+        document.getElementById('bq-persons').value = '2';
+        const f = document.querySelector('.modal-footer');
+        Array.from(f.querySelectorAll('button')).find(b => b.textContent.indexOf('Add Tables') !== -1).click();
+      })()`);
+      const bulkN = await waitFor(evl, `API.get('/api/tables').then(t => t.length)`, 6);
+      const bulkOk = await evl(`API.get('/api/tables').then(t => {
+        const seats = t.filter(x => x.location === 'bar' && /^Bar Seat \\d+$/.test(x.name));
+        return seats.length === 5 && seats.every(s => s.sitting === 'Bar Counter' && s.chairs === 2 && s.persons === 2);
+      })`);
+      if (bulkN === 6 && bulkOk === true) ok('Quick Add seeds "Bar Seat 1…5" (Bar Counter, 2 chairs) in one call');
+      else bad('bulk seed wrong — n=' + bulkN + ' fieldsOk=' + bulkOk);
+
+      // Re-submit the same numbers → skipped server-side, nothing duplicated.
+      await evl(`window.__openBulkAdd()`);
+      const modalUp2 = await waitFor(evl, `!!document.getElementById('bq-count')`, true);
+      if (!modalUp2) return bad('Quick Add modal did not reopen');
+      await evl(`(() => {
+        document.getElementById('bq-loc').value = 'bar';
+        document.getElementById('bq-prefix').value = 'Bar Seat';
+        document.getElementById('bq-count').value = '5';
+        document.getElementById('bq-start').value = '1';
+        const f = document.querySelector('.modal-footer');
+        Array.from(f.querySelectorAll('button')).find(b => b.textContent.indexOf('Add Tables') !== -1).click();
+      })()`);
+      const skipToast = await waitFor(evl, `document.getElementById('toast-area').textContent.includes('5 already existed')`, true);
+      const stillSix = await evl(`API.get('/api/tables').then(t => t.length)`);
+      if (skipToast && stillSix === 6) ok('re-running the same Quick Add skips existing names (no duplicates)');
+      else bad('idempotent re-run failed — toast=' + skipToast + ' n=' + stillSix);
+
+      // ── 10. Live occupancy badge ───────────────────────────────────────
+      // Seat a party at Bar Seat 1 through the POS seat path (the same API
+      // the POS terminal uses), then assert the Tables page shows it seated.
+      const seated = await evl(`(async () => {
+        const tables = await API.get('/api/tables');
+        const t = tables.find(x => x.name === 'Bar Seat 1');
+        if (!t) return false;
+        try { await API.post('/api/pos/tickets', { outlet: 'bar', tableId: t.id, covers: 2 }); return true; }
+        catch (e) { return false; }
+      })()`);
+      if (seated) ok('party seated at Bar Seat 1 via the POS seat path');
+      else bad('could not open a ticket at Bar Seat 1');
+      await evl(`navigate('tables')`);
+      const occHeader = await waitFor(evl, `document.getElementById('content').textContent.includes('1 seated now')`, true);
+      if (occHeader) ok('header counts the seated table ("1 seated now")');
+      else bad('seated count missing from the header');
+      const occBadge = await waitFor(evl, `document.getElementById('content').textContent.includes('Seated · 2')`, true);
+      if (occBadge) ok('seated table is badged "Seated · 2👥"');
+      else bad('Seated occupancy badge missing');
     });
   } finally {
     try { srv.kill(); } catch (e) {}

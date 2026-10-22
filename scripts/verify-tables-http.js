@@ -8,6 +8,10 @@
 //   out of range / fractional),
 //   one-name-per-outlet uniqueness (same name allowed in the OTHER location),
 //   PATCH edits incl. active flip + location move, DELETE,
+//   BULK setup (POST /bulk: numbered names, existing numbers skipped so
+//   re-running is idempotent, count/prefix/startAt validation, 403 split),
+//   LIVE occupancy (open ticket seated at a table → occupied/ticket_id/
+//   covers/opened_at on GET; closing the ticket frees the row),
 //   use/manage permission split (tables.use alone → reads yes, writes 403),
 //   plan entitlement gate (starter → 402), audit rows.
 'use strict';
@@ -177,7 +181,83 @@ async function run() {
   r = await req('DELETE', '/api/tables/tbl_missing', adminTok);
   check('DELETE unknown id → 404', r.status === 404, 'got ' + r.status);
 
-  // ── 7. use/manage permission split ──────────────────────────────────────
+  // ── 7. Bulk setup ──────────────────────────────────────────────────────
+  r = await req('POST', '/api/tables/bulk', adminTok, { location: 'bar', count: 3, prefix: 'Bar Seat', startAt: 1, sitting: 'Bar Counter', chairs: 2, persons: 2 });
+  check('bulk create 3 bar seats → 201', r.status === 201 && Array.isArray(r.body.created) && r.body.created.length === 3 && r.body.skipped.length === 0,
+    'got ' + r.status + ' ' + JSON.stringify(r.body && { n: r.body.created && r.body.created.length, skipped: r.body.skipped && r.body.skipped.length }));
+  const bulkNames = (r.body.created || []).map(t => t.name);
+  check('bulk names are numbered from startAt', JSON.stringify(bulkNames) === JSON.stringify(['Bar Seat 1', 'Bar Seat 2', 'Bar Seat 3']),
+    JSON.stringify(bulkNames));
+  const bs1 = r.body.created && r.body.created[0];
+  check('bulk rows round-trip sitting/chairs/persons/location + active',
+    bs1 && bs1.sitting === 'Bar Counter' && bs1.chairs === 2 && bs1.persons === 2 && bs1.location === 'bar' && bs1.active === true,
+    JSON.stringify(bs1 && { sitting: bs1.sitting, chairs: bs1.chairs, persons: bs1.persons, location: bs1.location }));
+
+  r = await req('POST', '/api/tables/bulk', adminTok, { location: 'bar', count: 3, prefix: 'Bar Seat', startAt: 1 });
+  check('re-running the same bulk is idempotent (0 created, 3 skipped)',
+    r.status === 201 && r.body.created.length === 0 && r.body.skipped.length === 3,
+    JSON.stringify(r.body && { n: r.body.created.length, skipped: r.body.skipped }));
+
+  r = await req('GET', '/api/tables', adminTok);
+  check('list grew by exactly the 3 bulk rows', r.status === 200 && r.body.length === 5, 'n=' + (r.body && r.body.length));
+
+  r = await req('POST', '/api/tables/bulk', adminTok, { location: 'bar', count: 3, prefix: 'Bar Seat', startAt: 2 });
+  // startAt 2 + count 3 → seats 2, 3, 4: 2 & 3 already exist → only 4 is new.
+  check('bulk overlapping existing numbers skips only those',
+    r.status === 201 && r.body.created.length === 1 && r.body.skipped.length === 2 &&
+    r.body.created[0].name === 'Bar Seat 4' && r.body.skipped[0] === 'Bar Seat 2',
+    JSON.stringify(r.body && { created: r.body.created.map(t => t.name), skipped: r.body.skipped }));
+  // clean up the overlap rows so later counts stay predictable
+  for (const t of r.body.created) { await req('DELETE', '/api/tables/' + t.id, adminTok); }
+
+  r = await req('POST', '/api/tables/bulk', adminTok, { count: 0 });
+  check('bulk count = 0 → 400', r.status === 400, 'got ' + r.status);
+  r = await req('POST', '/api/tables/bulk', adminTok, { count: 101 });
+  check('bulk count > 100 → 400', r.status === 400, 'got ' + r.status);
+  r = await req('POST', '/api/tables/bulk', adminTok, { count: 2, location: 'rooftop' });
+  check('bulk bad location → 400', r.status === 400 && /location/i.test(r.body && r.body.error ? r.body.error : ''),
+    JSON.stringify(r.body).slice(0, 100));
+  r = await req('POST', '/api/tables/bulk', adminTok, { count: 2, sitting: 'Hammock' });
+  check('bulk bad sitting → 400', r.status === 400 && /sitting/i.test(r.body && r.body.error ? r.body.error : ''),
+    JSON.stringify(r.body).slice(0, 100));
+  r = await req('POST', '/api/tables/bulk', adminTok, { count: 2, chairs: 0 });
+  check('bulk chairs = 0 → 400', r.status === 400, 'got ' + r.status);
+  r = await req('POST', '/api/tables/bulk', adminTok, { count: 2, prefix: '   ' });
+  check('bulk blank prefix → 400', r.status === 400, 'got ' + r.status);
+  r = await req('POST', '/api/tables/bulk', adminTok, { count: 2, startAt: -1 });
+  check('bulk negative startAt → 400', r.status === 400, 'got ' + r.status);
+
+  r = await req('POST', '/api/tables/bulk', waiterTok, { count: 2 });
+  check('tables.use only → bulk 403', r.status === 403, 'got ' + r.status);
+  r = await req('POST', '/api/tables/bulk', staffTok, { count: 2 });
+  check('no tables.use → bulk 403', r.status === 403, 'got ' + r.status);
+
+  // ── 8. Live occupancy ───────────────────────────────────────────────
+  // Seat an open ticket at Bar Seat 1 directly (routes/pos.js owns ticket
+  // creation; the tables route only READS occupancy).
+  r = await req('GET', '/api/tables', adminTok);
+  const occTarget = r.body.find(t => t.name === 'Bar Seat 1');
+  check('free table reports occupied=false', occTarget && occTarget.occupied === false && occTarget.ticket_id === null,
+    JSON.stringify(occTarget && { occupied: occTarget.occupied, ticket_id: occTarget.ticket_id }));
+
+  db.prepare(`INSERT INTO pos_tickets (id, tenant_id, outlet, label, table_id, covers, items, total, status)
+              VALUES (?,?,?,?,?,?,'[]',25.5,'open')`)
+    .run('tkt_occ_1', proTenant, 'bar', occTarget.name, occTarget.id, 2);
+  r = await req('GET', '/api/tables', adminTok);
+  const occAfter = r.body.find(t => t.id === occTarget.id);
+  check('open ticket seats the table → occupied/ticket_id/covers',
+    occAfter && occAfter.occupied === true && occAfter.ticket_id === 'tkt_occ_1' && occAfter.covers === 2 && !!occAfter.opened_at,
+    JSON.stringify(occAfter && { occupied: occAfter.occupied, ticket_id: occAfter.ticket_id, covers: occAfter.covers }));
+  const otherBar = r.body.find(t => t.name === 'Bar Seat 2');
+  check('other tables stay free while one is seated', otherBar && otherBar.occupied === false, JSON.stringify(otherBar && { occupied: otherBar.occupied }));
+
+  db.prepare("UPDATE pos_tickets SET status = 'closed', closed_at = datetime('now') WHERE id = 'tkt_occ_1'").run();
+  r = await req('GET', '/api/tables', adminTok);
+  const occFreed = r.body.find(t => t.id === occTarget.id);
+  check('closing the ticket frees the table', occFreed && occFreed.occupied === false && occFreed.ticket_id === null,
+    JSON.stringify(occFreed && { occupied: occFreed.occupied, ticket_id: occFreed.ticket_id }));
+
+  // ── 9. use/manage permission split ──────────────────────────────────────
   r = await req('GET', '/api/tables', waiterTok);
   check('tables.use only → GET 200', r.status === 200 && Array.isArray(r.body), 'got ' + r.status);
   r = await req('POST', '/api/tables', waiterTok, { name: 'Nope Table' });
@@ -189,16 +269,16 @@ async function run() {
   r = await req('GET', '/api/tables', staffTok);
   check('no tables.use → GET 403', r.status === 403, 'got ' + r.status);
 
-  // ── 8. Plan entitlement gate ────────────────────────────────────────────
+  // ── 10. Plan entitlement gate ───────────────────────────────────────────
   r = await req('GET', '/api/tables', starterTok);
   check('starter plan → 402 UPGRADE_REQUIRED', r.status === 402 && r.body && r.body.code === 'UPGRADE_REQUIRED',
     'got ' + r.status + ' ' + JSON.stringify(r.body).slice(0, 100));
 
-  // ── 9. Audit trail ──────────────────────────────────────────────────────
+  // ── 11. Audit trail ─────────────────────────────────────────────────────
   const audits = db.prepare("SELECT action, COUNT(*) c FROM audit_log WHERE tenant_id = ? AND entity_type = 'pos_table' GROUP BY action").all(proTenant);
   const byAction = Object.fromEntries(audits.map(a => [a.action, a.c]));
-  check('audit rows exist for create/update/delete',
-    byAction['tables.create'] >= 3 && byAction['tables.update'] >= 3 && byAction['tables.delete'] >= 1,
+  check('audit rows exist for create/update/delete/bulk_create',
+    byAction['tables.create'] >= 3 && byAction['tables.update'] >= 3 && byAction['tables.delete'] >= 1 && byAction['tables.bulk_create'] >= 3,
     JSON.stringify(byAction));
 
   // ── Cleanup ─────────────────────────────────────────────────────────────

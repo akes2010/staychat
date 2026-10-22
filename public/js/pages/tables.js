@@ -28,12 +28,17 @@ PAGES.tables = function () {
     if (state.filter !== 'all') tables = tables.filter(t => t.location === state.filter);
     const locations = LOCATIONS.filter(l => tables.some(t => t.location === l));
     const totalChairs = state.tables.reduce((n, t) => n + (t.chairs || 0), 0);
+    const seated = state.tables.filter(t => t.occupied).length;
 
     wrap.innerHTML = '' +
       '<div class="page-header"><div class="page-header-left"><h1>Tables & Seating</h1><p>' +
         state.tables.length + ' tables &middot; ' + totalChairs + ' chairs &middot; ' +
-        state.tables.filter(t => t.active).length + ' active</p></div>' +
-        (canManage ? '<button class="btn primary" onclick="window.__openAddTable()">+ Add Table</button>' : '') + '</div>' +
+        state.tables.filter(t => t.active).length + ' active' +
+        (seated ? ' &middot; <span style="color:var(--p);font-weight:700">' + seated + ' seated now</span>' : '') + '</p></div>' +
+        (canManage
+          ? '<div style="display:flex;gap:10px"><button class="btn outline" onclick="window.__openBulkAdd()">⚡ Quick Add</button>' +
+            '<button class="btn primary" onclick="window.__openAddTable()">+ Add Table</button></div>'
+          : '') + '</div>' +
       '<div class="filter-pills" style="margin-bottom:16px">' +
         '<button class="pill ' + (state.filter === 'all' ? 'active' : '') + '" onclick="window.__tableFilter(\'all\')">All</button>' +
         '<button class="pill ' + (state.filter === 'restaurant' ? 'active' : '') + '" onclick="window.__tableFilter(\'restaurant\')">🍽 Restaurant</button>' +
@@ -62,9 +67,15 @@ PAGES.tables = function () {
       '<div style="width:44px;height:44px;border-radius:9px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">' + locIcon(t.location) + '</div>' +
       '<div style="flex:1;min-width:0">' +
         '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escapeHtml(t.name) + (t.active ? '' : ' ' + badge('Inactive', 'default')) + '</div>' +
-        '<div style="font-size:11px;color:var(--text3)">' + escapeHtml(t.sitting) + ' sitting &middot; ' + t.chairs + ' chairs &middot; ' + (t.persons || 0) + ' persons &middot; ' + locLabel(t.location) + '</div>' +
+        '<div style="font-size:11px;color:var(--text3)">' + escapeHtml(t.sitting) + ' sitting &middot; ' + t.chairs + ' chairs &middot; ' + (t.persons || 0) + ' persons &middot; ' + locLabel(t.location) +
+          (t.occupied ? ' &middot; <span style="color:var(--p);font-weight:600">seated ' + timeAgo(t.opened_at) + '</span>' : '') + '</div>' +
       '</div>' +
       badge(t.sitting, 'info') +
+      (t.active
+        ? (t.occupied
+            ? badge(t.covers ? 'Seated · ' + t.covers + '👥' : 'Seated', 'warn')
+            : badge('Free', 'success'))
+        : badge('Closed', 'default')) +
       '<div style="text-align:right;min-width:70px"><div style="font-weight:800;font-size:15px;color:var(--p)">' + t.chairs + '</div><div style="font-size:10px;color:var(--text3)">chairs</div></div>' +
       (canManage
         ? '<label class="toggle"><input type="checkbox" ' + (t.active ? 'checked' : '') + ' onchange="window.__toggleTable(\'' + t.id + '\',this.checked)"/><span class="toggle-slider"></span></label>' +
@@ -151,6 +162,47 @@ PAGES.tables = function () {
     try {
       await API.patch('/api/tables/' + id, data);
       toast('Table updated', 'success'); closeModal(); await load();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
+  // ── Quick Add — bulk-seed an outlet's floor (setup) ─────────────────────
+  // Creates "<prefix> <n>" rows in one call. Numbers that already exist are
+  // skipped server-side, so re-running setup never duplicates a table.
+  window.__openBulkAdd = () => {
+    openModal('⚡ Quick Add Tables',
+      '<p style="font-size:12px;color:var(--text3);margin-bottom:12px">Seed a whole floor at once — e.g. "Bar Seat 1…12". Names that already exist in the outlet are skipped.</p>' +
+      '<div class="form-row cols-2" style="margin-bottom:2px">' +
+        '<div class="form-group"><label class="form-label">Location</label><select class="form-select" id="bq-loc">' +
+          '<option value="restaurant">🍽 Restaurant</option><option value="bar">🍸 Bar</option></select></div>' +
+        '<div class="form-group"><label class="form-label">Name Prefix</label><input class="form-input" id="bq-prefix" placeholder="Table" value="Table"/></div>' +
+        '<div class="form-group"><label class="form-label">How Many</label><input class="form-input" type="number" id="bq-count" min="1" max="100" value="6"/></div>' +
+        '<div class="form-group"><label class="form-label">Start Number</label><input class="form-input" type="number" id="bq-start" min="1" value="1"/></div>' +
+        '<div class="form-group"><label class="form-label">Sitting Setting</label><select class="form-select" id="bq-sitting">' +
+          SITTINGS.map(s => '<option>' + s + '</option>').join('') + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Chairs per Table</label><input class="form-input" type="number" id="bq-chairs" min="1" max="50" value="4"/></div>' +
+        '<div class="form-group"><label class="form-label">Persons per Table</label><input class="form-input" type="number" id="bq-persons" min="1" max="50" value="4"/></div>' +
+      '</div>',
+      '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__bulkAdd()">Add Tables</button>'
+    );
+  };
+  window.__bulkAdd = async () => {
+    const val = (id) => { const e = document.getElementById(id); return e ? e.value : ''; };
+    const body = {
+      location: val('bq-loc'),
+      prefix: val('bq-prefix').trim() || 'Table',
+      count: Number(val('bq-count')),
+      startAt: Number(val('bq-start')),
+      sitting: val('bq-sitting'),
+      chairs: Number(val('bq-chairs')),
+      persons: Number(val('bq-persons')),
+    };
+    if (!Number.isInteger(body.count) || body.count < 1) { toast('How Many must be at least 1', 'error'); return; }
+    try {
+      const res = await API.post('/api/tables/bulk', body);
+      const n = (res.created || []).length;
+      const skipped = (res.skipped || []).length;
+      toast(n + ' table' + (n === 1 ? '' : 's') + ' added' + (skipped ? ' · ' + skipped + ' already existed' : ''), 'success');
+      closeModal(); await load();
     } catch (err) { toast(err.message, 'error'); }
   };
 
