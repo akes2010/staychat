@@ -22,6 +22,9 @@ const FAST = [
   'test-whatsapp-webhook-e2e.js',
   'test-security-probes.js',
   'test-korapay.js',
+  'verify-menu-categories-http.js',
+  'verify-tables-http.js',
+  'verify-tenant-settings-http.js',
 ];
 const BROWSER = [
   'browser-test-platform-billing.js',
@@ -30,6 +33,10 @@ const BROWSER = [
   'browser-test-offline-sync.js',
   'browser-test-checkout-flow.js',
   'browser-test-ota.js',
+  'browser-test-gym.js',
+  'browser-test-menu-categories.js',
+  'browser-test-tables.js',
+  'browser-test-tenant-branding.js',
 ];
 
 const args = process.argv.slice(2);
