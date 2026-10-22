@@ -23,6 +23,7 @@ function can(capability) {
 const PAGE_TITLES = {
   dashboard: 'Dashboard', rooms: 'Room Management', inbox: 'WhatsApp Inbox', orders: 'Room Service Orders',
   pos: 'Point of Sale',  bookings: 'Bookings & Reservations', pool: 'Pool Bookings', halls: 'Hall & Event Bookings', gym: 'Gym & Fitness',
+  tables: 'Tables & Seating',
   billing: 'Billing & Plan',
   wifi: 'Guest Wi-Fi', engine: 'Booking Engine',
   housekeeping: 'Housekeeping', maintenance: 'Maintenance', guests: 'Guest Profiles', analytics: 'Analytics & Reports',
@@ -50,6 +51,7 @@ function getNavItems() {
     { page: 'pool', ico: '🏊', label: 'Pool Bookings', cap: 'pool.use' },
     { page: 'halls', ico: '🎪', label: 'Halls & Events', cap: 'halls.use' },
     { page: 'gym', ico: '🏋️', label: 'Gym & Fitness', cap: 'gym.use' },
+    { page: 'tables', ico: '🪑', label: 'Tables', cap: 'tables.use' },
     { page: 'misc', ico: '🧺', label: 'Other Services', cap: 'orders.manage' },
     { page: 'housekeeping', ico: '🧹', label: 'Housekeeping', cap: 'housekeeping.manage' },
     { page: 'maintenance', ico: '🔧', label: 'Maintenance', cap: 'maintenance.manage' },
@@ -94,6 +96,9 @@ function setupSidebar() {
     btn.innerHTML = '<span class="ico">' + item.ico + '</span><span class="nav-label">' + item.label + '</span>';
     nav.appendChild(btn);
   });
+
+  // Tenant branding: swap the default bubble for the hotel's uploaded logo.
+  if (typeof window.__applyTenantLogo === 'function') window.__applyTenantLogo();
 
   // Superadmin: live count of Desk PC Edition registrations awaiting payment.
   refreshSelfhostBadge();
@@ -141,6 +146,7 @@ function closeSidebar() { document.getElementById('sidebar').classList.remove('m
 const PAGE_CAPS = {
   dashboard: 'dashboard.view', billing: 'billing.manage', rooms: 'rooms.manage', bookings: 'bookings.manage', inbox: 'inbox.use',
   orders: 'orders.manage', pos: 'pos.use', pool: 'pool.use', halls: 'halls.use', gym: 'gym.use', misc: 'orders.manage',
+  tables: 'tables.use',
   housekeeping: 'housekeeping.manage', maintenance: 'maintenance.manage', guests: 'guests.manage',
   analytics: 'analytics.view', reports: 'analytics.view', staff: 'staff.manage', shifts: 'attendance.use', eod: 'eod.use', menu: 'menu.manage',
   payments: 'payments.use', accounting: 'accounting.view', ai: 'ai.manage', printers: 'printers.manage',

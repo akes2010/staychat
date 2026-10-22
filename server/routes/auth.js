@@ -121,7 +121,7 @@ function tenantFor(u) {
   if (!u.tenant_id) return null;
   // subdomain rides along so the SPA can show the hotel its public booking
   // link (/book.html?hotel=<subdomain>) right after signup.
-  return db.prepare('SELECT id, name, subdomain, plan, status, currency, timezone FROM tenants WHERE id = ?').get(u.tenant_id) || null;
+  return db.prepare('SELECT id, name, subdomain, plan, status, currency, timezone, logo FROM tenants WHERE id = ?').get(u.tenant_id) || null;
 }
 
 // Entitlements ride along on every auth payload so the SPA can badge locked

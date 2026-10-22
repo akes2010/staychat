@@ -62,6 +62,7 @@ const PLAN_CATALOG = {
       'pool_bookings',
       'hall_events',
       'gym_bookings',
+      'pos_tables',        // restaurant & bar table management
       'integrations_full',   // locks, IPTV, IoT, controllers (API Integrations page)
       'staff_shifts',        // shifts & attendance module
     ]),
@@ -104,6 +105,7 @@ const FEATURE_LABELS = {
   pool_bookings: 'Pool bookings',
   hall_events: 'Hall & event bookings',
   gym_bookings: 'Gym management & registrations',
+  pos_tables: 'Restaurant & bar table management',
   integrations_full: 'Door locks, IPTV, IoT & controller integrations',
   staff_shifts: 'Shifts & attendance',
   multi_property: 'Multi-property portfolio',

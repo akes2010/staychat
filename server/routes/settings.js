@@ -16,7 +16,8 @@ function publicTenant(t) {
   const d = decryptTenantSecrets(t);
   return {
     id: d.id, name: d.name, subdomain: d.subdomain, plan: d.plan, status: d.status,
-    country: d.country, email: d.email, phone: d.phone, currency: d.currency, timezone: d.timezone,
+    country: d.country, email: d.email, phone: d.phone, address: d.address || null, logo: d.logo || null,
+    currency: d.currency, timezone: d.timezone,
     checkInTime: d.check_in_time, checkOutTime: d.check_out_time,
     aiEnabled: !!d.ai_enabled, aiTone: d.ai_tone, autoBooking: !!d.auto_booking,
     autoAssignHk: !!d.auto_assign_hk, autoAssignMaint: !!d.auto_assign_maint,
@@ -54,6 +55,7 @@ router.patch('/', requireRole('hotel_admin', 'superadmin'), (req, res) => {
   const b = req.body;
   const colMap = {
     hotelName: 'name', currency: 'currency', timezone: 'timezone',
+    phone: 'phone', address: 'address', logo: 'logo',
     checkInTime: 'check_in_time', checkOutTime: 'check_out_time',
     waPhone: 'wa_phone', waPhoneId: 'wa_phone_id', waToken: 'wa_token', waVerifyToken: 'wa_verify_token', waAppSecret: 'wa_app_secret',
     aiEnabled: 'ai_enabled', aiTone: 'ai_tone', autoBooking: 'auto_booking',
@@ -93,6 +95,18 @@ router.patch('/', requireRole('hotel_admin', 'superadmin'), (req, res) => {
   }
   if (b.checkOutTime !== undefined && !/^\d{2}:\d{2}$/.test(String(b.checkOutTime))) {
     return res.status(400).json({ error: 'checkOutTime must be in HH:MM format' });
+  }
+  // Tenant branding: the logo is a base64 image data URL chosen by the admin's
+  // own file picker (client caps the file at 512KB) — accept only real image
+  // data URLs of a sane size so the column can never hold arbitrary blobs.
+  if (b.logo !== undefined) {
+    const logo = String(b.logo);
+    if (logo && !/^data:image\/(png|jpe?g|webp|gif|svg\+xml);base64,/.test(logo)) {
+      return res.status(400).json({ error: 'logo must be a base64 image data URL' });
+    }
+    if (logo.length > 1500000) {
+      return res.status(400).json({ error: 'logo image is too large — keep it under 1MB' });
+    }
   }
   if (b.paymentMethods !== undefined) updates.payment_methods = JSON.stringify(b.paymentMethods);
   if (b.paymentMethodConfigs !== undefined) updates.payment_method_configs = JSON.stringify(b.paymentMethodConfigs);

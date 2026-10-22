@@ -66,6 +66,23 @@ PAGES.settings = function () {
           '<div class="form-group"><label class="form-label">Check-out Time</label><input class="form-input" type="time" id="set-cout" value="' + (settings.checkOutTime || '11:00') + '"/></div>' +
           '<div class="form-group"><label class="form-label">Timezone</label><select class="form-select" id="set-tz">' + ['UTC','UTC+1','UTC+2','UTC+3','UTC-5','UTC-8'].map(t => '<option' + (settings.timezone === t ? ' selected' : '') + '>' + t + '</option>').join('') + '</select></div></div></div>' +
 
+      '<div class="card"><div class="card-header"><span class="card-title">Tenant Branding</span></div>' +
+        '<p style="font-size:12px;color:var(--text3);margin-bottom:14px">Upload your hotel logo and save the phone number and address used across guest-facing documents.</p>' +
+        '<div style="display:flex;gap:16px;align-items:center;margin-bottom:14px">' +
+          '<div id="tb-logo-preview" style="width:84px;height:84px;border-radius:12px;background:var(--surface2);border:1.5px dashed var(--border-dark);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">' +
+            (settings.logo ? '<img src="' + escapeHtml(settings.logo) + '" alt="Hotel logo" style="width:100%;height:100%;object-fit:cover"/>' : '<span style="font-size:26px">🏨</span>') + '</div>' +
+          '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">' +
+            '<label class="btn outline sm" style="display:block;text-align:center;cursor:pointer">Upload Logo<input type="file" accept="image/*" style="display:none" onchange="window.__tenantLogoPick(event)"/></label>' +
+            (settings.logo ? '<button class="btn ghost sm" onclick="window.__tenantLogoRemove()">Remove Logo</button>' : '') +
+            '<span style="font-size:11px;color:var(--text3)">PNG or JPG up to 512KB</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-row cols-2">' +
+          '<div class="form-group"><label class="form-label">Phone Number</label><input class="form-input" id="set-phone" maxlength="40" placeholder="+234 801 234 5678" value="' + escapeHtml(settings.phone || '') + '"/></div>' +
+          '<div class="form-group"><label class="form-label">Address</label><input class="form-input" id="set-address" maxlength="300" placeholder="12 Marina Road, Lagos Island" value="' + escapeHtml(settings.address || '') + '"/></div>' +
+        '</div>' +
+        '<button class="btn primary sm" style="margin-top:4px" onclick="window.__saveBranding()">Save Branding</button></div>' +
+
       '<div class="card"><div class="card-header"><span class="card-title">WhatsApp Business API</span>' + (settings.waConnected ? '<span class="badge success">Connected</span>' : '<span class="badge error">Not Connected</span>') + '</div>' +
         renderWaTracker(settings) +
         '<div class="alert info" style="font-size:12px">To receive real WhatsApp messages, set your webhook URL in Meta\'s Developer Console to:<br/><code>' + window.location.origin + '/api/webhooks/whatsapp/' + escapeHtml(settings.subdomain || 'your-subdomain') + '</code> — then subscribe to the "messages" webhook field.</div>' +
@@ -180,6 +197,7 @@ PAGES.settings = function () {
   window.__saveAllSettings = async () => {
     const body = {
       hotelName: val('set-name'), currency: val('set-currency'), checkInTime: val('set-cin'), checkOutTime: val('set-cout'), timezone: val('set-tz'),
+      phone: val('set-phone'), address: val('set-address'),
       waPhone: val('set-waphone'), aiEnabled: checked('set-ai'), autoBooking: checked('set-autobk'), aiTone: val('set-tone'),
       autoAssignHk: checked('set-hk-auto'), autoAssignMaint: checked('set-mnt-auto'),
       housekeepingSla: Number(val('set-hk-sla') || 45), maintenanceSla: Number(val('set-mnt-sla') || 60),
@@ -306,6 +324,64 @@ PAGES.settings = function () {
     catch (err) { toast(err.message, 'error'); }
   };
 
+  // ── Tenant branding: logo upload + phone/address ────────────────────────
+  // The logo is uploaded as a base64 data URL (client caps the file at 512KB)
+  // and saved immediately; phone/address ride the normal save paths (this
+  // card's Save Branding button and the page-wide Save All Changes).
+  window.__tenantLogoPick = (evt) => {
+    const file = evt.target && evt.target.files && evt.target.files[0];
+    if (!file) return;
+    if (file.type && file.type.indexOf('image/') !== 0) { toast('Please choose an image file', 'error'); return; }
+    if (file.size > 512 * 1024) { toast('Please choose a logo under 512KB', 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        settings = await API.patch('/api/settings', { logo: reader.result });
+        if (window.App && App.tenant) App.tenant.logo = settings.logo;
+        window.__applyTenantLogo();
+        toast('Logo uploaded', 'success');
+        render();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+    reader.readAsDataURL(file);
+  };
+  window.__tenantLogoRemove = async () => {
+    try {
+      settings = await API.patch('/api/settings', { logo: '' });
+      if (window.App && App.tenant) App.tenant.logo = null;
+      window.__applyTenantLogo();
+      toast('Logo removed', 'warn');
+      render();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  window.__saveBranding = async () => {
+    try {
+      settings = await API.patch('/api/settings', { phone: val('set-phone'), address: val('set-address') });
+      toast('Branding details saved', 'success');
+      render();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
   load();
   return wrap;
+};
+
+// ── Paint the uploaded logo into the app shell ──────────────────────────────
+// Called from setupSidebar() (one guarded line in public/js/app.js) and after
+// every branding save, so the sidebar shows the hotel's own logo instead of
+// the default chat bubble. Safe no-op until a logo exists.
+window.__applyTenantLogo = function () {
+  const slot = document.querySelector('.sb-logo-icon');
+  if (!slot) return;
+  const logo = window.App && App.tenant ? App.tenant.logo : null;
+  if (logo && String(logo).indexOf('data:image/') === 0) {
+    const img = document.createElement('img');
+    img.src = logo;
+    img.alt = (window.App && App.tenant && App.tenant.name) || 'Hotel logo';
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;border-radius:10px';
+    slot.textContent = '';
+    slot.appendChild(img);
+  } else if (slot.querySelector('img')) {
+    slot.textContent = '💬'; // logo removed — restore the default bubble
+  }
 };

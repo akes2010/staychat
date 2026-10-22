@@ -1230,6 +1230,57 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
     CREATE INDEX IF NOT EXISTS idx_gymbookings_gym ON gym_bookings(gym_id, start_date);
   `);
 
+  // MENU CATEGORIES — the product groupings Menu Manager / POS organize items
+  // under. menu_items.category already stores the category a product lives in;
+  // this table persists the vocabulary a manager CREATES via the "+" button
+  // (server/routes/menu-categories.js) even while no product sits in it yet, so
+  // a fresh category survives a reload instead of silently existing only inside
+  // an open form. Names are case-insensitively unique per tenant. Purely
+  // additive — menu_items untouched.
+  // ══════════════════════════════════════════════════════════
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS menu_categories (
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      name TEXT NOT NULL COLLATE NOCASE,
+      created_by TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (tenant_id, name)
+    );
+  `);
+
+  // POS TABLES — restaurant & bar floor inventory: every table's sitting
+  // setting (booth, window side, bar counter…), the number of chairs per
+  // table, which outlet it belongs to (location: restaurant | bar — mirroring
+  // pos_tickets.outlet) and an active flag managers can flip without losing
+  // the row. Purely additive. See server/routes/tables.js.
+  // ══════════════════════════════════════════════════════════
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pos_tables (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      sitting TEXT NOT NULL DEFAULT 'Standard',
+      chairs INTEGER NOT NULL DEFAULT 4,
+      persons INTEGER NOT NULL DEFAULT 4,
+      location TEXT NOT NULL DEFAULT 'restaurant' CHECK(location IN ('restaurant','bar')),
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_postables_tenant ON pos_tables(tenant_id, location);
+  `);
+
+  // Backward-compatible column additions for databases that already ran the
+  // blocks above (SQLite has no ADD COLUMN IF NOT EXISTS — same pattern as the
+  // earlier backfill section). pos_tables.persons = seats a table may serve
+  // (can differ from the physical chair count); tenants gains the tenant
+  // branding fields (logo upload + address — `phone` already existed).
+  const posTableCols = db.prepare('PRAGMA table_info(pos_tables)').all().map(c => c.name);
+  if (!posTableCols.includes('persons')) db.exec('ALTER TABLE pos_tables ADD COLUMN persons INTEGER NOT NULL DEFAULT 4');
+  const tenantColsLate = db.prepare('PRAGMA table_info(tenants)').all().map(c => c.name);
+  if (!tenantColsLate.includes('logo')) db.exec('ALTER TABLE tenants ADD COLUMN logo TEXT');
+  if (!tenantColsLate.includes('address')) db.exec('ALTER TABLE tenants ADD COLUMN address TEXT');
+
   // ══════════════════════════════════════════════════════════
   // ANALYZE — Update query planner statistics
   // ══════════════════════════════════════════════════════════

@@ -28,6 +28,7 @@ const CAPABILITIES = [
   'pool.use', 'pool.manage',
   'halls.use', 'halls.manage',
   'gym.use', 'gym.manage',
+  'tables.use', 'tables.manage',
   'housekeeping.manage',
   'maintenance.manage',
   'guests.manage',
