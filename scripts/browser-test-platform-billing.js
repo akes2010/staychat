@@ -134,12 +134,16 @@ async function withBrowser(fn) {
 
     await withBrowser(async ({ send, evl, type }) => {
       await evl(`location.href = '${BASE}/app'`).catch(() => {});
-      await sleep(1200);
+      // Wait for the shell's JS to be wired — a fixed sleep races the cold
+      // page load and tryRestoreSession() silently no-ops (the same race
+      // browser-test-changepw.js documents).
+      const ready = await waitFor(evl, `typeof tryRestoreSession === 'function' && typeof API !== 'undefined'`, true, 20000);
+      if (ready !== true) return bad('app shell never became ready (tryRestoreSession/API missing)');
       const login = await evl(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: '${SA_EMAIL}', password: '${SA_PASSWORD}' }) }).then(r => r.status)`);
       if (login !== 200) return bad('superadmin login failed (HTTP ' + login + ')');
       ok('superadmin signed in inside the browser');
       await evl(`tryRestoreSession()`);
-      const isSuper = await waitFor(evl, `(window.App && App.user && App.user.role) || null`, 'superadmin');
+      const isSuper = await waitFor(evl, `(window.App && App.user && App.user.role) || null`, 'superadmin', 15000);
       if (isSuper !== 'superadmin') return bad('app session did not restore as superadmin');
       // startApp lands superadmins straight on the Super Admin console.
       const onConsole = await waitFor(evl, `!!document.querySelector('.filter-pills')`, true);

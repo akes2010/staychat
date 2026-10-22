@@ -80,6 +80,11 @@ async function withBrowser(fn) {
 
 // Drive the real sign-in form (same path a human uses).
 async function loginAsSuperadmin(evl) {
+  // Wait for the shell's JS to be wired before driving the form — on a cold
+  // server the first page load outlasts a fixed sleep and doLogin() would
+  // silently no-op (the exact race browser-test-changepw.js documents).
+  const ready = await waitFor(evl, `typeof doLogin === 'function' && typeof App !== 'undefined' && !!document.getElementById('auth-email')`, true, 20000);
+  if (ready !== true) return false;
   await evl(`(document.getElementById('auth-email')||{}).value = ''`);
   await evl(`document.getElementById('auth-email').value = 'superadmin@staychat.io'`);
   await evl(`document.getElementById('auth-pass').value = 'Demo@123456'`);

@@ -91,11 +91,17 @@ async function withBrowser(fn) {
 
     await withBrowser(async ({ send, evl, type }) => {
       await evl(`location.href = '${BASE}/app'`).catch(() => {});
-      await sleep(1200);
+      // Wait for the shell's JS to be wired — a fixed sleep races the cold
+      // page load and tryRestoreSession()/API silently no-op (the same race
+      // browser-test-changepw.js documents).
+      const ready = await waitFor(evl, `typeof tryRestoreSession === 'function' && typeof API !== 'undefined'`, true, 20000);
+      if (ready !== true) return bad('app shell never became ready (tryRestoreSession/API missing)');
       const login = await evl(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'reception@hospitally.com', password: 'Demo@123456' }) }).then(r => r.status)`);
       if (login !== 200) return bad('receptionist login failed (HTTP ' + login + ')');
       ok('receptionist signed in inside the browser');
-      await evl(`tryRestoreSession()`); await sleep(1200);
+      await evl(`tryRestoreSession()`);
+      const who = await waitFor(evl, `App.user && App.user.email`, 'reception@hospitally.com', 15000);
+      if (who !== 'reception@hospitally.com') return bad('session did not restore as receptionist');
 
       // Create + check in a booking; remember the room.
       const setup = await evl(`(async () => {

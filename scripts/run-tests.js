@@ -7,6 +7,9 @@
 //
 // Suites run SEQUENTIALLY on purpose: each boots its own throwaway server on
 // its own port, but running Chromium suites concurrently caused timing flakes.
+// ORDER MATTERS: browser-test-logout.js must run after every suite that signs
+// in (BTS-049 — a session teardown racing a live sign-in). The order is
+// guarded by scripts/verify-battery-order.js.
 // Exit code 0 only when every selected suite passes — safe to gate deploys on.
 'use strict';
 const { spawn } = require('child_process');
@@ -26,13 +29,16 @@ const FAST = [
   'verify-tables-http.js',
   'verify-tenant-settings-http.js',
   'verify-pos-tables-http.js',
+  'verify-battery-order.js',
 ];
 const BROWSER = [
   'browser-test-platform-billing.js',
   'browser-test-settle-modal.js',
-  'browser-test-logout.js',
-  'browser-test-offline-sync.js',
   'browser-test-checkout-flow.js',
+  'browser-test-offline-sync.js',
+  // BTS-049: logout LAST among the signing-in suites — a session teardown
+  // racing a live sign-in poisoned later suites. Only walk-throughs follow.
+  'browser-test-logout.js',
   'browser-test-ota.js',
   'browser-test-gym.js',
   'browser-test-menu-categories.js',
@@ -52,6 +58,13 @@ if (onlyIdx >= 0 && args[onlyIdx + 1]) {
   suites = FAST;
 } else {
   suites = [...FAST, ...BROWSER];
+}
+
+// --list prints the selected suites in declared order and exits; used by
+// scripts/verify-battery-order.js to guard the BTS-049 ordering.
+if (args.includes('--list')) {
+  for (const s of suites) console.log(s);
+  process.exit(0);
 }
 
 const results = [];
