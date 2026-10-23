@@ -1,20 +1,25 @@
 // public/js/pages/shifts.js
 // Shift & Attendance Management — define recurring shifts, clock staff in/out,
-// and review the daily roster / attendance summary.
+// review the daily roster / attendance summary, and run the rotating DUTY
+// ROTATION calendar (which department holds duty on which dates).
 window.PAGES = window.PAGES || {};
 
 PAGES.shifts = function () {
   const wrap = el('div', 'fa');
-  const state = { date: new Date().toISOString().slice(0, 10), shifts: [], attendance: [], staffList: [] };
+  const state = { date: new Date().toISOString().slice(0, 10), shifts: [], attendance: [], staffList: [], rotation: null, calendar: null };
   const canManageShifts = typeof can === 'function' ? can('shifts.manage') : true;
+  const todayIso = () => new Date().toISOString().slice(0, 10);
 
   async function load() {
     wrap.innerHTML = loaderHTML('Loading shifts & attendance…');
     try {
-      const [shifts, attendance, staffList] = await Promise.all([
+      const today = todayIso();
+      const [shifts, attendance, staffList, rotation, calendar] = await Promise.all([
         API.get('/api/shifts'), API.get('/api/shifts/attendance?date=' + state.date), API.get('/api/staff'),
+        API.get('/api/shifts/rotation'), API.get('/api/shifts/rotation/calendar?from=' + today + '&to=' + new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10)),
       ]);
       state.shifts = shifts; state.attendance = attendance; state.staffList = staffList;
+      state.rotation = rotation; state.calendar = calendar;
       render();
     } catch (err) { wrap.innerHTML = errorStateHTML(err.message, 'navigate(\'shifts\')'); }
   }
@@ -40,6 +45,7 @@ PAGES.shifts = function () {
       metricCard('Present / Late Today', String(present), null, '🧑\u200d💼') +
       metricCard('Active Shifts', String(state.shifts.filter(s => s.active).length), null, '🕐') +
     '</div>' +
+    rotationSectionHTML() +
     (state.attendance.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">🕐</div><div class="empty-state-title">No attendance records for this date</div></div>' :
     '<div class="table-wrap"><table><thead><tr><th>Staff</th><th>Shift</th><th>Clock In</th><th>Clock Out</th><th>Status</th><th>Action</th></tr></thead><tbody>' +
       state.attendance.map(a => '<tr>' +
@@ -53,6 +59,45 @@ PAGES.shifts = function () {
   }
 
   function fmtDate(d) { return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+
+  // ── Duty rotation section (rotating department calendar) ─────────────
+  // One fixed color per department (by its position in the cycle) so the
+  // calendar strip reads at a glance; block starts are tinted to show where
+  // each department's run of days begins.
+  const ROT_COLORS = ['#0A6DC2', '#7C3AED', '#D97706', '#0F766E', '#BE123C', '#4D7C0F', '#9333EA', '#0369A1'];
+  function rotColor(dept) {
+    const rot = state.rotation;
+    const i = rot && rot.rotation ? rot.rotation.findIndex(r => r.department === dept) : -1;
+    return ROT_COLORS[(i < 0 ? 0 : i) % ROT_COLORS.length];
+  }
+  function rotationSectionHTML() {
+    const rot = state.rotation, cal = state.calendar;
+    if (!rot || !rot.rotation || !rot.rotation.length || !cal || !cal.days || !cal.days.length) return '';
+    const today = todayIso();
+    const onDuty = cal.days.find(d => d.date === today) || cal.days[0];
+    return '<div class="card" style="margin-bottom:20px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px">' +
+        '<div><div style="font-weight:700;font-size:14px">🔄 Duty Rotation <span style="font-weight:500;color:var(--text3);font-size:12px">— ' + rot.totalDays + '-day cycle · anchored ' + fmtDate(rot.anchorDate) + '</span></div>' +
+        '<div style="font-size:12px;color:var(--text3);margin-top:2px">Today on duty: <b style="color:' + rotColor(onDuty.department) + '">' + escapeHtml(onDuty.department) + '</b> — day ' + onDuty.dayInBlock + ' of ' + onDuty.blockDays + ', through ' + fmtDate(onDuty.blockEnd) + '</div></div>' +
+        (canManageShifts ? '<button class="btn outline sm" onclick="window.__manageRotation()">Manage Rotation</button>' : '') +
+      '</div>' +
+      '<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px">' +
+        cal.days.map(d => {
+          const c = rotColor(d.department);
+          const dow = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+          const isToday = d.date === today;
+          return '<div style="min-width:66px;flex-shrink:0;text-align:center;border:1.5px solid ' + (isToday ? c : 'var(--border)') + ';background:' + (d.dayInBlock === 1 ? c + '1A' : 'var(--surface)') + ';border-radius:9px;padding:6px 4px">' +
+            '<div style="font-size:10px;color:var(--text3)">' + dow + ' ' + d.date.slice(8) + '</div>' +
+            '<div style="font-size:11px;font-weight:700;color:' + c + '">' + escapeHtml(d.department) + '</div>' +
+            '<div style="font-size:9.5px;color:var(--text3)">day ' + d.dayInBlock + '/' + d.blockDays + '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+      '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px">' +
+        rot.rotation.map(r => '<span style="display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text3)"><span style="width:10px;height:10px;border-radius:3px;background:' + rotColor(r.department) + ';display:inline-block"></span>' + escapeHtml(r.department) + ' — ' + r.daysOn + ' day' + (r.daysOn === 1 ? '' : 's') + '</span>').join('') +
+      '</div>' +
+    '</div>';
+  }
 
   window.__attDateChange = (v) => { state.date = v; load(); };
 
@@ -114,6 +159,71 @@ PAGES.shifts = function () {
       try { await API.del('/api/shifts/' + id); toast('Shift deleted', 'warn'); await load(); window.__manageShifts(); }
       catch (err) { toast(err.message, 'error'); }
     });
+  };
+
+  // ── Manage duty rotation ─────────────────────────────────────────────
+  // The editor works on a draft array; every re-render first captures what is
+  // currently typed, so reordering/adding never loses edits in other rows.
+  let rotDraft = [];
+  function rotRowHtml(r, i) {
+    return '<div class="rot-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">' +
+      '<input class="form-input rot-dept" value="' + escapeHtml(r.department || '') + '" placeholder="Department" style="flex:1"/>' +
+      '<input class="form-input rot-days" type="number" min="1" max="30" value="' + (Number(r.daysOn) || 1) + '" style="width:84px" title="Shift days"/>' +
+      '<span style="font-size:11px;color:var(--text3);width:34px">days</span>' +
+      '<button class="btn ghost sm" onclick="window.__rotMove(' + i + ',-1)">↑</button>' +
+      '<button class="btn ghost sm" onclick="window.__rotMove(' + i + ',1)">↓</button>' +
+      '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__rotRemove(' + i + ')">✕</button>' +
+    '</div>';
+  }
+  function syncRotDraft() {
+    const rows = [...document.querySelectorAll('#rot-rows .rot-row')];
+    rotDraft = rows.map(row => ({
+      department: (row.querySelector('.rot-dept') || {}).value || '',
+      daysOn: Number((row.querySelector('.rot-days') || {}).value || 1),
+    }));
+  }
+  function updateRotTotal() {
+    const total = rotDraft.reduce((s, r) => s + (Number(r.daysOn) || 0), 0);
+    const el2 = document.getElementById('rot-total');
+    if (el2) el2.textContent = 'Cycle length: ' + total + ' day' + (total === 1 ? '' : 's') + ' — repeats forever across the calendar';
+  }
+  function renderRotRows() {
+    const box = document.getElementById('rot-rows');
+    if (box) box.innerHTML = rotDraft.length ? rotDraft.map((r, i) => rotRowHtml(r, i)).join('') : '<div style="font-size:12px;color:var(--text3);margin-bottom:8px">No departments yet — add the first one below.</div>';
+    updateRotTotal();
+  }
+  window.__rotAddRow = () => { syncRotDraft(); rotDraft.push({ department: '', daysOn: 1 }); renderRotRows(); };
+  window.__rotMove = (i, dir) => {
+    syncRotDraft();
+    const j = i + dir;
+    if (j < 0 || j >= rotDraft.length) return;
+    [rotDraft[i], rotDraft[j]] = [rotDraft[j], rotDraft[i]];
+    renderRotRows();
+  };
+  window.__rotRemove = (i) => { syncRotDraft(); rotDraft.splice(i, 1); renderRotRows(); };
+  window.__manageRotation = () => {
+    rotDraft = ((state.rotation && state.rotation.rotation) || []).map(r => ({ department: r.department, daysOn: r.daysOn }));
+    openModal('Manage Duty Rotation',
+      '<p style="font-size:12px;color:var(--text3);margin-bottom:12px">Each department holds the duty for its number of consecutive days, then the next one takes over — the cycle repeats endlessly. Reorder with ↑ ↓, add any department.</p>' +
+      '<div id="rot-rows"></div>' +
+      '<button class="btn outline sm" style="margin-bottom:14px" onclick="window.__rotAddRow()">+ Add department</button>' +
+      '<div class="form-group"><label class="form-label">Cycle starts on (anchor date)</label><input class="form-input" type="date" id="rot-anchor" value="' + escapeHtml((state.rotation && state.rotation.anchorDate) || todayIso()) + '"/></div>' +
+      '<div id="rot-total" style="font-size:12px;font-weight:600;color:var(--text3)"></div>',
+      '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__saveRotation()">Save Rotation</button>',
+      { wide: true }
+    );
+    renderRotRows();
+  };
+  window.__saveRotation = async () => {
+    syncRotDraft();
+    const rotation = rotDraft
+      .map(r => ({ department: String(r.department || '').trim(), daysOn: Number(r.daysOn) || 1 }))
+      .filter(r => r.department);
+    if (!rotation.length) { toast('Add at least one department to the rotation', 'error'); return; }
+    try {
+      await API.put('/api/shifts/rotation', { rotation, anchorDate: document.getElementById('rot-anchor').value });
+      toast('Duty rotation updated', 'success'); closeModal(); await load();
+    } catch (err) { toast(err.message, 'error'); }
   };
 
   load();
