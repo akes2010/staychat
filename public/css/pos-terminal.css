@@ -1,0 +1,68 @@
+/* public/css/pos-terminal.css
+   Modern visual redesign of the Restaurant & Bar POS terminal — purely
+   additive: every selector here targets POS-specific classes (.pos-*) that
+   app.css already defines, loaded after app.css so these rules win. No app
+   code or app.css rule is modified. Design goals: big touch-friendly product
+   tiles a cashier/barman can tap without hunting, a receipt-style order
+   panel, and full responsiveness from terminal screens to phones. */
+
+/* ── Terminal layout: products left, live order panel right ────────────── */
+.pos-layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,1fr);gap:18px;align-items:start}
+
+/* ── Product grid — tap-friendly tiles instead of a plain list ─────────── */
+.pos-menu-search{padding:11px 14px;border-radius:12px;font-size:13.5px}
+.pos-layout .filter-pills{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;margin-bottom:10px;scrollbar-width:none}
+.pos-layout .filter-pills::-webkit-scrollbar{display:none}
+.pos-layout .pill{white-space:nowrap;padding:8px 16px;font-size:12.5px}
+.pos-menu-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;max-height:min(56vh,560px);overflow-y:auto;padding:2px 6px 6px 2px;align-content:start}
+.pos-menu-item-btn{position:relative;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:8px;min-height:108px;padding:12px 12px 10px;border-radius:14px;background:var(--surface);border:1.5px solid var(--border);box-shadow:0 1px 2px rgba(0,0,0,.04);text-align:left;transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
+.pos-menu-item-btn:hover{transform:translateY(-2px);border-color:var(--p);background:var(--surface);box-shadow:0 8px 18px -10px rgba(0,0,0,.35)}
+.pos-menu-item-btn:active{transform:scale(.97)}
+.pos-menu-item-btn:focus-visible{outline:2px solid var(--p);outline-offset:2px}
+.pos-menu-item-btn::after{content:'+';position:absolute;top:8px;right:8px;width:22px;height:22px;border-radius:50%;background:var(--p);color:#fff;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .12s ease;pointer-events:none}
+.pos-menu-item-btn:hover::after,.pos-menu-item-btn:focus-visible::after{opacity:1}
+.pos-menu-item-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13.5px;font-weight:700;line-height:1.25;color:var(--text)}
+.pos-menu-item-cat{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
+.pos-menu-item-price{margin-top:auto;font-size:13.5px;font-weight:800;color:var(--p);background:var(--surface2);border-radius:8px;padding:3px 8px}
+.pos-menu-item-price{background:rgba(79,140,255,.10)}
+
+/* ── Order panel — receipt-style card, sticky beside the grid ─────────── */
+.pos-cart-panel{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;position:sticky;top:0;max-height:min(74vh,680px);overflow-y:auto;box-shadow:0 12px 28px -20px rgba(0,0,0,.45)}
+.pos-cart-line{gap:10px;padding:9px 0}
+.pos-cart-line-name{font-size:13px;font-weight:600}
+.pos-qty-btn{width:30px;height:30px;border-radius:9px;font-size:15px}
+.pos-qty-val{min-width:24px;font-size:14px;font-weight:800}
+@media (pointer:coarse){.pos-qty-btn{width:38px;height:38px;font-size:17px}}
+.pos-cart-totals{margin-top:12px;padding-top:12px;border-top:2px dashed var(--border-dark);gap:6px;font-size:13px}
+.pos-cart-totals-row.grand{border-top:none;margin-top:6px;padding:8px 10px;border-radius:10px;background:rgba(79,140,255,.10);color:var(--p);font-size:16px}
+
+/* ── Ticket board — bolder cards with a clear total ───────────────────── */
+.pos-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.pos-ticket-card{border-radius:16px;padding:16px;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+.pos-ticket-card:hover{transform:translateY(-2px);box-shadow:0 12px 24px -14px rgba(0,0,0,.35)}
+.pos-ticket-label{font-size:15px;font-weight:800}
+.pos-ticket-total{font-size:22px;font-weight:800;letter-spacing:-.02em}
+
+/* ── Terminal picker cards ────────────────────────────────────────────── */
+#content .grid.grid-2>.card[onclick*="PickTerminal"]{border-radius:16px;border:1.5px solid var(--border);transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+#content .grid.grid-2>.card[onclick*="PickTerminal"]:hover{transform:translateY(-2px);border-color:var(--p);box-shadow:0 12px 24px -14px rgba(0,0,0,.35)}
+
+/* ── Checkout payment tiles — bigger, clearer, theme-aware selected state ─ */
+.pos-pay-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.pos-pay-option{border-radius:14px;padding:16px 12px;border:1.5px solid var(--border);transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+.pos-pay-option:hover{transform:translateY(-1px);border-color:var(--p)}
+.pos-pay-option.selected{border-color:var(--p);background:rgba(79,140,255,.10);box-shadow:0 0 0 3px rgba(79,140,255,.18)}
+.pos-pay-ico{font-size:26px}
+.pos-pay-label{font-size:13px}
+
+/* ── Responsive: stack panels on small screens ────────────────────────── */
+@media(max-width:980px){
+  .pos-layout{grid-template-columns:1fr}
+  .pos-cart-panel{position:static;max-height:none}
+  .pos-menu-list{max-height:46vh}
+}
+@media(max-width:560px){
+  .pos-menu-list{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+  .pos-board{grid-template-columns:1fr}
+  .pos-menu-item-btn{min-height:96px;padding:10px}
+}

@@ -58,6 +58,17 @@ PAGES.integrations = function () {
     bindEvents();
   }
 
+  // Local helper — renderServiceCard referenced fmtDate but it was never
+  // defined, so any configured service crashed the page with
+  // "Something went wrong: fmtDate is not defined". Tolerates both plain
+  // dates ('YYYY-MM-DD') and full timestamps from last_verified_at.
+  function fmtDate(d) {
+    const s = String(d || '');
+    const dt = new Date(s.length === 10 ? s + 'T00:00:00' : s);
+    if (isNaN(dt.getTime())) return s;
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
   function filterChip(value, label) {
     const active = state.filter === value;
     return '<button class="chip' + (active ? ' active' : '') + '" data-filter="' + escapeHtml(value) + '" ' +

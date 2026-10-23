@@ -26,6 +26,7 @@ const FAST = [
   'test-security-probes.js',
   'test-korapay.js',
   'verify-menu-categories-http.js',
+  'verify-fitness-http.js',
   'verify-tables-http.js',
   'verify-tenant-settings-http.js',
   'verify-pos-tables-http.js',
@@ -42,10 +43,12 @@ const BROWSER = [
   'browser-test-logout.js',
   'browser-test-ota.js',
   'browser-test-gym.js',
+  'browser-test-fitness.js',
   'browser-test-menu-categories.js',
   'browser-test-tables.js',
   'browser-test-tenant-branding.js',
   'browser-test-pos-tables.js',
+  'browser-test-pos-visual.js',
 ];
 
 const args = process.argv.slice(2);

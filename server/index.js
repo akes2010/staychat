@@ -213,6 +213,9 @@ app.use('/api/help', require('./routes/help'));
 app.use('/api/pool', require('./routes/pool'));
 app.use('/api/halls', require('./routes/halls'));
 app.use('/api/gym', require('./routes/gym'));
+// Additive module: quarterly registrations + Gym & Pool combined membership
+// plans (owns its own tables; see server/routes/fitness.js header).
+app.use('/api/fitness', require('./routes/fitness'));
 app.use('/api/tables', require('./routes/tables'));
 app.use('/api/guests', require('./routes/guests'));
 app.use('/api/blocklist', require('./routes/blocklist'));
