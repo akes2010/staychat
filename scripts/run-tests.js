@@ -35,6 +35,7 @@ const BROWSER = [
   'browser-test-platform-billing.js',
   'browser-test-settle-modal.js',
   'browser-test-checkout-flow.js',
+  'browser-test-changepw.js',
   'browser-test-offline-sync.js',
   // BTS-049: logout LAST among the signing-in suites — a session teardown
   // racing a live sign-in poisoned later suites. Only walk-throughs follow.
