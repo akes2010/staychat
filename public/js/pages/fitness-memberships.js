@@ -11,6 +11,7 @@ window.PAGES = window.PAGES || {};
 
 (function () {
   const DURATIONS = [
+    { key: 'daily', label: 'Daily' },
     { key: 'monthly', label: 'Monthly' },
     { key: 'quarterly', label: 'Quarterly' },
     { key: 'yearly', label: 'Yearly' },
@@ -26,6 +27,7 @@ window.PAGES = window.PAGES || {};
 
   // Same calendar math as the server: +N months − 1 day, inclusive.
   function periodEnd(duration, start) {
+    if (duration === 'daily') return start;
     const months = { monthly: 1, quarterly: 3, yearly: 12 }[duration] || 1;
     const d = new Date(start + 'T00:00:00Z');
     const day = d.getUTCDate();
@@ -87,6 +89,7 @@ window.PAGES = window.PAGES || {};
         (p.active ? '' : badge('Inactive', 'default')) +
       '</div>' +
       '<div class="fm-plan-prices">' +
+        '<span class="fm-price-chip"><b>' + formatMoney(p.price_daily) + '</b>/day</span>' +
         '<span class="fm-price-chip"><b>' + formatMoney(p.price_monthly) + '</b>/mo</span>' +
         '<span class="fm-price-chip highlight"><b>' + formatMoney(p.price_quarterly) + '</b>/qtr</span>' +
         '<span class="fm-price-chip"><b>' + formatMoney(p.price_yearly) + '</b>/yr</span>' +
@@ -249,12 +252,13 @@ window.PAGES = window.PAGES || {};
 
   // ── Plan manager (create / edit / delete plans) ───────────────────────
   function planFormInner(p) {
-    const plan = p || { name: '', scope: 'both', price_monthly: 0, price_quarterly: 0, price_yearly: 0, features: [], benefits: [], active: true };
+    const plan = p || { name: '', scope: 'both', price_daily: 0, price_monthly: 0, price_quarterly: 0, price_yearly: 0, features: [], benefits: [], active: true };
     return '<div class="form-row cols-2">' +
         '<div class="form-group"><label class="form-label">Plan Name</label><input class="form-input" id="fmp-name" value="' + escapeHtml(plan.name) + '" placeholder="e.g. Wellness Combo"/></div>' +
         '<div class="form-group"><label class="form-label">Scope</label><select class="form-select" id="fmp-scope">' +
           ['both', 'gym', 'pool'].map(s => '<option value="' + s + '"' + (plan.scope === s ? ' selected' : '') + '>' + SCOPE_LABELS[s] + '</option>').join('') +
         '</select></div>' +
+        '<div class="form-group"><label class="form-label">Daily Price ($)</label><input class="form-input" type="number" min="0" id="fmp-daily" value="' + plan.price_daily + '"/></div>' +
         '<div class="form-group"><label class="form-label">Monthly Price ($)</label><input class="form-input" type="number" min="0" id="fmp-monthly" value="' + plan.price_monthly + '"/></div>' +
         '<div class="form-group"><label class="form-label">Quarterly Price ($)</label><input class="form-input" type="number" min="0" id="fmp-quarterly" value="' + plan.price_quarterly + '"/></div>' +
         '<div class="form-group"><label class="form-label">Yearly Price ($)</label><input class="form-input" type="number" min="0" id="fmp-yearly" value="' + plan.price_yearly + '"/></div>' +
@@ -301,6 +305,7 @@ window.PAGES = window.PAGES || {};
     const body = {
       name,
       scope: document.getElementById('fmp-scope').value,
+      priceDaily: Number(document.getElementById('fmp-daily').value || 0),
       priceMonthly: Number(document.getElementById('fmp-monthly').value || 0),
       priceQuarterly: Number(document.getElementById('fmp-quarterly').value || 0),
       priceYearly: Number(document.getElementById('fmp-yearly').value || 0),

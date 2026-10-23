@@ -35,6 +35,7 @@ function ensureSchema() {
       tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       scope TEXT NOT NULL DEFAULT 'both' CHECK(scope IN ('gym','pool','both')),
+      price_daily REAL NOT NULL DEFAULT 0,     -- daily pass price (per day)
       price_monthly REAL NOT NULL DEFAULT 0,
       price_quarterly REAL NOT NULL DEFAULT 0,
       price_yearly REAL NOT NULL DEFAULT 0,
@@ -52,7 +53,7 @@ function ensureSchema() {
       tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
       plan_id TEXT REFERENCES membership_plans(id) ON DELETE SET NULL,
       scope TEXT NOT NULL DEFAULT 'both' CHECK(scope IN ('gym','pool','both')),
-      duration TEXT NOT NULL CHECK(duration IN ('monthly','quarterly','yearly')),
+      duration TEXT NOT NULL CHECK(duration IN ('daily','monthly','quarterly','yearly')),
       member_name TEXT NOT NULL,
       member_phone TEXT,
       member_email TEXT,
@@ -69,6 +70,58 @@ function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_memberships_tenant ON memberships(tenant_id, status, start_date);
   `);
+  // ── Upgrades for DBs built by the pre-daily version of THIS module ────
+  // (own tables only — server/db/migrate.js and every system table stay put.)
+  const planCols = db.pragma('table_info(membership_plans)').map(c => c.name);
+  if (!planCols.includes('price_daily')) {
+    db.exec(`ALTER TABLE membership_plans ADD COLUMN price_daily REAL NOT NULL DEFAULT 0`);
+  }
+  upgradeDurationConstraint();
+}
+
+// SQLite cannot ALTER a CHECK constraint: a pre-daily memberships table
+// rejects duration='daily', so rebuild this module's own table preserving
+// every row (drop index → rename → recreate with the wider CHECK → copy →
+// drop → re-index), all inside one transaction.
+function upgradeDurationConstraint() {
+  const meta = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='memberships'`).get();
+  if (!meta || !meta.sql || meta.sql.includes("'daily'")) return;
+  db.exec('BEGIN');
+  try {
+    db.exec('DROP INDEX IF EXISTS idx_memberships_tenant');
+    db.exec('ALTER TABLE memberships RENAME TO memberships_predaily');
+    db.exec(`CREATE TABLE IF NOT EXISTS memberships (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      plan_id TEXT REFERENCES membership_plans(id) ON DELETE SET NULL,
+      scope TEXT NOT NULL DEFAULT 'both' CHECK(scope IN ('gym','pool','both')),
+      duration TEXT NOT NULL CHECK(duration IN ('daily','monthly','quarterly','yearly')),
+      member_name TEXT NOT NULL,
+      member_phone TEXT,
+      member_email TEXT,
+      room_number TEXT,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      paid INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed','cancelled')),
+      notes TEXT,
+      created_by TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`);
+    db.exec(`INSERT INTO memberships (id, tenant_id, plan_id, scope, duration, member_name, member_phone, member_email, room_number,
+              start_date, end_date, amount, paid, status, notes, created_by, created_at, updated_at)
+            SELECT id, tenant_id, plan_id, scope, duration, member_name, member_phone, member_email, room_number,
+                   start_date, end_date, amount, paid, status, notes, created_by, created_at, updated_at
+              FROM memberships_predaily`);
+    db.exec('DROP TABLE memberships_predaily');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_memberships_tenant ON memberships(tenant_id, status, start_date)');
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch (x) { /* nothing open */ }
+    throw e;
+  }
 }
 ensureSchema();
 // Re-run on every route entry too (cheap no-op after first run) so a wiped DB
@@ -77,7 +130,7 @@ function ensureSchemaSoft() { try { ensureSchema(); } catch (e) { /* race with c
 
 // ── Gates ───────────────────────────────────────────────────────────────
 const SCOPES = ['gym', 'pool', 'both'];
-const DURATIONS = ['monthly', 'quarterly', 'yearly'];
+const DURATIONS = ['daily', 'monthly', 'quarterly', 'yearly'];
 
 function hasFitnessUse(user) { return hasPermission(user, 'gym.use') || hasPermission(user, 'pool.use'); }
 function hasFitnessManage(user) { return hasPermission(user, 'gym.manage') || hasPermission(user, 'pool.manage'); }
@@ -178,6 +231,7 @@ function addMonths(dateStr, n) {
 }
 const DURATION_MONTHS = { monthly: 1, quarterly: 3, yearly: 12 };
 function periodFor(duration, start) {
+  if (duration === 'daily') return { start, end: start }; // a daily pass runs one day
   return { start, end: addDays(addMonths(start, DURATION_MONTHS[duration]), -1) };
 }
 function validDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) && !isNaN(new Date(s + 'T00:00:00Z').getTime()); }
@@ -222,6 +276,7 @@ router.post('/plans', requireFitnessManage, (req, res) => {
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
     if (String(name).trim().length > 80) return res.status(400).json({ error: 'name may be at most 80 characters' });
     if (scope !== undefined && !SCOPES.includes(scope)) return res.status(400).json({ error: 'scope must be gym, pool or both' });
+    const priceDaily = sanitizePrice(req.body.priceDaily, 'priceDaily') ?? 0;
     const priceMonthly = sanitizePrice(req.body.priceMonthly, 'priceMonthly') ?? 0;
     const priceQuarterly = sanitizePrice(req.body.priceQuarterly, 'priceQuarterly') ?? 0;
     const priceYearly = sanitizePrice(req.body.priceYearly, 'priceYearly') ?? 0;
@@ -229,9 +284,9 @@ router.post('/plans', requireFitnessManage, (req, res) => {
     const benefits = sanitizeStringList(req.body.benefits, 'benefits') ?? [];
 
     const id = 'mplan_' + nanoid(10);
-    db.prepare(`INSERT INTO membership_plans (id, tenant_id, name, scope, price_monthly, price_quarterly, price_yearly, features, benefits, active, created_by)
-                VALUES (?,?,?,?,?,?,?,?,?,1,?)`)
-      .run(id, req.tenantId, String(name).trim(), scope || 'both', priceMonthly, priceQuarterly, priceYearly,
+    db.prepare(`INSERT INTO membership_plans (id, tenant_id, name, scope, price_daily, price_monthly, price_quarterly, price_yearly, features, benefits, active, created_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,1,?)`)
+      .run(id, req.tenantId, String(name).trim(), scope || 'both', priceDaily, priceMonthly, priceQuarterly, priceYearly,
            JSON.stringify(features), JSON.stringify(benefits), req.user.name);
     const plan = db.prepare('SELECT * FROM membership_plans WHERE id = ?').get(id);
     audit(req, 'membership_plan.create', 'membership_plan', id, { name: plan.name, scope: plan.scope });
@@ -258,6 +313,7 @@ router.patch('/plans/:id', requireFitnessManage, (req, res) => {
       if (!SCOPES.includes(req.body.scope)) return res.status(400).json({ error: 'scope must be gym, pool or both' });
       updates.scope = req.body.scope;
     }
+    const pd = sanitizePrice(req.body.priceDaily, 'priceDaily'); if (pd !== undefined) updates.price_daily = pd;
     const pm = sanitizePrice(req.body.priceMonthly, 'priceMonthly'); if (pm !== undefined) updates.price_monthly = pm;
     const pq = sanitizePrice(req.body.priceQuarterly, 'priceQuarterly'); if (pq !== undefined) updates.price_quarterly = pq;
     const py = sanitizePrice(req.body.priceYearly, 'priceYearly'); if (py !== undefined) updates.price_yearly = py;
@@ -317,7 +373,7 @@ router.post('/memberships', (req, res) => {
   if (!planId || !duration || !startDate || !memberName) {
     return res.status(400).json({ error: 'planId, duration, startDate and memberName are required' });
   }
-  if (!DURATIONS.includes(duration)) return res.status(400).json({ error: 'duration must be monthly, quarterly or yearly' });
+  if (!DURATIONS.includes(duration)) return res.status(400).json({ error: 'duration must be daily, monthly, quarterly or yearly' });
   if (!validDate(startDate)) return res.status(400).json({ error: 'startDate must be a valid YYYY-MM-DD date' });
 
   const plan = db.prepare('SELECT * FROM membership_plans WHERE id = ? AND tenant_id = ?').get(planId, req.tenantId);
@@ -381,9 +437,8 @@ router.patch('/memberships/:id', (req, res) => {
     if (!nextPlan) return res.status(404).json({ error: 'Plan not found' });
     if (!assertScopeEntitled(req, res, nextPlan.scope)) return;
     if (req.body.planId !== undefined) { updates.plan_id = nextPlan.id; updates.scope = nextPlan.scope; }
-  }
-  if (req.body.duration !== undefined) {
-    if (!DURATIONS.includes(req.body.duration)) return res.status(400).json({ error: 'duration must be monthly, quarterly or yearly' });
+  }    if (req.body.duration !== undefined) {
+    if (!DURATIONS.includes(req.body.duration)) return res.status(400).json({ error: 'duration must be daily, monthly, quarterly or yearly' });
     updates.duration = req.body.duration;
   }
   if (req.body.startDate !== undefined) {

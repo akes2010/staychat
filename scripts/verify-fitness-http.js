@@ -69,6 +69,51 @@ function check(name, cond, extra) {
   console.log((cond ? '✓ PASS' : '✗ FAIL') + '  ' + name + (extra ? '  — ' + extra : ''));
 }
 
+// ── Simulate a DB built by the PRE-DAILY build of the fitness module so the
+//    load-time upgrade is exercised: membership_plans gains price_daily via
+//    ALTER, and the memberships CHECK constraint (no 'daily') is rebuilt with
+//    every existing row preserved. This module's own schema — created before
+//    the app (and its route module) is required below.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS membership_plans (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'both' CHECK(scope IN ('gym','pool','both')),
+    price_monthly REAL NOT NULL DEFAULT 0,
+    price_quarterly REAL NOT NULL DEFAULT 0,
+    price_yearly REAL NOT NULL DEFAULT 0,
+    features TEXT NOT NULL DEFAULT '[]',
+    benefits TEXT NOT NULL DEFAULT '[]',
+    active INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS memberships (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    plan_id TEXT REFERENCES membership_plans(id) ON DELETE SET NULL,
+    scope TEXT NOT NULL DEFAULT 'both' CHECK(scope IN ('gym','pool','both')),
+    duration TEXT NOT NULL CHECK(duration IN ('monthly','quarterly','yearly')),
+    member_name TEXT NOT NULL,
+    member_phone TEXT,
+    member_email TEXT,
+    room_number TEXT,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    amount REAL NOT NULL DEFAULT 0,
+    paid INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed','cancelled')),
+    notes TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+db.prepare(`INSERT INTO memberships (id, tenant_id, plan_id, scope, duration, member_name, start_date, end_date, amount)
+            VALUES ('fit_legacy0001', ?, NULL, 'both', 'monthly', 'Legacy Member', '2026-01-01', '2026-01-31', 50)`).run(tenantA);
+
 const { app } = require('../server/index');
 const server = app.listen(0, '127.0.0.1');
 
@@ -117,25 +162,25 @@ async function run() {
   // ── 2. Combined plan create → round-trip ──────────────────────────────
   r = await req('POST', '/api/fitness/plans', adminTok, {
     name: 'Wellness Combo', scope: 'both',
-    priceMonthly: 50, priceQuarterly: 135, priceYearly: 480,
+    priceDaily: 12, priceMonthly: 50, priceQuarterly: 135, priceYearly: 480,
     features: ['Gym access', 'Pool access', 'Sauna'],
     benefits: ['Free towel service', '10% spa discount'],
   });
   check('POST combined plan → 201', r.status === 201, 'got ' + r.status + ' ' + JSON.stringify(r.body).slice(0, 90));
   const combo = r.body;
-  check('plan round-trips scope/prices/features/benefits',
-    combo && combo.scope === 'both' && combo.price_monthly === 50 && combo.price_quarterly === 135 && combo.price_yearly === 480 &&
+  check('plan round-trips scope/day-month-quarter-year prices/features/benefits',
+    combo && combo.scope === 'both' && combo.price_daily === 12 && combo.price_monthly === 50 && combo.price_quarterly === 135 && combo.price_yearly === 480 &&
     Array.isArray(combo.features) && combo.features.length === 3 && Array.isArray(combo.benefits) && combo.benefits.length === 2 && combo.active === true,
     JSON.stringify(combo && { scope: combo.scope, f: combo.features && combo.features.length }));
 
   r = await req('POST', '/api/fitness/plans', adminTok, {
-    name: 'Gym Only', scope: 'gym', priceMonthly: 30, priceQuarterly: 80, priceYearly: 300, features: ['Gym access'],
+    name: 'Gym Only', scope: 'gym', priceDaily: 8, priceMonthly: 30, priceQuarterly: 80, priceYearly: 300, features: ['Gym access'],
   });
   check('gym-scope plan → 201', r.status === 201 && r.body.scope === 'gym', 'got ' + r.status);
   const gymOnly = r.body;
 
   r = await req('POST', '/api/fitness/plans', adminTok, {
-    name: 'Pool Only', scope: 'pool', priceMonthly: 25, priceQuarterly: 65, priceYearly: 240, features: ['Pool access'], benefits: ['Guest pass'],
+    name: 'Pool Only', scope: 'pool', priceDaily: 5, priceMonthly: 25, priceQuarterly: 65, priceYearly: 240, features: ['Pool access'], benefits: ['Guest pass'],
   });
   check('pool-scope plan → 201', r.status === 201 && r.body.scope === 'pool', 'got ' + r.status);
   const poolOnly = r.body;
@@ -189,9 +234,20 @@ async function run() {
   check('yearly amount auto-defaults (240) + period 2026-03-01 → 2027-02-28',
     yr && yr.amount === 240 && yr.end_date === '2027-02-28', yr && (yr.amount + '/' + yr.end_date));
 
+  // ── 6b. Daily pass — the newly added fourth duration ────────────────
+  r = await req('POST', '/api/fitness/memberships', adminTok, {
+    planId: combo.id, duration: 'daily', startDate: '2026-01-15', memberName: 'Day Pass',
+  });
+  check('daily membership → 201', r.status === 201, 'got ' + r.status + ' ' + JSON.stringify(r.body).slice(0, 90));
+  const day = r.body;
+  check('daily period is a single day (start === end === 2026-01-15)',
+    day && day.start_date === '2026-01-15' && day.end_date === '2026-01-15', day && (day.start_date + '→' + day.end_date));
+  check('daily amount auto-defaults to the plan daily price (12)', day && day.amount === 12, day && String(day.amount));
+  check('daily duration/status round-trip', day && day.duration === 'daily' && day.status === 'active', day && day.duration);
+
   // ── 7. Validation + missing rows ──────────────────────────────────────
-  r = await req('POST', '/api/fitness/memberships', adminTok, { planId: combo.id, duration: 'daily', startDate: '2026-01-01', memberName: 'X' });
-  check('duration "daily" → 400 (only monthly/quarterly/yearly)', r.status === 400, 'got ' + r.status);
+  r = await req('POST', '/api/fitness/memberships', adminTok, { planId: combo.id, duration: 'weekly', startDate: '2026-01-01', memberName: 'X' });
+  check('duration "weekly" → 400 (valid: daily/monthly/quarterly/yearly)', r.status === 400, 'got ' + r.status);
   r = await req('POST', '/api/fitness/memberships', adminTok, { planId: combo.id, duration: 'quarterly', startDate: '2026-01-01' });
   check('missing memberName → 400', r.status === 400, 'got ' + r.status);
   r = await req('POST', '/api/fitness/memberships', adminTok, { planId: combo.id, duration: 'quarterly', startDate: '15-01-2026', memberName: 'X' });
@@ -204,8 +260,9 @@ async function run() {
   check('plan PATCH active=false → 200', r.status === 200 && r.body.active === false, 'got ' + r.status);
   r = await req('POST', '/api/fitness/memberships', adminTok, { planId: gymOnly.id, duration: 'monthly', startDate: '2026-01-01', memberName: 'X' });
   check('registration on inactive plan → 409', r.status === 409, 'got ' + r.status);
-  r = await req('PATCH', '/api/fitness/plans/' + gymOnly.id, adminTok, { active: true, priceQuarterly: 85 });
-  check('plan PATCH reactivate + price update round-trip', r.status === 200 && r.body.active === true && r.body.price_quarterly === 85, 'got ' + r.status);
+  r = await req('PATCH', '/api/fitness/plans/' + gymOnly.id, adminTok, { active: true, priceQuarterly: 85, priceDaily: 15 });
+  check('plan PATCH reactivate + quarterly/daily price update round-trip',
+    r.status === 200 && r.body.active === true && r.body.price_quarterly === 85 && r.body.price_daily === 15, 'got ' + r.status);
 
   // ── 9. Manager override is honoured ───────────────────────────────────
   r = await req('POST', '/api/fitness/memberships', adminTok, {
@@ -260,10 +317,10 @@ async function run() {
   check('starter tenant POST /memberships → 402', r.status === 402, 'got ' + r.status);
 
   // ── 15. Per-tenant isolation ──────────────────────────────────────────
-  r = await req('POST', '/api/fitness/plans', adminBTok, { name: 'Wellness Combo', scope: 'both', priceMonthly: 70, priceQuarterly: 190, priceYearly: 690 });
+  r = await req('POST', '/api/fitness/plans', adminBTok, { name: 'Wellness Combo', scope: 'both', priceDaily: 4, priceMonthly: 70, priceQuarterly: 190, priceYearly: 690 });
   check('tenant B may create the SAME plan name → 201', r.status === 201, 'got ' + r.status);
   r = await req('GET', '/api/fitness/plans', adminBTok);
-  check('tenant B list has only its own plan', r.status === 200 && r.body.length === 1 && r.body[0].price_monthly === 70, 'n=' + (r.body && r.body.length));
+  check('tenant B list has only its own plan', r.status === 200 && r.body.length === 1 && r.body[0].price_monthly === 70 && r.body[0].price_daily === 4, 'n=' + (r.body && r.body.length));
   r = await req('GET', '/api/fitness/memberships', adminBTok);
   check('tenant B memberships exclude tenant A rows', r.status === 200 && r.body.length === 0, 'n=' + (r.body && r.body.length));
 
@@ -271,9 +328,19 @@ async function run() {
   const planRows = db.prepare('SELECT COUNT(*) c FROM membership_plans WHERE tenant_id = ?').get(tenantA).c;
   check('plans persisted for tenant A (1 remaining after deletes)', planRows === 1, 'rows=' + planRows);
   const memRows = db.prepare('SELECT COUNT(*) c FROM memberships WHERE tenant_id = ?').get(tenantA).c;
-  check('memberships persisted for tenant A (4)', memRows === 4, 'rows=' + memRows);
+  check('memberships persisted for tenant A (5 created + 1 legacy)', memRows === 6, 'rows=' + memRows);
+
+  // ── The load-time upgrade from the pre-daily schema ──────────────────
+  const legacy = db.prepare('SELECT * FROM memberships WHERE id = ?').get('fit_legacy0001');
+  check('legacy pre-daily membership survived the CHECK rebuild',
+    legacy && legacy.duration === 'monthly' && legacy.member_name === 'Legacy Member' && legacy.amount === 50,
+    legacy ? legacy.duration : 'missing');
+  const planHasDaily = db.pragma('table_info(membership_plans)').some(c => c.name === 'price_daily');
+  check('membership_plans gained price_daily via load-time ALTER', planHasDaily);
+  const membersSql = (db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='memberships'`).get() || {}).sql || '';
+  check('memberships CHECK constraint now allows daily', membersSql.includes("'daily'"));
   const audits = db.prepare("SELECT COUNT(*) c FROM audit_log WHERE tenant_id = ? AND action = 'membership.create'").get(tenantA).c;
-  check('audit rows written for membership creates', audits >= 4, 'n=' + audits);
+  check('audit rows written for membership creates', audits >= 5, 'n=' + audits);
   const planAudits = db.prepare("SELECT COUNT(*) c FROM audit_log WHERE tenant_id = ? AND action = 'membership_plan.create'").get(tenantA).c;
   check('audit rows written for plan creates', planAudits >= 3, 'n=' + planAudits);
 

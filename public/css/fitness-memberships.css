@@ -20,7 +20,7 @@
 .fm-plan-paused{font-size:11.5px;color:var(--text3);text-align:center;padding:6px 0}
 .fm-form-box{background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:16px}
 .fm-form-title{font-weight:700;font-size:13.5px;margin-bottom:10px;color:var(--text)}
-.fm-dur-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.fm-dur-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
 .fm-dur-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 6px;border-radius:12px;border:1.5px solid var(--border);background:var(--surface);cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;color:var(--text2);transition:all .15s}
 .fm-dur-btn:hover{border-color:var(--p);color:var(--p)}
 .fm-dur-btn .fm-dur-price{font-size:11px;font-weight:600;color:var(--text3)}
@@ -41,4 +41,4 @@
 .fm-empty-title{font-weight:800;font-size:15px;margin-bottom:4px;color:var(--text)}
 .fm-empty-desc{font-size:12.5px;color:var(--text3);max-width:420px;margin:0 auto}
 .fm-plan-mgr-row{display:flex;align-items:center;gap:10px;background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:8px}
-@media(max-width:560px){.fm-plan-grid{grid-template-columns:1fr}.fm-dur-row{grid-template-columns:1fr}}
+@media(max-width:560px){.fm-plan-grid{grid-template-columns:1fr}.fm-dur-row{grid-template-columns:repeat(2,1fr)}}

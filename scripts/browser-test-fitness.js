@@ -159,6 +159,7 @@ async function withBrowser(fn) {
       await evl(`(() => {
         document.getElementById('fmp-name').value = 'Ultimate Combo';
         document.getElementById('fmp-scope').value = 'both';
+        document.getElementById('fmp-daily').value = '8';
         document.getElementById('fmp-monthly').value = '60';
         document.getElementById('fmp-quarterly').value = '160';
         document.getElementById('fmp-yearly').value = '580';
@@ -171,15 +172,15 @@ async function withBrowser(fn) {
       else bad('plan did not persist — count=' + planCount);
 
       const plan = await evl(`API.get('/api/fitness/plans').then(p => p[0])`);
-      if (plan && plan.name === 'Ultimate Combo' && plan.scope === 'both' && plan.price_monthly === 60 &&
+      if (plan && plan.name === 'Ultimate Combo' && plan.scope === 'both' && plan.price_daily === 8 && plan.price_monthly === 60 &&
           plan.price_quarterly === 160 && plan.price_yearly === 580 && plan.features.length === 3 && plan.benefits.length === 2) {
-        ok('plan round-trips scope/monthly-quarterly-yearly prices + features + benefits');
+        ok('plan round-trips scope/day-month-quarter-year prices + features + benefits');
       } else bad('plan fields wrong — ' + JSON.stringify(plan));
 
       // ── 4. Back to the main modal: plan card shows all three tiers ────
       await evl(`window.__fmOpen()`); await sleep(800);
       const cardText2 = await evl(`(() => { const c = document.querySelector('.fm-plan-card'); return c ? c.textContent : ''; })()`);
-      if (cardText2.includes('$60') && cardText2.includes('$160') && cardText2.includes('$580')) ok('plan card shows all three price tiers ($60/mo · $160/qtr · $580/yr)');
+      if (cardText2.includes('$8.00/day') && cardText2.includes('$60') && cardText2.includes('$160') && cardText2.includes('$580')) ok('plan card shows all four price tiers ($8.00/day · $60/mo · $160/qtr · $580/yr)');
       else bad('price tiers missing from the card — ' + cardText2.slice(0, 120));
       if (cardText2.includes('Sauna') && cardText2.includes('Guest day pass')) ok('features and benefits render on the plan card');
       else bad('features/benefits missing — ' + cardText2.slice(0, 120));
@@ -219,6 +220,36 @@ async function withBrowser(fn) {
       const listText = await evl(`(document.getElementById('fm-list') || {}).textContent || ''`);
       if (listText.includes('Ngozi Umeh') && listText.includes('Quarterly')) ok('active-memberships list shows the member with the Quarterly badge');
       else bad('member row missing from the list — ' + listText.slice(0, 120));
+
+      // ── 6b. Daily pass — the fourth duration ──────────────────────────
+      await evl(`window.__fmSetDuration('daily')`); await sleep(200);
+      const dailyAuto = await evl(`document.getElementById('fm-amount').value`);
+      if (String(dailyAuto) === '8') ok('switching to Daily auto-fills the $8 daily price');
+      else bad('daily auto-fill wrong — ' + dailyAuto);
+
+      await evl(`(() => {
+        document.getElementById('fm-name').value = 'Tunde Bello';
+        document.getElementById('fm-start').value = '2026-06-01';
+        window.__fmRefreshSummary();
+      })()`);
+      const dailySummary = await evl(`(document.getElementById('fm-summary') || {}).textContent || ''`);
+      if (dailySummary.includes('2026-06-01 → 2026-06-01')) ok('daily summary previews a single-day period (same day in and out)');
+      else bad('daily period preview wrong — ' + dailySummary.slice(0, 140));
+
+      await evl(`window.__fmSubmit()`);
+      const memCount2 = await waitFor(evl, `API.get('/api/fitness/memberships').then(m => m.length)`, 2);
+      if (memCount2 === 2) ok('daily membership registered via the UI (API shows 2)');
+      else bad('daily membership did not persist — count=' + memCount2);
+
+      const dailyMem = await evl(`API.get('/api/fitness/memberships').then(ms => ms.find(m => m.duration === 'daily'))`);
+      if (dailyMem && dailyMem.member_name === 'Tunde Bello' && dailyMem.amount === 8 &&
+          dailyMem.start_date === '2026-06-01' && dailyMem.end_date === '2026-06-01' && dailyMem.status === 'active') {
+        ok('daily membership carries amount 8 + single-day period (start === end)');
+      } else bad('daily membership fields wrong — ' + JSON.stringify(dailyMem));
+
+      const listText2 = await evl(`(document.getElementById('fm-list') || {}).textContent || ''`);
+      if (listText2.includes('Tunde Bello') && listText2.includes('Daily')) ok('active-memberships list shows the daily pass too');
+      else bad('daily member row missing — ' + listText2.slice(0, 120));
 
       // ── 6. Pool page gains the same button ────────────────────────────
       await evl(`closeModal()`); await sleep(200);
