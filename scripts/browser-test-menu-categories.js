@@ -14,7 +14,11 @@
 //     saved under it,
 //   • editing that product re-selects its custom category (the fixed-list
 //     fallback would silently rewrite it on save),
-//   • after a full page reload the categories are still there.
+//   • after a full page reload the categories are still there,
+//   • the Export/Import header buttons (menu-export-import.js) round-trip
+//     products INCLUDING images, and importing is create-only: duplicates are
+//     skipped, invalid rows are reported, and existing products (price,
+//     image) are never modified — re-importing the same file is a no-op.
 'use strict';
 const { spawn } = require('child_process');
 const http = require('http');
@@ -288,6 +292,63 @@ async function withBrowser(fn) {
       })()`, true);
       if (persisted) ok('after reload both created categories are still selectable in the dropdown');
       else bad('created categories did not persist across reload');
+      await evl(`closeModal()`); await sleep(300);
+
+      // ── 9. Export/Import buttons injected in the header ─────────────────
+      const ioBtns = await waitFor(evl, `(() => {
+        const hdr = document.querySelector('#content .page-header');
+        if (!hdr) return null;
+        const t = Array.from(hdr.querySelectorAll('button')).map(b => b.textContent.trim());
+        return { exp: t.includes('⬇ Export'), imp: t.includes('⬆ Import'), input: !!hdr.querySelector('input[type="file"][accept*="json"]') };
+      })()`, { exp: true, imp: true, input: true });
+      if (ioBtns && ioBtns.exp && ioBtns.imp && ioBtns.input) ok('header carries Export + Import buttons and the hidden JSON file input');
+      else bad('export/import header controls missing — ' + JSON.stringify(ioBtns));
+
+      // ── 10. Export snapshot includes the product image (data-URL) ───────
+      const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      await evl(`API.get('/api/menu').then(m => API.patch('/api/menu/' + m[0].id, { imageUrl: ${JSON.stringify(TINY_PNG)} }))`);
+      const expText = await evl(`window.__mexiExportText()`);
+      let exp = null; try { exp = JSON.parse(expText); } catch (e) {}
+      if (exp && exp.format === 'staychat-menu-export' && exp.products.length === 1 &&
+          exp.products[0].name === 'Mint Mojito' && (exp.products[0].imageUrl || '').indexOf('data:image/png') === 0) {
+        ok('export snapshot carries the product WITH its image');
+      } else bad('export snapshot wrong — ' + String(expText).slice(0, 160));
+
+      // Clicking the real Export button downloads + toasts
+      await evl(`(() => { const b = Array.from(document.querySelectorAll('#content .page-header button')).find(x => x.textContent.trim() === '⬇ Export'); b.click(); })()`);
+      const expToast = await waitFor(evl, `(() => { const t = document.querySelector('.toast .toast-msg'); return t ? t.textContent : ''; })()`, 'Exported 1 product (images included)');
+      if (expToast === 'Exported 1 product (images included)') ok('Export button toasts the exported count');
+      else bad('export button toast wrong — "' + expToast + '"');
+
+      // ── 11. Import: create-only round-trip (dup skipped, bad row reported)
+      const importFile = JSON.stringify({ products: [
+        { name: 'Mint Mojito', category: 'Happy Hour', outlet: 'both', price: 999 }, // dupe — must NOT be updated
+        { name: 'Sunset Cocktail', category: 'Cocktails', outlet: 'bar', price: 9, costPrice: 2.5, imageUrl: TINY_PNG },
+        { price: 5 }, // invalid — no name
+      ] });
+      const rep1 = await evl(`window.__mexiImport(${JSON.stringify(importFile)})`);
+      if (rep1 && rep1.total === 3 && rep1.created === 1 && rep1.skipped === 1 && rep1.failed.length === 1) {
+        ok('import reports created=1, skipped=1 (duplicate), failed=1 (no name)');
+      } else bad('import report wrong — ' + JSON.stringify(rep1));
+      const after1 = await evl(`API.get('/api/menu').then(m => ({
+        n: m.length,
+        price: (m.find(x => x.name === 'Mint Mojito') || {}).price,
+        img: ((m.find(x => x.name === 'Mint Mojito') || {}).image_url || '').slice(0, 14),
+        bar: (() => { const s = m.find(x => x.name === 'Sunset Cocktail'); return s ? { outlet: s.outlet, img: (s.image_url || '').slice(0, 14) } : null; })(),
+      }))`);
+      if (after1 && after1.n === 2 && after1.price === 7 && after1.img === 'data:image/png' &&
+          after1.bar && after1.bar.outlet === 'bar' && after1.bar.img === 'data:image/png') {
+        ok('import created the bar product WITH its image and left the duplicate untouched (price 7, image intact)');
+      } else bad('post-import state wrong — ' + JSON.stringify(after1));
+
+      // ── 12. Re-import is a no-op (system untouched) ─────────────────────
+      const rep2 = await evl(`window.__mexiImport(${JSON.stringify(importFile)})`);
+      if (rep2 && rep2.created === 0 && rep2.skipped === 2 && rep2.failed.length === 1) {
+        ok('re-importing the same file creates nothing (both products now skipped)');
+      } else bad('re-import report wrong — ' + JSON.stringify(rep2));
+      const finalN = await evl(`API.get('/api/menu').then(m => m.length)`);
+      if (finalN === 2) ok('product count unchanged after re-import');
+      else bad('product count moved after re-import — ' + finalN);
     });
   } finally {
     try { srv.kill(); } catch (e) {}
