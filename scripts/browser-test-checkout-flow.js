@@ -119,17 +119,33 @@ async function withBrowser(fn) {
       if (who !== 'reception@hospitally.com') return bad('session did not restore as receptionist');
 
       // Create + check in a booking; remember the room.
+      // The dev DB this suite copies keeps CONFIRMED reservations on rooms
+      // that are still 'available' (a future hold doesn't flip the status),
+      // so creating on the first available room can 409 with "already booked
+      // for those dates". Walk the available rooms until one actually takes
+      // the booking, and surface any setup failure honestly — a rejected
+      // promise evaluates to an Error object whose {status} field otherwise
+      // leaks into later assertions as if it were room state.
       const setup = await evl(`(async () => {
-        const rooms = await API.get('/api/rooms');
-        const room = rooms.find(r => r.status === 'available');
-        if (!room) return null;
         const iso = d => d.toISOString().slice(0, 10);
-        const b = await API.post('/api/bookings', { surname: 'Walkin', firstName: 'Checkout', checkIn: iso(new Date()), checkOut: iso(new Date(Date.now() + 864e5)), roomIds: [room.id], adults: 1, children: 0 });
-        await API.post('/api/bookings/' + b.id + '/checkin', {});
+        const rooms = (await API.get('/api/rooms')).filter(r => r.status === 'available');
+        let b = null, usedRoom = null, lastErr = null;
+        for (const room of rooms) {
+          try {
+            b = await API.post('/api/bookings', { surname: 'Walkin', firstName: 'Checkout', checkIn: iso(new Date()), checkOut: iso(new Date(Date.now() + 864e5)), roomIds: [room.id], adults: 1, children: 0 });
+            usedRoom = room;
+            break;
+          } catch (e) { lastErr = e; }
+        }
+        if (!b) return { __setupError: 'no available room accepts a booking: ' + (lastErr ? ((lastErr.message || '') + ' (HTTP ' + lastErr.status + ')') : 'no available rooms') };
+        try { await API.post('/api/bookings/' + b.id + '/checkin', {}); }
+        catch (e) { return { __setupError: 'check-in failed: ' + ((e.message || '') + ' (HTTP ' + e.status + ')') }; }
         const after = await API.get('/api/rooms');
-        return { roomId: room.id, roomNumber: room.number, bookingId: b.id, status: after.find(r => r.id === room.id).status };
+        const now = after.find(r => r.id === usedRoom.id);
+        return { roomId: usedRoom.id, roomNumber: usedRoom.number, bookingId: b.id, status: now && now.status };
       })()`);
       if (!setup) return bad('could not check a guest in');
+      if (setup.__setupError) return bad('setup failed: ' + setup.__setupError);
       if (setup.status !== 'occupied') return bad('room not occupied after check-in: ' + setup.status);
       ok('guest checked into room ' + setup.roomNumber + ' (occupied)');
 

@@ -141,18 +141,32 @@ async function withBrowser(fn) {
       if (who !== 'reception@hospitally.com') return bad('session did not restore as receptionist');
 
       // Create a real checked-in booking with an unpaid balance via the app's API.
+      // The copied dev DB can hold a CONFIRMED reservation on a room that is
+      // still 'available', which makes the create 409 ("already booked for
+      // those dates") — walk the available rooms until one takes the booking,
+      // and return setup failures honestly so they don't masquerade as
+      // balance/room state below (a rejected promise evaluates to an Error
+      // whose {status} field would otherwise surface as "due: undefined").
       const booking = await evl(`(async () => {
-        const rooms = await API.get('/api/rooms');
-        const room = rooms.find(r => r.status === 'available');
-        if (!room) return null;
         const d1 = new Date(); const d2 = new Date(Date.now() + 864e5);
         const iso = d => d.toISOString().slice(0, 10);
-        const b = await API.post('/api/bookings', { surname: 'Settle', firstName: 'Browser', checkIn: iso(d1), checkOut: iso(d2), roomIds: [room.id], adults: 1, children: 0 });
-        await API.post('/api/bookings/' + b.id + '/checkin', {});
+        const rooms = (await API.get('/api/rooms')).filter(r => r.status === 'available');
+        let b = null, usedRoom = null, lastErr = null;
+        for (const room of rooms) {
+          try {
+            b = await API.post('/api/bookings', { surname: 'Settle', firstName: 'Browser', checkIn: iso(d1), checkOut: iso(d2), roomIds: [room.id], adults: 1, children: 0 });
+            usedRoom = room;
+            break;
+          } catch (e) { lastErr = e; }
+        }
+        if (!b) return { __setupError: 'no available room accepts a booking: ' + (lastErr ? ((lastErr.message || '') + ' (HTTP ' + lastErr.status + ')') : 'no available rooms') };
+        try { await API.post('/api/bookings/' + b.id + '/checkin', {}); }
+        catch (e) { return { __setupError: 'check-in failed: ' + ((e.message || '') + ' (HTTP ' + e.status + ')') }; }
         const bal = await API.get('/api/payments/balance?bookingId=' + b.id);
-        return { id: b.id, due: bal.grandTotal, roomNumber: room.number };
+        return { id: b.id, due: bal.grandTotal, roomNumber: usedRoom.number };
       })()`);
       if (!booking) return bad('could not create a checked-in booking with a balance');
+      if (booking.__setupError) return bad('setup failed: ' + booking.__setupError);
       ok('checked-in booking with ' + booking.due + ' outstanding (room ' + booking.roomNumber + ')');
 
       console.log('── Open the REAL Settle Balance modal and type the amount collected');
