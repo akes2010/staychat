@@ -15,7 +15,12 @@ https://staychatos.com/book.html?subdomain=grandpalace
 ```
 
 - **No login, no commission** — every booking lands directly in your
-  Bookings module as a `confirmed` reservation with a reference
+  Bookings module (Pending tab) with a reference and a short tender code
+- **Same form as your desk** — the guest form collects exactly what your
+  New Reservation form does: surname & first name, phone, email, address,
+  means of ID, country/state, next of kin, adults/children, notes — and a
+  **Group booking** mode (multiple rooms billed to one party with a party
+  name). Nothing is re-typed at the front desk
 - **Live availability** — it only sells rooms that are actually free,
   honoring your rates, holiday pricing, blocks and maintenance states
 - **Group-aware** — multi-room selections become group bookings on one folio
@@ -51,11 +56,17 @@ real booking — it must appear in Bookings within seconds (it will).
 | Step | Where it shows up |
 |---|---|
 | Guest picks dates/rooms on `book.html` | availability from your live inventory |
-| Guest completes booking (name, contact, payment terms per config) | instant `confirmed` reservation + reference |
-| Confirmation | booking reference + details (email/WhatsApp per setup) |
+| Guest completes the reservation form (full bio-data, group details if any) | submission in **Bookings → Pending** with a tender code |
+| Desk **approves** (tender code or Pending tab) | booking flips to `confirmed`; every field the guest typed is already in the booking form, and the guest profile on the Guests page is updated to match |
+| Desk **denies** (room sold, spam…) | submission cancelled; the room becomes bookable again |
 | Arrival day | normal **check-in** at the desk ([05](05-receptionist-front-desk.md)) |
 | Stay | room charges/folio as usual |
 | Departure | settle + check out |
+
+**The hold:** while an online submission is waiting for approval, its room
+is reserved for that guest — the desk cannot register/walk another guest
+into it. Approve or deny the submission first; the error message names the
+online booking code to action.
 
 Cancellations/changes on online bookings follow the same rules as desk
 bookings (override-reason auditing included).

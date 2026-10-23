@@ -231,6 +231,30 @@ router.post('/', requirePermission('bookings.manage'), idempotency, (req, res) =
   const conflict = findConflict();
   if (conflict) return res.status(409).json({ error: 'Room ' + conflict.room_number + ' is already booked for those dates' });
 
+  // ── OTA HOLD ────────────────────────────────────────────────────────────
+  // A room the guest reserved on the hotel's public booking channel sits
+  // 'pending_payment' until THIS desk approves or denies it. The overlap
+  // machinery above deliberately ignores pending submissions (spam must not
+  // squat inventory), so without this guard the desk could register the very
+  // room an online guest is holding — and the later approval would then fail.
+  // While the submission is pending, registering that room here is refused:
+  // approve or reject the online booking first (Bookings → Pending).
+  const findEngineHold = () => db.prepare(`
+    SELECT b.engine_code, br.room_number FROM bookings b
+    JOIN booking_rooms br ON br.booking_id = b.id
+    WHERE b.tenant_id = ? AND b.source = 'engine' AND b.engine_sync_status = 'pending'
+      AND br.room_id IN (${rooms.map(() => '?').join(',')})
+      AND NOT (b.check_out <= ? OR b.check_in >= ?)
+    LIMIT 1
+  `).get(req.tenantId, ...rooms.map(r => r.id), checkIn, checkOut);
+  const held = findEngineHold();
+  if (held) {
+    return res.status(409).json({
+      error: 'Room ' + held.room_number + ' is reserved by online booking ' + held.engine_code + ' awaiting approval — confirm or reject that online booking first (Bookings → Pending)',
+      engineHold: held.engine_code,
+    });
+  }
+
   // Per-night, per-room pricing: uses the room's category tiered rates (weekday/weekend/holiday/discount)
   // when available, otherwise falls back to the room's flat nightly rate.
   const nightDates = [];
@@ -325,6 +349,12 @@ router.post('/', requirePermission('bookings.manage'), idempotency, (req, res) =
     // another request could have booked one of these rooms.
     const raced = findConflict();
     if (raced) throw Object.assign(new Error('Room ' + raced.room_number + ' is already booked for those dates'), { status: 409 });
+    // Same in-transaction re-check for OTA holds — a submission landing while
+    // this registration was being priced must still win the room.
+    const racedHold = findEngineHold();
+    if (racedHold) {
+      throw Object.assign(new Error('Room ' + racedHold.room_number + ' is reserved by online booking ' + racedHold.engine_code + ' awaiting approval — confirm or reject that online booking first (Bookings → Pending)'), { status: 409 });
+    }
 
     db.prepare(`INSERT INTO bookings (id, tenant_id, guest_id, reference, check_in, check_out, status, total_amount, paid_amount,
                 notes, guest_name, guest_phone, guest_email, is_group, group_name, adults, children, source, deposit_amount, created_by,

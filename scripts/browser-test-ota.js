@@ -47,6 +47,33 @@ function waitHealthy() {
   });
 }
 
+// ── Desk-side verification session ──────────────────────────────────────
+// The system-side sink assertions (form fields → bookings row) run through the
+// SAME desk API the Bookings page renders from, called from the test process
+// (not from inside the page) — identical to how the FAST suite authenticates.
+async function deskSession() {
+  const r = await fetch(BASE + '/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'reception@hospitally.com', password: 'Demo@123456' }),
+  });
+  const body = await r.json().catch(() => ({}));
+  // Login responds with the user at the TOP level ({ user, token? }) — no
+  // envelope wrapper (jqget's `d` in shell suites is just its local var name).
+  if (!r.ok || !body || !body.user) return { error: 'desk login failed: HTTP ' + r.status + ' ' + JSON.stringify(body).slice(0, 200) };
+  const sc = r.headers.get('set-cookie') || '';
+  // Keep the NAME=value pair (m[0]) — a bare token value is not a cookie.
+  const m = sc.match(/^[^=]+=[^;]+/);
+  if (!m) return { error: 'login set no cookie: ' + JSON.stringify(Object.fromEntries(r.headers)) };
+  return { cookie: m[0] };
+}
+async function deskGet(path, cookie) {
+  const r = await fetch(BASE + path, { headers: cookie ? { cookie: cookie } : {} });
+  const body = await r.json().catch(() => null);
+  const rows = Array.isArray(body) ? body : (body && Array.isArray(body.d) ? body.d : null);
+  if (!rows) return { __error: 'GET ' + path + ' → HTTP ' + r.status + ': ' + JSON.stringify(body).slice(0, 200) };
+  return rows;
+}
+
 // ── Tiny CDP client ──────────────────────────────────────────────────────────
 class CDP {
   constructor(ws) { this.ws = ws; this.id = 0; this.pending = new Map(); this.handlers = []; 
@@ -163,11 +190,34 @@ async function connectCdp(port) {
     const roomCount = await evaljs('document.querySelectorAll("#rooms .room").length');
     roomCount > 0 ? ok('room search shows ' + roomCount + ' rooms') : bad('room search returned 0');
     await shot('02-room-results');
+
+    // ── Conformed guest form: every field the system booking form collects ──
+    const formConformed = await evaljs(`(() => {
+      const ids = ['g-surname','g-firstname','g-phone','g-email','g-address','g-idtype','g-idnumber','g-country','g-state','g-nokname','g-nokphone','g-adults','g-children','g-notes','g-group-toggle','g-groupname'];
+      return ids.every(id => !!document.getElementById(id)) &&
+             document.querySelectorAll('#g-idtype option').length > 0 &&
+             document.querySelectorAll('#g-country option').length > 0;
+    })()`);
+    formConformed
+      ? ok('guest form carries the system booking form fields (name split, ID, country/state, NOK, adults/children, group)')
+      : bad('conformed guest fields missing from book.html');
+
     await evaljs(`(async () => {
       const el = document.querySelector('#rooms .room'); el.click();
-      document.getElementById('g-name').value = 'Browser Tester';
+      document.getElementById('g-surname').value = 'Browser';
+      document.getElementById('g-firstname').value = 'Tester';
       document.getElementById('g-phone').value = '+2348011122233';
       document.getElementById('g-email').value = 'browser-test@example.com';
+      document.getElementById('g-address').value = '9 Test Avenue, Lagos';
+      document.getElementById('g-idnumber').value = 'NIG-11223344';
+      document.getElementById('g-country').value = 'Nigeria';
+      document.getElementById('g-country').dispatchEvent(new Event('change'));
+      document.getElementById('g-state').value = 'Lagos';
+      document.getElementById('g-nokname').value = 'Ada Tester';
+      document.getElementById('g-nokphone').value = '+2348055544433';
+      document.getElementById('g-adults').value = '2';
+      document.getElementById('g-children').value = '1';
+      document.getElementById('g-notes').value = 'Browser suite note';
       document.getElementById('submit').click(); return true; })()`);
     await sleep(1500);
     const code = await evaljs('document.getElementById("d-code").textContent');
@@ -175,6 +225,76 @@ async function connectCdp(port) {
     if (code && code.startsWith('BE-') && slipShown === 'block') ok('room booking made in-browser, code ' + code);
     else bad('room booking flow failed: code=' + code + ' display=' + slipShown);
     await shot('03-room-booked');
+
+    // ── The submission must land in the SYSTEM's booking form, field-for-field ──
+    // Verified through the desk API (the same one the Bookings page renders
+    // from) — when the receptionist opens/approves this booking, every field
+    // the guest typed online is already there.
+    const desk = await deskSession();
+    if (desk.error) bad('desk session: ' + desk.error);
+    const bkList = desk.cookie ? await deskGet('/api/bookings', desk.cookie) : null;
+    if (bkList && bkList.__error) bad('desk bookings fetch: ' + bkList.__error);
+    const sysBooking = Array.isArray(bkList) ? (bkList.find(x => x.engineCode === code) || null) : null;
+    // Composite name follows the desk's "First Surname" convention.
+    const want = { guest_name: 'Tester Browser', surname: 'Browser', first_name: 'Tester', address: '9 Test Avenue, Lagos',
+                   id_type: 'National ID Card', id_number: 'NIG-11223344', country: 'Nigeria', state: 'Lagos',
+                   next_of_kin_name: 'Ada Tester', next_of_kin_phone: '+2348055544433',
+                   adults: 2, children: 1, notes: 'Browser suite note', billed_to: 'individual' };
+    if (sysBooking && Object.entries(want).every(([k, v]) => String(sysBooking[k]) === String(v))) {
+      ok('OTA bio-data sank into the system booking record field-for-field');
+    } else {
+      bad('system booking record out of sync: ' + JSON.stringify(sysBooking || { error: 'not found' }));
+    }
+
+    // ── Group flow: 2 rooms auto-enables Group, party name shows, group lands ──
+    if (roomCount >= 2) {
+      await goto(BASE + '/book.html?hotel=hospitally');
+      await evaljs('document.getElementById("search").click()');
+      // Condition-wait for the room cards — never trust a fixed sleep here:
+      // the availability fetch can take longer under load.
+      let groupRoomCount = 0;
+      const gwt0 = Date.now();
+      while (Date.now() - gwt0 < 8000) {
+        groupRoomCount = await evaljs('document.querySelectorAll("#rooms .room").length').catch(() => 0);
+        if (groupRoomCount >= 2) break;
+        await sleep(300);
+      }
+      if (groupRoomCount < 2) {
+        bad('group flow: room list never reached 2 cards (got ' + groupRoomCount + ')');
+      } else {
+      const groupRes = await evaljs(`(async () => {
+        const cards = [...document.querySelectorAll('#rooms .room')];
+        cards[0].click(); cards[1].click();
+        const toggle = document.getElementById('g-group-toggle');
+        const nameWrapShown = document.getElementById('g-groupname-wrap').style.display === 'block';
+        document.getElementById('g-groupname').value = 'Browser Group Party';
+        document.getElementById('g-surname').value = 'Group';
+        document.getElementById('g-firstname').value = 'Tester';
+        document.getElementById('g-phone').value = '+2348033322211';
+        document.getElementById('submit').click();
+        return { autoOn: toggle.checked, nameWrapShown };
+      })()`);
+      groupRes && groupRes.autoOn === true ? ok('selecting 2 rooms turns Group booking on') : bad('group toggle did not auto-enable: ' + JSON.stringify(groupRes));
+      groupRes && groupRes.nameWrapShown === true ? ok('group / party name field appears') : bad('group name field hidden after 2-room pick');
+      // Condition-wait for the confirmation slip (group submit is one roundtrip).
+      let gCode = '';
+      const gct0 = Date.now();
+      while (Date.now() - gct0 < 8000) {
+        gCode = await evaljs('document.getElementById("d-code").textContent').catch(() => '');
+        if (gCode && gCode.startsWith('BE-')) break;
+        await sleep(300);
+      }
+      if (gCode && gCode.startsWith('BE-')) ok('group booking made in-browser, code ' + gCode);
+      else bad('group booking flow failed: ' + gCode);
+      const gList = desk.cookie ? await deskGet('/api/bookings', desk.cookie) : null;
+      const gSunk = Array.isArray(gList) ? (gList.find(x => x.engineCode === gCode) || null) : null;
+      gSunk && gSunk.isGroup === true && gSunk.group_name === 'Browser Group Party' && (gSunk.rooms || []).length === 2 && gSunk.billed_to === 'group'
+        ? ok('group submission lands in the system as a 2-room group booking')
+        : bad('group booking not conformed in system: ' + JSON.stringify(gSunk));
+      }
+    } else {
+      bad('need at least 2 rooms for the group-flow test, found ' + roomCount);
+    }
 
     // ── Facilities flow: switch tab → search → book a hall ────────────────
     await goto(BASE + '/book.html?hotel=hospitally');
@@ -192,7 +312,8 @@ async function connectCdp(port) {
       const hall = cards.find(c => c.dataset.kind === 'hall' && !c.style.opacity);
       if (!hall) return null;
       hall.click();
-      document.getElementById('g-name').value = 'Browser Facility Tester';
+      document.getElementById('g-surname').value = 'Browser';
+      document.getElementById('g-firstname').value = 'Facility Tester';
       document.getElementById('g-phone').value = '+2348044455566';
       document.getElementById('f-date').value = new Date(Date.now() + 6 * 864e5).toISOString().slice(0, 10);
       document.getElementById('g-event').value = 'Browser Test Wedding';

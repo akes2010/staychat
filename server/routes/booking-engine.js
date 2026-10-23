@@ -169,9 +169,16 @@ router.get('/availability', (req, res) => {
   res.json({ hotel: { name: tenant.name, currency: tenant.currency || '$' }, rooms });
 });
 
-// POST /api/booking-engine/book — submit a reservation
+// POST /api/booking-engine/book — submit a reservation.
+// Guest fields are CONFORMED with the system's New Reservation form: surname +
+// first name, address, means of ID, country/state, next of kin, adults/
+// children, group toggle + party name and notes all ride through to the same
+// bookings columns the desk renders — so approval drops a fully-formed
+// reservation into the system, not a bare name-and-phone stub.
 router.post('/book', (req, res) => {
-  const { subdomain, guestName, guestPhone, guestEmail, checkIn, checkOut, roomIds, adults, children } = req.body || {};
+  const { subdomain, guestName, guestPhone, guestEmail, checkIn, checkOut, roomIds, adults, children,
+          surname, firstName, address, idType, idNumber, country, state,
+          nextOfKinName, nextOfKinPhone, isGroup, groupName, notes } = req.body || {};
   if (!subdomain) return res.status(400).json({ error: 'subdomain is required' });
   const tenant = db.prepare(`SELECT * FROM tenants WHERE subdomain = ? AND status IN ('active','trial')`).get(String(subdomain).toLowerCase());
   if (!tenant) return res.status(404).json({ error: 'Hotel not found' });
@@ -180,7 +187,9 @@ router.post('/book', (req, res) => {
   if (!engineEnabled(tenant.id)) return res.status(503).json({ error: 'Online booking is currently closed for this hotel' });
 
   try {
-    const result = engine.submitBooking(tenant.id, { guestName, guestPhone, guestEmail, checkIn, checkOut, roomIds, adults, children });
+    const result = engine.submitBooking(tenant.id, { guestName, guestPhone, guestEmail, checkIn, checkOut, roomIds, adults, children,
+      surname, firstName, address, idType, idNumber, country, state,
+      nextOfKinName, nextOfKinPhone, isGroup, groupName, notes });
     // Tell the front desk (fire-and-forget — must never delay the guest's reply).
     notifyStaffOfSubmission(tenant.id, {
       code: result.code,

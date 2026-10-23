@@ -45,6 +45,9 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
            border-radius:var(--pill); font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s; }
     .tab.active { border-color:var(--green-deep); background:#EAF7EF; color:var(--green-deeper); }
     .fac-extra { display:none; }
+    /* .rooms-extra fields are visible in the default rooms mode; setMode()
+       hides them via inline display when the Facilities tab is active. */
+    #g-group-toggle { width:auto; }
     button { width:100%; margin-top:18px; padding:13px; background:var(--green-deep); color:#fff; border:none;
              border-radius:var(--pill); font-size:15px; font-weight:700; cursor:pointer; font-family:inherit; transition:filter .2s, transform .15s; }
     button:hover { filter:brightness(1.08); transform:translateY(-1px); }
@@ -90,10 +93,30 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
         <div id="facilities"></div>
       </div>
       <div class="grid" id="guest-fields" style="display:none">
-        <div><label>Full name</label><input id="g-name" autocomplete="name"></div>
+        <!-- Conformed with the system's New Reservation form (individual &
+             group): same fields, same order, same options — so what the guest
+             fills here drops straight into the desk's booking form on approval. -->
+        <div class="rooms-extra" style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:0 0 10px;cursor:pointer">
+            <input type="checkbox" id="g-group-toggle" onchange="window.__gGroupToggleChanged()"> Group booking — multiple rooms, billed to one party
+          </label>
+          <div id="g-groupname-wrap" style="display:none"><label>Group / Party name</label><input id="g-groupname" placeholder="e.g. Adeyemi Wedding Party"></div>
+        </div>
+        <div><label>Surname</label><input id="g-surname" autocomplete="family-name"></div>
+        <div><label>First / Real Name</label><input id="g-firstname" autocomplete="given-name"></div>
         <div><label>Phone number</label><input id="g-phone" autocomplete="tel"></div>
-        <div style="grid-column:1/-1"><label>Email (optional)</label><input id="g-email" type="email" autocomplete="email"></div>
+        <div><label>Email (optional)</label><input id="g-email" type="email" autocomplete="email"></div>
+        <div class="rooms-extra" style="grid-column:1/-1"><label>Address</label><input id="g-address" placeholder="Residential address"></div>
+        <div class="rooms-extra"><label>Means of Identification</label><select id="g-idtype"></select></div>
+        <div class="rooms-extra"><label>ID Number</label><input id="g-idnumber" placeholder="ID number"></div>
+        <div class="rooms-extra"><label>Country</label><select id="g-country" onchange="window.__gCountryChanged()"></select></div>
+        <div class="rooms-extra"><label>State / Region</label><div id="g-state-wrap"></div></div>
+        <div class="rooms-extra"><label>Next of Kin Name</label><input id="g-nokname" placeholder="Full name"></div>
+        <div class="rooms-extra"><label>Next of Kin Phone</label><input id="g-nokphone" placeholder="+234…"></div>
+        <div class="rooms-extra"><label>Adults</label><input type="number" id="g-adults" min="1" value="1"></div>
+        <div class="rooms-extra"><label>Children</label><input type="number" id="g-children" min="0" value="0"></div>
         <div class="fac-extra" style="grid-column:1/-1"><label>Event name (optional)</label><input id="g-event" placeholder="e.g. Adeyemi Wedding"></div>
+        <div style="grid-column:1/-1"><label>Special requests / notes (optional)</label><input id="g-notes"></div>
       </div>
       <button id="submit" style="display:none">Reserve — pay at the hotel</button>
       <div class="err" id="err"></div>
@@ -108,6 +131,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
     </div>
     <div class="hint">Powered by StayChat OS · pay at the hotel — no card needed now</div>
   </div>
+  <script src="/js/countries.js"></script>
   <script>
     const params = new URLSearchParams(location.search);
     let SUBDOMAIN = params.get('hotel');
@@ -189,8 +213,10 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
       $('pane-rooms').style.display = m === 'rooms' ? 'block' : 'none';
       $('pane-facilities').style.display = m === 'facilities' ? 'block' : 'none';
       document.querySelectorAll('.fac-extra').forEach(el => el.style.display = m === 'facilities' ? 'block' : 'none');
+      document.querySelectorAll('.rooms-extra').forEach(el => el.style.display = m === 'rooms' ? 'block' : 'none');
       // reset selection state when switching
       selected.clear(); facilityPick = null;
+      $('g-group-toggle').checked = false; $('g-groupname-wrap').style.display = 'none';
       $('guest-fields').style.display = 'none'; $('submit').style.display = 'none';
       hideErr();
     }
@@ -201,6 +227,35 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
     const d2 = new Date(); d2.setDate(d2.getDate()+1);
     $('cout').min = d2.toISOString().slice(0,10); $('cout').value = d2.toISOString().slice(0,10);
     $('f-date').min = todayStr; $('f-date').value = todayStr;
+
+    // ── Conformed guest fields (same options as the system booking form) ───
+    // ID types / countries come from the SAME shared lists the desk form uses
+    // (js/countries.js), so an ID type or state picked online is the exact
+    // string the system stores and renders — no translation on approval.
+    $('g-idtype').innerHTML = (window.ID_TYPES || []).map(t => '<option>' + t + '</option>').join('');
+    $('g-country').innerHTML = '<option value="">— Select country —</option>' + (window.COUNTRIES || []).map(c => '<option>' + c + '</option>').join('');
+    function gStateFieldHTML(country) {
+      const states = (window.STATES_BY_COUNTRY || {})[country];
+      if (states && states.length) return '<select id="g-state">' + states.map(s => '<option>' + s + '</option>').join('') + '</select>';
+      return '<input id="g-state" placeholder="State / Region / Province"/>';
+    }
+    window.__gCountryChanged = () => { $('g-state-wrap').innerHTML = gStateFieldHTML($('g-country').value); };
+    window.__gCountryChanged();
+
+    // Group booking conformance: like the desk's New Reservation form, 2+
+    // rooms is a group billed to one party (isGroup + party name); switching
+    // Group off trims the pick back to a single room.
+    function syncGroupUI() {
+      const toggle = $('g-group-toggle');
+      if (mode === 'rooms' && selected.size > 1) toggle.checked = true;
+      if (!toggle.checked && selected.size > 1) {
+        const first = [...selected][0];
+        selected = new Set([first]);
+        document.querySelectorAll('#rooms .room').forEach(el => el.classList.toggle('sel', selected.has(el.getAttribute('data-id'))));
+      }
+      $('g-groupname-wrap').style.display = toggle.checked && mode === 'rooms' ? 'block' : 'none';
+    }
+    window.__gGroupToggleChanged = () => syncGroupUI();
     if (!SUBDOMAIN) { $('h-sub').textContent = 'Add ?hotel=your-hotel to this link'; }
 
     async function init() {
@@ -250,6 +305,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
             el.classList.toggle('sel');
             const id = el.getAttribute('data-id');
             if (selected.has(id)) selected.delete(id); else selected.add(id);
+            syncGroupUI();
             $('guest-fields').style.display = selected.size ? 'grid' : 'none';
             $('submit').style.display = selected.size ? 'block' : 'none';
           };
@@ -317,18 +373,31 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
 
     $('submit').onclick = async () => {
       hideErr();
-      const name = $('g-name').value.trim(), phone = $('g-phone').value.trim();
-      if (!name || !phone) { showErr('Name and phone number are required.'); return; }
+      const surname = $('g-surname').value.trim(), firstName = $('g-firstname').value.trim(), phone = $('g-phone').value.trim();
+      if (!surname && !firstName) { showErr('Surname and first name are required.'); return; }
+      if (!phone) { showErr('A phone number is required so the hotel can reach you.'); return; }
+      // Composite name derived the same way the desk derives it: First Surname.
+      const fullName = [firstName, surname].filter(Boolean).join(' ');
+      const isGroup = mode === 'rooms' && ($('g-group-toggle').checked || selected.size > 1);
       if (mode === 'rooms') {
         if (!selected.size) { showErr('Select at least one room first.'); return; }
+        if (isGroup && selected.size < 2) { showErr('Group bookings need 2 or more rooms — or turn off Group booking.'); return; }
       } else if (!facilityPick) { showErr('Select a facility first.'); return; }
       $('submit').disabled = true; $('submit').textContent = 'Sending…';
       try {
         if (mode === 'rooms') {
           const r = await fetch('/api/booking-engine/book', {
             method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ subdomain: SUBDOMAIN, guestName:name, guestPhone:phone, guestEmail:$('g-email').value.trim(),
-              checkIn:$('cin').value, checkOut:$('cout').value, roomIds:[...selected], adults:1, children:0 })
+            body: JSON.stringify({ subdomain: SUBDOMAIN, guestName: fullName, surname, firstName,
+              guestPhone: phone, guestEmail: $('g-email').value.trim(),
+              address: $('g-address').value.trim(), idType: $('g-idtype').value, idNumber: $('g-idnumber').value.trim(),
+              country: $('g-country').value, state: ($('g-state') && $('g-state').value) || '',
+              nextOfKinName: $('g-nokname').value.trim(), nextOfKinPhone: $('g-nokphone').value.trim(),
+              checkIn: $('cin').value, checkOut: $('cout').value, roomIds: [...selected],
+              isGroup, groupName: isGroup ? $('g-groupname').value.trim() : null,
+              adults: Math.max(1, parseInt($('g-adults').value, 10) || 1),
+              children: Math.max(0, parseInt($('g-children').value, 10) || 0),
+              notes: $('g-notes').value.trim() })
           });
           const b = await r.json();
           if (!r.ok) throw new Error(b.error || 'Booking failed');
@@ -339,9 +408,10 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
           const r = await fetch('/api/booking-engine/facility-book', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ subdomain: SUBDOMAIN, kind: facilityPick.kind, facilityId: facilityPick.id,
-              guestName:name, guestPhone:phone, guestEmail:$('g-email').value.trim(),
+              guestName: fullName, guestPhone: phone, guestEmail: $('g-email').value.trim(),
               date:$('f-date').value, startTime:$('f-start').value, endTime:$('f-end').value,
-              partySize: Math.max(1, parseInt($('f-party').value, 10) || 1), eventName: $('g-event').value.trim() })
+              partySize: Math.max(1, parseInt($('f-party').value, 10) || 1), eventName: $('g-event').value.trim(),
+              notes: $('g-notes').value.trim() })
           });
           const b = await r.json();
           if (!r.ok) throw new Error(b.error || 'Booking failed');

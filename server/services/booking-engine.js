@@ -153,7 +153,23 @@ function quoteRoom(tenantId, room, checkIn, checkOut) {
 function submitBooking(tenantId, payload) {
   const { guestName, guestPhone, guestEmail, checkIn, checkOut, roomIds, adults } = payload;
 
-  if (!guestName || !String(guestName).trim()) throw Object.assign(new Error('Guest name is required'), { status: 400 });
+  // ── Conformed guest identity (same fields as the desk's New Reservation
+  // form, bookings.surname/first_name/address/id_type/id_number/country/state/
+  // next_of_kin_*/notes). Surname + first name are primary; the composite
+  // guestName is derived from them (or accepted on its own for legacy callers
+  // like test-role-gates.js), using the same last-word-is-surname convention
+  // as the desk's returning-guest autofill — so what the guest types on the
+  // OTA lands in the SAME columns the system form renders.
+  const surname = String(payload.surname || '').trim().slice(0, 80);
+  const firstName = String(payload.firstName || '').trim().slice(0, 80);
+  const resolvedName = String(guestName || '').trim().slice(0, 160) || [firstName, surname].filter(Boolean).join(' ');
+  let resolvedSurname = surname, resolvedFirstName = firstName;
+  if (!resolvedSurname && !resolvedFirstName && resolvedName) {
+    const parts = resolvedName.split(/\s+/);
+    if (parts.length > 1) { resolvedFirstName = parts.slice(0, -1).join(' '); resolvedSurname = parts[parts.length - 1]; }
+    else resolvedSurname = parts[0];
+  }
+  if (!resolvedName) throw Object.assign(new Error('Guest name is required'), { status: 400 });
   if (!guestPhone || !String(guestPhone).trim()) throw Object.assign(new Error('A phone number is required so the hotel can reach you'), { status: 400 });
 
   // Blocked numbers can never book a room (spam/abuse control).
@@ -185,6 +201,12 @@ function submitBooking(tenantId, payload) {
     if (clash) throw Object.assign(new Error('Room ' + room.number + ' is already booked for those dates'), { status: 409 });
   }
 
+  // Conformed extras — same semantics as POST /api/bookings: 2+ rooms is a
+  // group booking billed to one party; every text field is length-capped so a
+  // public endpoint can't stuff unbounded blobs into the reservation row.
+  const isGroup = !!payload.isGroup || rooms.length > 1;
+  const groupName = isGroup && payload.groupName ? String(payload.groupName).trim().slice(0, 120) : null;
+
   // Price from the rate card — the guest quote equals the desk quote.
   const total = rooms.reduce((s, room) => s + quoteRoom(tenantId, room, checkIn, checkOut).total, 0);
 
@@ -197,7 +219,7 @@ function submitBooking(tenantId, payload) {
     guestId = 'guest_' + require('nanoid').nanoid(10);
     db.prepare(`INSERT INTO guests (id, tenant_id, name, phone, email, loyalty_tier, loyalty_points, stays, total_spent, preferences)
                 VALUES (?,?,?,?,?, 'Bronze', 0, 0, 0, '[]')`)
-      .run(guestId, tenantId, String(guestName).trim(), String(guestPhone).trim(), guestEmail || null);
+      .run(guestId, tenantId, resolvedName, String(guestPhone).trim(), guestEmail || null);
   }
 
   const id = 'bk_' + nanoid(10);
@@ -207,11 +229,24 @@ function submitBooking(tenantId, payload) {
   const tx = db.transaction(() => {
     db.prepare(`INSERT INTO bookings (id, tenant_id, guest_id, reference, check_in, check_out, status,
                   total_amount, paid_amount, guest_name, guest_phone, guest_email, adults, children,
-                  source, engine_code, engine_sync_status, created_by)
-                VALUES (?,?,?,?,?,?,'pending_payment',?,0,?,?,?,?,?,'engine',?,'pending','booking-engine')`)
+                  source, engine_code, engine_sync_status, created_by,
+                  notes, is_group, group_name, billed_to,
+                  surname, first_name, address, id_type, id_number, country, state, next_of_kin_name, next_of_kin_phone)
+                VALUES (?,?,?,?,?,?,'pending_payment',?,0,?,?,?,?,?,'engine',?,'pending','booking-engine',
+                  ?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(id, tenantId, guestId, reference, checkIn, checkOut, total,
-           String(guestName).trim(), String(guestPhone).trim(), guestEmail || null,
-           Math.max(1, parseInt(adults, 10) || 1), parseInt(payload.children, 10) || 0, code);
+           resolvedName, String(guestPhone).trim(), guestEmail || null,
+           Math.max(1, parseInt(adults, 10) || 1), parseInt(payload.children, 10) || 0, code,
+           payload.notes ? String(payload.notes).slice(0, 1000) : null,
+           isGroup ? 1 : 0, groupName, isGroup ? 'group' : 'individual',
+           resolvedSurname || null, resolvedFirstName || null,
+           payload.address ? String(payload.address).trim().slice(0, 300) : null,
+           payload.idType ? String(payload.idType).trim().slice(0, 60) : null,
+           payload.idNumber ? String(payload.idNumber).trim().slice(0, 60) : null,
+           payload.country ? String(payload.country).trim().slice(0, 80) : null,
+           payload.state ? String(payload.state).trim().slice(0, 80) : null,
+           payload.nextOfKinName ? String(payload.nextOfKinName).trim().slice(0, 120) : null,
+           payload.nextOfKinPhone ? String(payload.nextOfKinPhone).trim().slice(0, 40) : null);
 
     rooms.forEach(room => {
       db.prepare('INSERT INTO booking_rooms (booking_id, room_id, room_number, rate, tenant_id) VALUES (?,?,?,?,?)')
@@ -231,7 +266,9 @@ function submitBooking(tenantId, payload) {
     checkIn, checkOut,
     rooms: rooms.map(r => ({ number: r.number, type: r.type })),
     total: money(total),
-    guestName: String(guestName).trim(),
+    guestName: resolvedName,
+    isGroup,
+    groupName,
   };
 }
 
@@ -268,6 +305,16 @@ function confirmByCode(tenantId, code, deskUserId) {
     const r = db.prepare(`UPDATE bookings SET status='confirmed', engine_sync_status='confirmed', updated_at=datetime('now') WHERE id=? AND status='pending_payment' AND engine_sync_status='pending'`)
       .run(booking.id);
     if (r.changes === 0) throw Object.assign(new Error('This booking was just processed by someone else'), { status: 409 });
+    // ── Approval SINKS the guest's OTA bio-data into the system ──────────
+    // The booking row already carries every field the guest typed (it renders
+    // in the desk's reservation/Edit form through serialize()); approval now
+    // also syncs the linked Guest profile so the Guests page shows the same
+    // identity the guest gave online — no re-typing at the front desk.
+    if (booking.guest_id) {
+      db.prepare(`UPDATE guests SET name = ?, phone = ?, email = COALESCE(?, email), updated_at = datetime('now')
+                  WHERE id = ? AND tenant_id = ?`)
+        .run(booking.guest_name, booking.guest_phone, booking.guest_email, booking.guest_id, tenantId);
+    }
   });
   tx();
   const updated = db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);

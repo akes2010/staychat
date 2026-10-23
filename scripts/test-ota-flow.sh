@@ -64,9 +64,9 @@ FIRST_RATE=$(echo "$AV" | jqget 'd.rooms[0].rate')
 FIRST_NIGHTS=$(echo "$AV" | jqget 'd.rooms[0].nights')
 echo "    room $FIRST · $FIRST_NIGHTS nights · $FIRST_RATE/night · total $FIRST_TOTAL"
 
-echo "── Guest: submit booking"
+echo "── Guest: submit booking (conformed fields — same bio-data the system form collects)"
 BK=$(curl -s -X POST "$B/book" -H 'Content-Type: application/json' \
-  -d "{\"subdomain\":\"$SUB\",\"guestName\":\"OTA Flow Tester\",\"guestPhone\":\"+2348012345678\",\"guestEmail\":\"ota-test@example.com\",\"checkIn\":\"$CIN\",\"checkOut\":\"$COUT\",\"roomIds\":[\"$FIRST\"],\"adults\":1,\"children\":0}")
+  -d "{\"subdomain\":\"$SUB\",\"surname\":\"Okafor\",\"firstName\":\"Grace\",\"guestPhone\":\"+2348012345678\",\"guestEmail\":\"ota-test@example.com\",\"address\":\"12 Marina Road, Lagos\",\"idType\":\"National ID Card\",\"idNumber\":\"NIG-99887766\",\"country\":\"Nigeria\",\"state\":\"Lagos\",\"nextOfKinName\":\"Chidi Okafor\",\"nextOfKinPhone\":\"+2348099887755\",\"checkIn\":\"$CIN\",\"checkOut\":\"$COUT\",\"roomIds\":[\"$FIRST\"],\"adults\":2,\"children\":1,\"notes\":\"Late arrival, please hold the room\"}")
 CODE=$(echo "$BK" | jqget 'd.code')
 REF=$(echo "$BK" | jqget 'd.reference')
 TOTAL=$(echo "$BK" | jqget 'd.total')
@@ -94,10 +94,42 @@ BL=$(curl -s -b "$JAR" "http://localhost:$PORT/api/bookings")
 BID=$(echo "$BL" | jqget "(d.find(x=>x.engineCode==='$CODE')||{}).id")
 [ "$BID" != "undefined" ] && [ -n "$BID" ] && ok "pending submission visible in Bookings (tab: Pending)" || { bad "desk cannot see booking by code $CODE: $(echo "$BL" | head -c 300)"; kill $SRV; exit 1; }
 
+echo "── Desk: OTA hold — the reserved room cannot be registered while the submission is pending"
+HB=$(curl -s -o "$DATA_DIR/hold.json" -w '%{http_code}' -b "$JAR" -X POST "http://localhost:$PORT/api/bookings" -H 'Content-Type: application/json' \
+  -d "{\"surname\":\"Walk\",\"firstName\":\"In\",\"guestPhone\":\"+2348010000001\",\"checkIn\":\"$CIN\",\"checkOut\":\"$COUT\",\"roomIds\":[\"$FIRST\"]}")
+HBERR=$(cat "$DATA_DIR/hold.json" | jqget 'd.error')
+if [ "$HB" = "409" ] && echo "$HBERR" | grep -q "$CODE"; then
+  ok "registration refused — room held by pending online booking ($HBERR)"
+else
+  bad "expected 409 hold naming $CODE, got HTTP $HB: $HBERR"
+fi
+
 echo "── Desk: confirm with the tender code"
 CN=$(curl -s -b "$JAR" -X POST "http://localhost:$PORT/api/bookings/$BID/confirm")
 CNST=$(echo "$CN" | jqget 'd.status')
 [ "$CNST" = "confirmed" ] && ok "booking confirmed — room held, guest notified" || bad "confirm failed: $(echo "$CN" | head -c 300)"
+
+echo "── Approval sinks the guest's OTA bio-data into the system form (booking row)"
+BD=$(curl -s -b "$JAR" "http://localhost:$PORT/api/bookings/$BID")
+chk() { v=$(echo "$BD" | jqget "$1"); [ "$v" = "$2" ] && ok "$3" || bad "$3 — expected '$2', got '$v'"; }
+chk 'd.guest_name' 'Grace Okafor' 'composite name derived (First Surname)'
+chk 'd.surname' 'Okafor' 'surname sunk into booking'
+chk 'd.first_name' 'Grace' 'first name sunk into booking'
+chk 'd.address' '12 Marina Road, Lagos' 'address sunk into booking'
+chk 'd.id_type' 'National ID Card' 'ID type sunk into booking'
+chk 'd.id_number' 'NIG-99887766' 'ID number sunk into booking'
+chk 'd.country' 'Nigeria' 'country sunk into booking'
+chk 'd.state' 'Lagos' 'state sunk into booking'
+chk 'd.next_of_kin_name' 'Chidi Okafor' 'next-of-kin name sunk into booking'
+chk 'd.next_of_kin_phone' '+2348099887755' 'next-of-kin phone sunk into booking'
+chk 'd.adults' '2' 'adults sunk into booking'
+chk 'd.children' '1' 'children sunk into booking'
+chk 'd.notes' 'Late arrival, please hold the room' 'notes sunk into booking'
+chk 'd.billed_to' 'individual' 'billed_to individual'
+
+echo "── Approval also syncs the guest profile (Guests page)"
+GP=$(node -e "const db=new (require('better-sqlite3'))(process.argv[1],{readonly:true});const g=db.prepare('SELECT name, phone, email FROM guests WHERE phone = ?').get('+2348012345678');console.log(g ? g.name+'|'+(g.email||'') : 'NONE')" "$DATA_DIR/staychat.db")
+[ "$GP" = 'Grace Okafor|ota-test@example.com' ] && ok "guest profile matches the OTA-filled data ($GP)" || bad "guest profile out of sync: '$GP'"
 
 echo "── Desk: check the guest in"
 CI=$(curl -s -b "$JAR" -X POST "http://localhost:$PORT/api/bookings/$BID/checkin")
@@ -189,6 +221,35 @@ echo "── Guest: double-confirm rejected (code already processed)"
 FC2=$(curl -s -b "$JAR" -X POST "http://localhost:$PORT/api/bookings/facilities/confirm" -H 'Content-Type: application/json' -d "{\"code\":\"$FCODE\"}")
 FC2E=$(echo "$FC2" | jqget 'd.error')
 [ "$FC2E" != "null" ] && [ "$FC2E" != "undefined" ] && ok "second confirm correctly rejected ($FC2E)" || bad "double-confirm should fail: $FC2"
+
+# ── DENIAL PATH: rejecting an online submission frees its room for the desk ──
+echo "── Guest: second submission (denial path)"
+AV2=$(curl -s "$B/availability?subdomain=$SUB&checkIn=$CIN&checkOut=$COUT")
+SECOND=$(echo "$AV2" | jqget "(d.rooms.find(r=>r.roomId!=='$FIRST')||{}).roomId")
+if [ "$SECOND" = "undefined" ] || [ -z "$SECOND" ]; then
+  bad "no second room available for the denial-path test"
+else
+  BK2=$(curl -s -X POST "$B/book" -H 'Content-Type: application/json' \
+    -d "{\"subdomain\":\"$SUB\",\"surname\":\"Denial\",\"firstName\":\"Tester\",\"guestPhone\":\"+2348077766655\",\"checkIn\":\"$CIN\",\"checkOut\":\"$COUT\",\"roomIds\":[\"$SECOND\"]}")
+  CODE2=$(echo "$BK2" | jqget 'd.code')
+  if [ "$CODE2" != "undefined" ] && [ -n "$CODE2" ] && [ "$CODE2" != "null" ]; then ok "second submission pending — code $CODE2"; else
+    bad "second submission failed: $(echo "$BK2" | head -c 300)"; fi
+  BL2=$(curl -s -b "$JAR" "http://localhost:$PORT/api/bookings")
+  BID2=$(echo "$BL2" | jqget "(d.find(x=>x.engineCode==='$CODE2')||{}).id")
+
+  echo "── Desk: its room is held too while pending"
+  HB2=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" -X POST "http://localhost:$PORT/api/bookings" -H 'Content-Type: application/json' \
+    -d "{\"surname\":\"Walk2\",\"firstName\":\"In\",\"guestPhone\":\"+2348010000002\",\"checkIn\":\"$CIN\",\"checkOut\":\"$COUT\",\"roomIds\":[\"$SECOND\"]}")
+  [ "$HB2" = "409" ] && ok "second room also held while pending" || bad "expected 409 hold on second room, got $HB2"
+
+  echo "── Desk: denial releases the hold — walk-in registration now succeeds"
+  RJ=$(curl -s -b "$JAR" -X POST "http://localhost:$PORT/api/bookings/$BID2/reject" -H 'Content-Type: application/json' -d '{"reason":"Room unavailable"}')
+  RJS=$(echo "$RJ" | jqget 'd.status')
+  [ "$RJS" = "cancelled" ] && ok "online submission denied" || bad "reject failed: $(echo "$RJ" | head -c 300)"
+  WB=$(curl -s -o "$DATA_DIR/walkin.json" -w '%{http_code}' -b "$JAR" -X POST "http://localhost:$PORT/api/bookings" -H 'Content-Type: application/json' \
+    -d "{\"surname\":\"Walk\",\"firstName\":\"In\",\"guestPhone\":\"+2348010000001\",\"checkIn\":\"$CIN\",\"checkOut\":\"$COUT\",\"roomIds\":[\"$SECOND\"]}")
+  [ "$WB" = "201" ] && ok "after denial the desk can register the room (HTTP 201)" || bad "expected 201 after denial, got $WB: $(cat "$DATA_DIR/walkin.json" | head -c 300)"
+fi
 
 echo ""
 echo "═══ RESULT: $PASS passed, $FAIL failed ═══"
