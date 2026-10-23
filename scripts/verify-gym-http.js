@@ -3,7 +3,7 @@
 // REAL Express app on an ephemeral port (temp DATA_DIR) and drives /api/gym/*
 // through the actual middleware stack (auth → resolveTenant → requireTenant →
 // permission gate → entitlement gate). Covers:
-//   gym CRUD (name/type/facilities/capacity/daily-monthly-yearly prices),
+//   gym CRUD (name/type/facilities/capacity/daily-monthly-quarterly-yearly prices),
 //   registration creation with calendar-correct period derivation,
 //   per-gym capacity enforcement over overlapping periods + cancel frees a slot,
 //   permission gates (gym.use / gym.manage),
@@ -103,14 +103,14 @@ async function run() {
   r = await req('POST', '/api/gym/gyms', adminTok, {
     name: 'Sky Fitness Centre', type: 'Premium',
     facilities: ['Free Weights', 'Sauna', 'Cardio Machines'],
-    capacity: 3, priceDaily: 10, priceMonthly: 80, priceYearly: 800,
+    capacity: 3, priceDaily: 10, priceMonthly: 80, priceQuarterly: 200, priceYearly: 800,
     description: 'Rooftop gym with a view',
   });
   check('POST /api/gym/gyms → 201', r.status === 201, 'got ' + r.status + ' ' + JSON.stringify(r.body).slice(0, 120));
   const gym = r.body;
   check('gym round-trips name/type/capacity/prices',
     gym && gym.name === 'Sky Fitness Centre' && gym.type === 'Premium' && gym.capacity === 3 &&
-    gym.price_daily === 10 && gym.price_monthly === 80 && gym.price_yearly === 800);
+    gym.price_daily === 10 && gym.price_monthly === 80 && gym.price_quarterly === 200 && gym.price_yearly === 800);
   check('facilities round-trip as array',
     Array.isArray(gym.facilities) && gym.facilities.length === 3 && gym.facilities.includes('Sauna'),
     JSON.stringify(gym.facilities));
@@ -146,6 +146,16 @@ async function run() {
   check('yearly period = start + 12 months − 1 day (2027-02-27)', r.body && r.body.end_date === '2027-02-27',
     r.body && r.body.end_date);
 
+  // Quarterly — priced like every other tier, period = start + 3 months − 1
+  // day. Dated outside the 2026-10-21 capacity cluster below on purpose.
+  r = await req('POST', '/api/gym/registrations', adminTok, {
+    gymId: gym.id, memberName: 'Ebe Nwosu', registrationType: 'quarterly', startDate: '2027-03-01',
+  });
+  check('quarterly registration → 201', r.status === 201, 'got ' + r.status + ' ' + (r.body && r.body.error));
+  check('quarterly period = start + 3 months − 1 day (2027-05-31)', r.body && r.body.end_date === '2027-05-31',
+    r.body && r.body.end_date);
+  check('quarterly amount defaults to price_quarterly (200)', r.body && r.body.amount === 200, 'amount=' + (r.body && r.body.amount));
+
   // ── 3. Capacity: gym capacity is 3, and 3 active members overlap 2026-10-21
   // (Ada daily that day, Ben monthly from that day, Cleo yearly spanning it).
   r = await req('POST', '/api/gym/registrations', adminTok, {
@@ -178,8 +188,9 @@ async function run() {
   r = await req('PATCH', '/api/gym/registrations/' + dan.id, deskTok, { amount: 5 });
   check('receptionist cannot change amount → 403', r.status === 403, 'got ' + r.status);
 
-  r = await req('PATCH', '/api/gym/gyms/' + gym.id, adminTok, { priceMonthly: 90, capacity: 5, facilities: ['Sauna'] });
+  r = await req('PATCH', '/api/gym/gyms/' + gym.id, adminTok, { priceMonthly: 90, priceQuarterly: 210, capacity: 5, facilities: ['Sauna'] });
   check('admin updates gym prices/capacity/facilities → 200', r.status === 200 && r.body.price_monthly === 90 &&
+    r.body.price_quarterly === 210 &&
     r.body.capacity === 5 && Array.isArray(r.body.facilities) && r.body.facilities.length === 1, 'got ' + r.status);
 
   // ── 6. Delete rules ──────────────────────────────────────────────────

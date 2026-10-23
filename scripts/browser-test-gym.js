@@ -7,9 +7,10 @@
 // path:
 //   • the sidebar renders the "Gym & Fitness" nav item and opens the page,
 //   • Manage Gyms creates a gym (name/type/facilities/capacity/daily-monthly-
-//     yearly prices) and the page re-renders it,
+//     quarterly-yearly prices) and the page re-renders it,
 //   • New Registration registers a member with the price auto-filled from the
-//     gym's registration price for the chosen type.
+//     gym's registration price for the chosen type (monthly + quarterly
+//     covered end-to-end, incl. the calendar-correct period math).
 'use strict';
 const { spawn } = require('child_process');
 const http = require('http');
@@ -172,6 +173,7 @@ async function withBrowser(fn) {
         document.getElementById('ag-cap').value = '6';
         document.getElementById('ag-daily').value = '10';
         document.getElementById('ag-monthly').value = '80';
+        document.getElementById('ag-quarterly').value = '200';
         document.getElementById('ag-yearly').value = '800';
         document.getElementById('ag-fac-0').checked = true;   // Free Weights
         document.getElementById('ag-fac-3').checked = true;   // Sauna
@@ -185,8 +187,8 @@ async function withBrowser(fn) {
       const gymFields = await evl(`API.get('/api/gym/gyms').then(g => g[0])`);
       if (gymFields && gymFields.name === 'Sky Fitness Centre' && gymFields.type === 'Premium' &&
           gymFields.capacity === 6 && gymFields.price_daily === 10 && gymFields.price_monthly === 80 &&
-          gymFields.price_yearly === 800 && Array.isArray(gymFields.facilities) && gymFields.facilities.length === 2) {
-        ok('name/type/facilities/capacity/daily-monthly-yearly prices all round-trip');
+          gymFields.price_quarterly === 200 && gymFields.price_yearly === 800 && Array.isArray(gymFields.facilities) && gymFields.facilities.length === 2) {
+        ok('name/type/facilities/capacity/daily-monthly-quarterly-yearly prices all round-trip');
       } else bad('gym fields wrong — ' + JSON.stringify(gymFields));
 
       await evl(`closeModal()`); await sleep(300);
@@ -208,6 +210,22 @@ async function withBrowser(fn) {
       const monthlyAuto = await evl(`document.getElementById('gr-amount').value`);
       if (String(monthlyAuto) === '80') ok('monthly price auto-fills when type changes (80)');
       else bad('monthly auto-fill wrong — ' + monthlyAuto);
+
+      await evl(`(() => {
+        const t = document.getElementById('gr-type');
+        t.value = 'quarterly';
+        window.__gymPicked();
+      })()`);
+      const quarterlyAuto = await evl(`document.getElementById('gr-amount').value`);
+      if (String(quarterlyAuto) === '200') ok('quarterly price auto-fills when type changes (200)');
+      else bad('quarterly auto-fill wrong — ' + quarterlyAuto);
+      // The registration below stays monthly (its period math is asserted);
+      // quarterly gets its own end-to-end right after.
+      await evl(`(() => {
+        const t = document.getElementById('gr-type');
+        t.value = 'monthly';
+        window.__gymPicked();
+      })()`);
 
       await evl(`(() => {
         document.getElementById('gr-name').value = 'Ada Obi';
@@ -238,6 +256,41 @@ async function withBrowser(fn) {
       const pageText = await evl(`document.getElementById('content').textContent`);
       if (pageText.includes('Ada Obi') && pageText.includes('Monthly')) ok('gym page lists the member registration');
       else bad('registration row missing from the page — ' + (pageText || '').slice(0, 120));
+
+      // ── 5. Quarterly registration end-to-end ────────────────────────
+      await evl(`window.__openNewGymRegistration()`); await sleep(400);
+      await evl(`(() => {
+        const t = document.getElementById('gr-type');
+        t.value = 'quarterly';
+        window.__gymPicked();
+        document.getElementById('gr-name').value = 'Bola Ade';
+        document.getElementById('gr-phone').value = '+2348098765432';
+      })()`);
+      await evl(`window.__submitGymRegistration()`);
+      const regs2 = await waitFor(evl, `API.get('/api/gym/registrations').then(r => r.length)`, 2);
+      if (regs2 === 2) ok('quarterly registration created via the UI (API shows 2 registrations)');
+      else bad('quarterly registration did not persist — count=' + regs2);
+
+      const reg2 = await evl(`API.get('/api/gym/registrations').then(r => r.find(x => x.member_name === 'Bola Ade'))`);
+      // quarterly → end = start + 3 calendar months − 1 day (same math as the route)
+      let expectedQEnd = null;
+      if (reg2) {
+        const d = new Date(reg2.start_date + 'T00:00:00Z');
+        const day = d.getUTCDate();
+        d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 3);
+        const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+        d.setUTCDate(Math.min(day, last));
+        d.setUTCDate(d.getUTCDate() - 1);
+        expectedQEnd = d.toISOString().slice(0, 10);
+      }
+      if (reg2 && reg2.registration_type === 'quarterly' && reg2.amount === 200 && reg2.status === 'active' && reg2.end_date === expectedQEnd) {
+        ok('quarterly row carries type/amount 200 + correct period (ends ' + expectedQEnd + ')');
+      } else bad('quarterly registration fields wrong — ' + JSON.stringify(reg2) + ' expectedQEnd=' + expectedQEnd);
+
+      await sleep(600);
+      const pageText2 = await evl(`document.getElementById('content').textContent`);
+      if (pageText2.includes('Bola Ade') && pageText2.includes('Quarterly')) ok('gym page lists the quarterly registration with its badge');
+      else bad('quarterly row missing from the page — ' + (pageText2 || '').slice(0, 120));
     });
   } finally {
     try { srv.kill(); } catch (e) {}

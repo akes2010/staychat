@@ -1,7 +1,7 @@
 // public/js/pages/gym.js
 // Gym Management & Booking — fitness-centre inventory (gyms with name, type,
-// facilities, capacity and daily/monthly/yearly registration prices) plus
-// member registrations (memberships) with per-gym capacity enforcement.
+// facilities, capacity and daily/monthly/quarterly/yearly registration prices)
+// plus member registrations (memberships) with per-gym capacity enforcement.
 window.PAGES = window.PAGES || {};
 
 PAGES.gym = function () {
@@ -11,7 +11,7 @@ PAGES.gym = function () {
 
   const GYM_TYPES = ['Standard', 'Premium', 'Yoga & Wellness', 'CrossFit', 'Cardio Studio', 'Spa & Gym'];
   const FACILITY_OPTIONS = ['Free Weights', 'Cardio Machines', 'Strength Machines', 'Sauna', 'Steam Room', 'Showers', 'Lockers', 'Personal Trainer', 'Group Classes', 'Swimming Pool', 'Towel Service', 'Wi-Fi'];
-  const REG_LABELS = { daily: 'Daily Pass', monthly: 'Monthly', yearly: 'Yearly' };
+  const REG_LABELS = { daily: 'Daily Pass', monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly' };
 
   async function load() {
     wrap.innerHTML = loaderHTML('Loading gym & fitness…');
@@ -104,13 +104,13 @@ PAGES.gym = function () {
     if (activeGyms.length === 0) { toast('Add a gym first', 'error'); return; }
     openModal('New Gym Registration',
       '<div class="form-row cols-2">' +
-        '<div class="form-group" style="grid-column:1/-1"><label class="form-label">Gym</label><select class="form-select" id="gr-gym" onchange="window.__gymPicked()">' + activeGyms.map(g => '<option value="' + g.id + '" data-price-daily="' + g.price_daily + '" data-price-monthly="' + g.price_monthly + '" data-price-yearly="' + g.price_yearly + '" data-facilities="' + escapeHtml(JSON.stringify(g.facilities || [])) + '">' + escapeHtml(g.name) + ' (cap ' + g.capacity + ')</option>').join('') + '</select>' +
+        '<div class="form-group" style="grid-column:1/-1"><label class="form-label">Gym</label><select class="form-select" id="gr-gym" onchange="window.__gymPicked()">' + activeGyms.map(g => '<option value="' + g.id + '" data-price-daily="' + g.price_daily + '" data-price-monthly="' + g.price_monthly + '" data-price-quarterly="' + g.price_quarterly + '" data-price-yearly="' + g.price_yearly + '" data-facilities="' + escapeHtml(JSON.stringify(g.facilities || [])) + '">' + escapeHtml(g.name) + ' (cap ' + g.capacity + ')</option>').join('') + '</select>' +
           '<div id="gr-facilities" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div></div>' +
         '<div class="form-group"><label class="form-label">Member Name</label><input class="form-input" id="gr-name" placeholder="Full name"/></div>' +
         '<div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="gr-phone" placeholder="+234…"/></div>' +
         '<div class="form-group"><label class="form-label">Email (optional)</label><input class="form-input" type="email" id="gr-email" placeholder="member@email.com"/></div>' +
         '<div class="form-group"><label class="form-label">Room Number (optional)</label><input class="form-input" id="gr-room" placeholder="e.g. 204"/></div>' +
-        '<div class="form-group"><label class="form-label">Registration Type</label><select class="form-select" id="gr-type" onchange="window.__gymPicked()"><option value="daily">Daily Pass</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></div>' +
+        '<div class="form-group"><label class="form-label">Registration Type</label><select class="form-select" id="gr-type" onchange="window.__gymPicked()"><option value="daily">Daily Pass</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select></div>' +
         '<div class="form-group"><label class="form-label">Start Date</label><input class="form-input" type="date" id="gr-start" value="' + new Date().toISOString().slice(0, 10) + '"/></div>' +
         (canManageGym ? '<div class="form-group"><label class="form-label">Amount ($)</label><input class="form-input" type="number" min="0" id="gr-amount" value="0"/></div>' : '') +
         (canManageGym ? '<div class="form-group"><label class="form-label">Paid</label><select class="form-select" id="gr-paid"><option value="false">No</option><option value="true">Yes</option></select></div>' : '') +
@@ -169,7 +169,7 @@ PAGES.gym = function () {
         (canManageGym ? '<div class="form-group"><label class="form-label">Paid</label><select class="form-select" id="eg-paid"><option value="true"' + (b.paid ? ' selected' : '') + '>Yes</option><option value="false"' + (!b.paid ? ' selected' : '') + '>No</option></select></div>' : '') +
       '</div>' +
       '<div class="form-group"><label class="form-label">Notes</label><input class="form-input" id="eg-notes" value="' + escapeHtml(b.notes || '') + '"/></div>' +
-      '<p style="font-size:11.5px;color:var(--text3)">To move the membership dates or switch Daily/Monthly/Yearly, cancel this registration and create a new one — pricing and capacity are re-verified on every change.</p>',
+      '<p style="font-size:11.5px;color:var(--text3)">To move the membership dates or switch Daily/Monthly/Quarterly/Yearly, cancel this registration and create a new one — pricing and capacity are re-verified on every change.</p>',
       '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__saveGymRegistration(\'' + id + '\')">Save</button>'
     );
   };
@@ -199,7 +199,7 @@ PAGES.gym = function () {
           '<div style="flex:1"><div style="font-weight:600;font-size:13px">' + escapeHtml(g.name) + ' ' + badge(g.type || 'Standard', 'default') + '</div>' +
           (g.description ? '<div style="font-size:11px;color:var(--text3);margin:2px 0">' + escapeHtml(g.description) + '</div>' : '') +
           '<div style="font-size:11px;color:var(--text3);margin:2px 0">' + (g.facilities || []).map(f => escapeHtml(f)).join(' · ') + '</div>' +
-          '<div style="font-size:11px;color:var(--text3)">Cap ' + g.capacity + ' &middot; ' + formatMoney(g.price_daily) + '/day &middot; ' + formatMoney(g.price_monthly) + '/month &middot; ' + formatMoney(g.price_yearly) + '/year</div></div>' +
+          '<div style="font-size:11px;color:var(--text3)">Cap ' + g.capacity + ' &middot; ' + formatMoney(g.price_daily) + '/day &middot; ' + formatMoney(g.price_monthly) + '/month &middot; ' + formatMoney(g.price_quarterly) + '/quarter &middot; ' + formatMoney(g.price_yearly) + '/year</div></div>' +
           (g.active ? badge('Active', 'success') : badge('Inactive', 'default')) +
           '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__deleteGym(\'' + g.id + '\')">Delete</button></div>').join('')) +
       '</div>' +
@@ -211,6 +211,7 @@ PAGES.gym = function () {
           '<div class="form-group"><label class="form-label">Capacity (members)</label><input class="form-input" type="number" min="1" id="ag-cap" value="20"/></div>' +
           '<div class="form-group"><label class="form-label">Daily Registration ($)</label><input class="form-input" type="number" min="0" id="ag-daily" value="0"/></div>' +
           '<div class="form-group"><label class="form-label">Monthly Registration ($)</label><input class="form-input" type="number" min="0" id="ag-monthly" value="0"/></div>' +
+          '<div class="form-group"><label class="form-label">Quarterly Registration ($)</label><input class="form-input" type="number" min="0" id="ag-quarterly" value="0"/></div>' +
           '<div class="form-group"><label class="form-label">Yearly Registration ($)</label><input class="form-input" type="number" min="0" id="ag-yearly" value="0"/></div>' +
         '</div>' +
         '<div class="form-group"><label class="form-label">Facilities</label>' +
@@ -232,6 +233,7 @@ PAGES.gym = function () {
         capacity: Number(document.getElementById('ag-cap').value || 20),
         priceDaily: Number(document.getElementById('ag-daily').value || 0),
         priceMonthly: Number(document.getElementById('ag-monthly').value || 0),
+        priceQuarterly: Number(document.getElementById('ag-quarterly').value || 0),
         priceYearly: Number(document.getElementById('ag-yearly').value || 0),
         description: document.getElementById('ag-desc').value.trim(),
       });

@@ -27,6 +27,7 @@ const FAST = [
   'test-korapay.js',
   'verify-menu-categories-http.js',
   'verify-fitness-http.js',
+  'verify-gym-http.js',
   'verify-tables-http.js',
   'verify-tenant-settings-http.js',
   'verify-pos-tables-http.js',

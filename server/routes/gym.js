@@ -1,10 +1,11 @@
 // server/routes/gym.js
 // Gym Management & Booking — fitness-centre inventory (gyms) plus their member
 // registrations (gym_bookings). Each gym carries its name, type, facilities,
-// capacity and the daily/monthly/yearly registration prices a member pays. A
-// registration is a date-ranged membership ([start_date, end_date] inclusive,
-// derived from the registration type) with per-gym capacity enforcement over
-// overlapping periods — mirroring the halls/pool module structure.
+// capacity and the daily/monthly/quarterly/yearly registration prices a member
+// pays. A registration is a date-ranged membership ([start_date, end_date]
+// inclusive, derived from the registration type) with per-gym capacity
+// enforcement over overlapping periods — mirroring the halls/pool module
+// structure.
 const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
@@ -16,7 +17,53 @@ const { broadcast } = require('../ws');
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('gym.use'), requireEntitlement('gym_bookings'));
 
-const REGISTRATION_TYPES = ['daily', 'monthly', 'yearly'];
+// ── Load-time schema upgrade (this module's own tables — additive) ────────
+// Gyms gain price_quarterly and gym_bookings' registration_type CHECK gains
+// 'quarterly'. SQLite cannot ALTER a CHECK constraint, so the module rebuilds
+// its OWN table transactionally (create wider → copy every row → drop →
+// re-name → re-index) — the same pattern the fitness module uses. migrate.js
+// and every other module are untouched; the upgrade is idempotent and runs
+// before any route below can touch these tables.
+db.transaction(() => {
+  const cols = db.prepare('PRAGMA table_info(gyms)').all().map(c => c.name);
+  if (!cols.includes('price_quarterly')) {
+    db.exec('ALTER TABLE gyms ADD COLUMN price_quarterly REAL NOT NULL DEFAULT 0');
+  }
+  const chk = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='gym_bookings'`).get();
+  if (chk && !chk.sql.includes(`'quarterly'`)) {
+    db.exec(`
+      CREATE TABLE gym_bookings_qt (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        gym_id TEXT NOT NULL REFERENCES gyms(id) ON DELETE CASCADE,
+        member_name TEXT NOT NULL,
+        member_phone TEXT,
+        member_email TEXT,
+        room_number TEXT,
+        registration_type TEXT NOT NULL DEFAULT 'daily' CHECK(registration_type IN ('daily','monthly','quarterly','yearly')),
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        amount REAL NOT NULL DEFAULT 0,
+        paid INTEGER DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed','cancelled')),
+        notes TEXT,
+        created_by TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+      INSERT INTO gym_bookings_qt (id, tenant_id, gym_id, member_name, member_phone, member_email, room_number,
+        registration_type, start_date, end_date, amount, paid, status, notes, created_by, created_at, updated_at)
+        SELECT id, tenant_id, gym_id, member_name, member_phone, member_email, room_number,
+        registration_type, start_date, end_date, amount, paid, status, notes, created_by, created_at, updated_at FROM gym_bookings;
+      DROP TABLE gym_bookings;
+      ALTER TABLE gym_bookings_qt RENAME TO gym_bookings;
+      CREATE INDEX IF NOT EXISTS idx_gymbookings_tenant ON gym_bookings(tenant_id, start_date);
+      CREATE INDEX IF NOT EXISTS idx_gymbookings_gym ON gym_bookings(gym_id, start_date);
+    `);
+  }
+})();
+
+const REGISTRATION_TYPES = ['daily', 'monthly', 'quarterly', 'yearly'];
 
 function serializeGym(g) { return { ...g, facilities: JSON.parse(g.facilities || '[]'), active: !!g.active }; }
 function serializeRegistration(r) { return { ...r, paid: !!r.paid }; }
@@ -40,6 +87,7 @@ function addMonths(dateStr, n) {
 }
 function registrationPeriod(type, start) {
   if (type === 'monthly') return { start, end: addDays(addMonths(start, 1), -1) };
+  if (type === 'quarterly') return { start, end: addDays(addMonths(start, 3), -1) };
   if (type === 'yearly') return { start, end: addDays(addMonths(start, 12), -1) };
   return { start, end: start }; // daily
 }
@@ -52,13 +100,13 @@ router.get('/gyms', (req, res) => {
 });
 
 router.post('/gyms', requirePermission('gym.manage'), (req, res) => {
-  const { name, type, facilities, description, capacity, priceDaily, priceMonthly, priceYearly } = req.body;
+  const { name, type, facilities, description, capacity, priceDaily, priceMonthly, priceQuarterly, priceYearly } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
   const id = 'gym_' + nanoid(10);
-  db.prepare(`INSERT INTO gyms (id, tenant_id, name, type, facilities, description, capacity, price_daily, price_monthly, price_yearly)
-              VALUES (?,?,?,?,?,?,?,?,?,?)`)
+  db.prepare(`INSERT INTO gyms (id, tenant_id, name, type, facilities, description, capacity, price_daily, price_monthly, price_quarterly, price_yearly)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, req.tenantId, name, type || 'Standard', JSON.stringify(facilities || []), description || null,
-         Math.max(1, Number(capacity) || 20), Number(priceDaily) || 0, Number(priceMonthly) || 0, Number(priceYearly) || 0);
+         Math.max(1, Number(capacity) || 20), Number(priceDaily) || 0, Number(priceMonthly) || 0, Number(priceQuarterly) || 0, Number(priceYearly) || 0);
   const gym = db.prepare('SELECT * FROM gyms WHERE id = ?').get(id);
   audit(req, 'gym.create', 'gym', id, { name });
   broadcast(req.tenantId, 'gym.created', serializeGym(gym));
@@ -69,7 +117,7 @@ router.patch('/gyms/:id', requirePermission('gym.manage'), (req, res) => {
   const gym = db.prepare('SELECT * FROM gyms WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!gym) return res.status(404).json({ error: 'Gym not found' });
   const map = { name: 'name', type: 'type', description: 'description', capacity: 'capacity',
-                priceDaily: 'price_daily', priceMonthly: 'price_monthly', priceYearly: 'price_yearly', active: 'active' };
+                priceDaily: 'price_daily', priceMonthly: 'price_monthly', priceQuarterly: 'price_quarterly', priceYearly: 'price_yearly', active: 'active' };
   const updates = {};
   Object.entries(map).forEach(([bodyKey, col]) => {
     if (req.body[bodyKey] !== undefined) updates[col] = bodyKey === 'active' ? (req.body[bodyKey] ? 1 : 0) : req.body[bodyKey];
@@ -125,7 +173,7 @@ router.post('/registrations', (req, res) => {
   if (!gymId || !memberName || !registrationType || !startDate) {
     return res.status(400).json({ error: 'gymId, memberName, registrationType and startDate are required' });
   }
-  if (!REGISTRATION_TYPES.includes(registrationType)) return res.status(400).json({ error: 'registrationType must be daily, monthly or yearly' });
+  if (!REGISTRATION_TYPES.includes(registrationType)) return res.status(400).json({ error: 'registrationType must be daily, monthly, quarterly or yearly' });
   if (!validDate(startDate)) return res.status(400).json({ error: 'startDate must be a valid YYYY-MM-DD date' });
 
   const gym = db.prepare('SELECT * FROM gyms WHERE id = ? AND tenant_id = ?').get(gymId, req.tenantId);
@@ -177,7 +225,7 @@ router.patch('/registrations/:id', (req, res) => {
   if (req.body.amount !== undefined) updates.amount = Number(req.body.amount) || 0;
   if (req.body.paid !== undefined) updates.paid = req.body.paid ? 1 : 0;
   if (updates.registration_type && !REGISTRATION_TYPES.includes(updates.registration_type)) {
-    return res.status(400).json({ error: 'registrationType must be daily, monthly or yearly' });
+    return res.status(400).json({ error: 'registrationType must be daily, monthly, quarterly or yearly' });
   }
   if (updates.status && !['active', 'completed', 'cancelled'].includes(updates.status)) {
     return res.status(400).json({ error: 'status must be active, completed or cancelled' });
