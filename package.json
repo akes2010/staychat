@@ -73,7 +73,7 @@
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**"
     ],
-    "npmRebuild": true,
+    "npmRebuild": false,
     "win": {
       "target": [
         {
