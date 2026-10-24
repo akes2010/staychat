@@ -2,13 +2,23 @@
   "name": "staychat-os",
   "version": "1.0.0",
   "description": "StayChat OS — WhatsApp-Native Hotel Management SaaS",
-  "main": "server/index.js",
+  "author": {
+    "name": "StayChat",
+    "email": "support@staychatos.com"
+  },
+  "main": "electron/main.js",
   "type": "commonjs",
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "seed": "node server/db/seed.js",
     "icons": "node scripts/generate-icons.js",
+    "desktop": "electron .",
+    "desktop:rebuild": "electron-builder install-app-deps",
+    "dist": "electron-builder --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
     "package:desk": "node scripts/build-desk-package.js",
     "check": "node server/db/check.js",
     "migrate": "node server/db/migrate.js",
@@ -19,14 +29,15 @@
     "postinstall": "npm run rebuild"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.3.0",
+    "better-sqlite3": "^13.0.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "electron-updater": "^6.8.11",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
@@ -38,6 +49,78 @@
     "ws": "^8.18.0"
   },
   "allowScripts": {
-    "better-sqlite3@11.10.0": true
+    "better-sqlite3@13.0.3": true
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.staychat.desk",
+    "productName": "StayChat Desk",
+    "copyright": "© StayChat",
+    "directories": {
+      "output": "dist/desktop",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "server/**",
+      "public/**",
+      "!public/browser-shots/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
+    ],
+    "npmRebuild": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "StayChat Desk"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.business"
+    },
+    "linux": {
+      "executableName": "staychat-desk",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Office",
+      "synopsis": "Hotel management system — local desktop edition"
+    }
   }
 }

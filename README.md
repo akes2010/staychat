@@ -122,7 +122,7 @@ plans/status/MRR from tenant settings (strict column whitelist).
 
 ## Quick Start (local machine)
 
-Requires Node.js 18+.
+Requires Node.js 20+.
 
 ```bash
 cd staychat-os
@@ -150,7 +150,51 @@ For local development with auto-restart on file changes:
 npm run dev
 ```
 
----## Deploy it for real
+---
+
+## Desktop app — StayChat Desk
+
+The whole system also ships as a real **desktop app** (Windows / macOS /
+Linux): an Electron shell that boots the same Express + SQLite + WebSocket
+server **embedded in the app**, stores the database in the OS app-data
+folder, and opens the dashboard in a native window.
+
+- **Fully local** — the database lives in the OS app-data directory
+  (`~/Library/Application Support/StayChat Desk`, `%APPDATA%\StayChat Desk`,
+  `~/.config/StayChat Desk`); back it up by copying that folder. First launch
+  generates and persists its own secrets (chmod 600) — no `.env` needed.
+- **Shared over the network** — the embedded server also listens on the LAN,
+  so front-desk tablets and PCs open the same system in their browser at
+  `http://<desk-ip>:<port>/app` (*File → Show Address for Other Devices* in
+  the app shows the exact URLs). Set `STAYCHAT_HOST=127.0.0.1` for private
+  single-machine use and `STAYCHAT_PORT` to change the port (default 3000,
+  auto-fallback to a free port if it's taken).
+- **Run from source** (dev):
+  ```bash
+  npm install
+  npm run desktop:rebuild   # build the SQLite driver against Electron (once)
+  npm run desktop           # launches the app window
+  ```
+  > The SQLite driver is a native module, so it's built for one runtime at a
+  > time: run `npm run desktop:rebuild` before `npm run desktop`, and
+  > `npm run rebuild` before `npm run dev`/`npm start`. (Packaged installers
+  > always ship the correct build — electron-builder rebuilds it automatically.)
+- **Build installers** — NSIS `.exe` (Windows), `.dmg` (macOS), `.AppImage` +
+  `.deb` (Linux); artifacts land in `dist/desktop/`:
+  ```bash
+  npm run desktop:rebuild
+  npm run dist              # current OS  (or dist:win / dist:mac / dist:linux)
+  ```
+  The `desktop-release` GitHub Actions workflow builds all three platforms
+  from any `v*` tag, with a headless boot smoke test gating the packaging.
+
+The desktop boot path lives in `electron/boot-server.js` and is pure Node —
+run it directly (`STAYCHAT_DATA_DIR=/tmp/x node electron/boot-server.js`) to
+smoke-test the exact server startup the app uses.
+
+---
+
+## Deploy it for real
 
 > **New to this?** [`install-guide/`](install-guide/) is a complete,
 > beginner-level, copy-paste tutorial (prerequisites → DNS on Cloudflare →
@@ -403,6 +447,10 @@ larger multi-tenant SaaS with hundreds of hotels or need for read replicas:
 
 ```
 staychat-os/
+├── electron/                 # Desktop app (StayChat Desk)
+│   ├── main.js               # Electron main process — window, menu, lifecycle
+│   ├── boot-server.js        # Boots the embedded server (pure Node, testable)
+│   └── preload.js            # Minimal contextBridge (app info only)
 ├── server/
 │   ├── index.js              # Express app entry point
 │   ├── ws.js                  # WebSocket real-time broadcast

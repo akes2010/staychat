@@ -12,6 +12,9 @@ data/
 # Local tooling
 .claude/
 
+# Desktop installer output (built artifacts — regenerable via npm run dist)
+dist/desktop/
+
 # Logs & temp
 *.log
 npm-debug.log*

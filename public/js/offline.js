@@ -408,7 +408,13 @@ window.Offline = (() => {
           if (e.data === 'SYNC_NOW') flush();
         });
         navigator.serviceWorker.ready.then(reg => {
-          if (reg.sync && typeof reg.sync.register === 'function') reg.sync.register('staychat-sync');
+          // sync.register() rejects in environments that disable Background
+          // Sync (Electron desktop app, some privacy modes) — catch the
+          // INNER promise too, otherwise it surfaces as an unhandled
+          // rejection on every boot. The online-event flush covers us there.
+          if (reg.sync && typeof reg.sync.register === 'function') {
+            Promise.resolve(reg.sync.register('staychat-sync')).catch(() => {});
+          }
         }).catch(() => { /* not supported (Safari/Firefox) — online event covers us */ });
       }
     } catch (e) { /* non-fatal */ }
@@ -423,7 +429,9 @@ window.Offline = (() => {
     window.addEventListener('staychat:offline-enqueued', () => {
       try {
         navigator.serviceWorker.ready.then(reg => {
-          if (reg.sync && typeof reg.sync.register === 'function') reg.sync.register('staychat-sync');
+          if (reg.sync && typeof reg.sync.register === 'function') {
+            Promise.resolve(reg.sync.register('staychat-sync')).catch(() => {});
+          }
         }).catch(() => {});
       } catch (e) { /* non-fatal */ }
     });

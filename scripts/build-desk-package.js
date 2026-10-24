@@ -50,7 +50,7 @@ function dosDateTime(d) {
 }
 
 // ── What goes in ────────────────────────────────────────────────────────────
-const DIRS = ['server', 'public', 'scripts', 'tenant-manual', 'install-guide', 'deploy'];
+const DIRS = ['server', 'public', 'scripts', 'electron', 'build', 'tenant-manual', 'install-guide', 'deploy'];
 const ROOT_FILES = [
   'package.json', 'package-lock.json', 'README.md', '.gitignore',
   '.env.example', '.env.production.example', '.nvmrc',
@@ -89,11 +89,11 @@ set -e
 cd "$(dirname "$0")"
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "X Node.js 18 or newer is required."
+  echo "X Node.js 20 or newer is required."
   echo "  Install the LTS build from https://nodejs.org, then run this again."
   exit 1
 fi
-node -e 'const m=+process.versions.node.split(".")[0]; if(m<18){console.error("X Node.js 18+ required — found "+process.version);process.exit(1)}'
+node -e 'const m=+process.versions.node.split(".")[0]; if(m<20){console.error("X Node.js 20+ required — found "+process.version);process.exit(1)}'
 
 echo "1/3 Installing dependencies (also builds the database driver)..."
 npm install --no-audit --no-fund
@@ -133,7 +133,7 @@ const INSTALL_BAT = [
   'exit /b 0',
   '',
   ':no_node',
-  'echo X Node.js 18 or newer is required.',
+  'echo X Node.js 20 or newer is required.',
   'echo   Install the LTS build from https://nodejs.org, then run this again.',
   'pause',
   'exit /b 1',
@@ -157,7 +157,7 @@ YOUR LICENCE
   re-issued on request against your order reference (SC-...).
 
 REQUIREMENTS
-  * Node.js 18 or newer - https://nodejs.org (LTS build)
+  * Node.js 20 or newer - https://nodejs.org (LTS build)
   * Windows 10/11, macOS or Linux
   * No internet needed AFTER installation
 

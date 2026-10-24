@@ -1,0 +1,63 @@
+# .github/workflows/desktop.yml — build the StayChat Desk desktop installers
+# for all three platforms. Each OS builds its own artifact (electron-builder
+# can only produce macOS bundles on macOS); Linux also runs the headless
+# boot smoke test before packaging so a broken server boot never ships.
+name: desktop-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm rebuild better-sqlite3
+      - name: Headless boot smoke test (same code path the desktop app uses)
+        run: |
+          STAYCHAT_DATA_DIR=/tmp/staychat-smoke STAYCHAT_PORT=3999 node electron/boot-server.js > boot.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3999/api/health && break; sleep 2; done
+          curl -sf http://127.0.0.1:3999/api/health
+          curl -sf -o /dev/null http://127.0.0.1:3999/app
+          grep -q 'DESKTOP BOOT OK' boot.log
+
+  build:
+    needs: smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            args: --linux AppImage deb
+          - os: windows-latest
+            args: --win nsis
+          - os: macos-latest
+            args: --mac dmg zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:rebuild   # rebuild better-sqlite3 against Electron
+      - run: npx electron-builder ${{ matrix.args }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staychat-desk-${{ matrix.os }}
+          path: |
+            dist/desktop/*.exe
+            dist/desktop/*.dmg
+            dist/desktop/*.zip
+            dist/desktop/*.AppImage
+            dist/desktop/*.deb
+          if-no-files-found: error
