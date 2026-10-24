@@ -36,7 +36,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            args: --linux AppImage deb
+            args: --linux AppImage deb pacman
           - os: windows-latest
             args: --win nsis
           - os: macos-latest
@@ -60,4 +60,5 @@ jobs:
             dist/desktop/*.zip
             dist/desktop/*.AppImage
             dist/desktop/*.deb
+            dist/desktop/*.pacman
           if-no-files-found: error

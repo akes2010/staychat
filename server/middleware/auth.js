@@ -1,6 +1,7 @@
 // server/middleware/auth.js
 const { verifyAccessToken } = require('../utils/tokens');
 const db = require('../db/connection');
+const { isDesk } = require('../utils/edition');
 
 /**
  * requireAuth — verifies the access token (from httpOnly cookie or Bearer header)
@@ -32,6 +33,22 @@ function requireRole(...roles) {
     if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Insufficient permissions' });
     next();
   };
+}
+
+/**
+ * requirePlatformOperator — the platform-wide surfaces (plans catalog, payment
+ * gateways, subscription approvals, the Super Admin console routes).
+ * Hosted: superadmin only, unchanged.
+ * Desk edition: there IS no superadmin — the hotel's own `hotel_admin` runs
+ * these features instead, for their own hotel. Routes pair this gate with
+ * tenant scoping so a hotel admin can only ever reach their own rows
+ * (see routes/superadmin.js / routes/plans.js).
+ */
+function requirePlatformOperator(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  if (req.user.role === 'superadmin') return next();
+  if (isDesk() && req.user.role === 'hotel_admin') return next();
+  return res.status(403).json({ error: 'Insufficient permissions' });
 }
 
 /**
@@ -80,4 +97,4 @@ function audit(req, action, entityType, entityId, details) {
   } catch (e) { /* never let audit logging break a request */ console.error('audit log failed', e); }
 }
 
-module.exports = { requireAuth, requireRole, resolveTenant, requireTenant, audit };
+module.exports = { requireAuth, requireRole, requirePlatformOperator, resolveTenant, requireTenant, audit };

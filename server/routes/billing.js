@@ -18,6 +18,7 @@
 const express = require('express');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
+const { isDesk } = require('../utils/edition');
 const { requirePermission } = require('../utils/permissions');
 const { PLAN_CATALOG, FEATURE_LABELS, TRIAL_DAYS, resolveState, ensurePlansSeeded } = require('../services/entitlements');
 const billing = require('../services/billing');
@@ -95,9 +96,26 @@ router.post('/request-plan', requireAuth, resolveTenant, requireRole('hotel_admi
   const { planId, billingCycle, paymentMethod } = req.body || {};
   if (!PLAN_CATALOG[planId]) return res.status(400).json({ error: 'Unknown plan' });
   try {
-    const result = await billing.createCheckoutSession(loadTenant(req), planId, billingCycle, req);
+    let result;
+    if (isDesk()) {
+      // Desk edition: there is NO platform operator to reconcile a payment or
+      // approve a request — plans belong to this install. Issue the SC-
+      // reference (manual flow) and activate immediately, rather than parking
+      // a pending request nobody could ever clear. `activated` tells the UI
+      // to skip the "pay & share the reference with the platform team" step.
+      result = { ...billing.requestPlan(loadTenant(req), planId, billingCycle, 'card'),
+                 checkoutUrl: null, provider: null, autoApprove: false };
+      if (result.subscription && result.subscription.status === 'pending_approval') {
+        result.subscription = billing.approveSubscription(result.subscription.id, {
+          approvedBy: req.user.name || 'hotel_admin',
+        });
+        result.activated = true;
+      }
+    } else {
+      result = await billing.createCheckoutSession(loadTenant(req), planId, billingCycle, req);
+    }
     audit(req, 'billing.plan_requested', 'platform_subscription', result.subscription.id,
-      { planId, billingCycle, paymentMethod, provider: result.provider, autoApprove: result.autoApprove });
+      { planId, billingCycle, paymentMethod, provider: result.provider, autoApprove: result.autoApprove, activated: !!result.activated });
     res.status(201).json(result);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });

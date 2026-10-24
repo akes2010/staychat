@@ -6,7 +6,9 @@
 //   node scripts/generate-icons.js
 //
 // Outputs to public/: icon-192.png, icon-512.png, maskable-512.png,
-// apple-touch-icon.png (180x180, opaque for iOS) and favicon.svg.
+// apple-touch-icon.png (180x180, opaque for iOS) and favicon.svg, plus
+// build/icon.png (1024x1024) — the desktop build icon electron-builder turns
+// into the Windows .ico, the macOS .icns and the Linux desktop-entry icon.
 'use strict';
 
 const fs = require('fs');
@@ -41,7 +43,8 @@ function roundRectCoverage(size, x, y, radiusRatio) {
 }
 
 // A "chat bubble + signal" glyph: white rounded bubble with a tail and three
-// signal bars, drawn with a coarse signed-distance approximation. Good enough
+// signal bars PUNCHED OUT of it (background shows through — same look as
+// favicon.svg), drawn with a coarse signed-distance approximation. Good enough
 // at icon sizes and fully deterministic.
 function glyphCoverage(size, x, y) {
   const cx = (x + 0.5) / size, cy = (y + 0.5) / size; // 0..1
@@ -58,7 +61,9 @@ function glyphCoverage(size, x, y) {
     const bh = 0.10 + i * 0.09;
     if (cx > bx0 && cx < bx0 + barW && cy < base && cy > base - bh) inBars = true;
   }
-  return inBubble || inTail || inBars;
+  // Bars are holes, not fill: painting them white merged them into the white
+  // bubble and the glyph read as a blank blob.
+  return (inBubble || inTail) && !inBars;
 }
 
 // Compose a full RGBA buffer for one icon size.
@@ -79,7 +84,11 @@ function renderIcon(size, { maskable = false, opaque = true } = {}) {
         else if (opaque) { [r, g, b] = BG; } // navy background square
         else { a = 0; }
       }
-      const i = (x + y * size) * 4;
+      // Row-local RGBA index — `row` is ONE scanline (size*4 bytes), so a
+      // full-image index (x + y*size)*4 is out of bounds for every row after
+      // the first, and Buffer silently drops the write (that bug shipped
+      // icons where only row 0 was painted — everything else transparent).
+      const i = x * 4;
       row[i] = r; row[i + 1] = g; row[i + 2] = b; row[i + 3] = a;
     }
     rows.push(row);
@@ -153,4 +162,12 @@ const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
 </svg>`;
 fs.writeFileSync(path.join(outDir, 'favicon.svg'), favicon);
 console.log('✓ public/favicon.svg');
+
+// Desktop build icon (electron-builder buildResources/icon.png) — generated
+// from the same renderer so the installer/shortcut icon can never drift from
+// the web icons. 1024px so the macOS .icns and Windows .ico stay crisp.
+const buildDir = path.join(__dirname, '..', 'build');
+fs.mkdirSync(buildDir, { recursive: true });
+fs.writeFileSync(path.join(buildDir, 'icon.png'), encodePNG(renderIcon(1024, {}), 1024));
+console.log('✓ build/icon.png (1024x1024)');
 console.log('\nDone. Reference them from manifest.json / HTML heads.');

@@ -89,6 +89,10 @@ async function boot({ dataDir, preferredPort } = {}) {
   // reads DATA_DIR and server/index.js reads the secrets at require time.
   process.env.DATA_DIR = data;
   process.env.NODE_ENV = process.env.NODE_ENV || 'development';
+  // Edition: this boot path IS the desktop app, and the Desk edition has no
+  // platform superadmin — seed, role gates and billing activation all key off
+  // this (see server/utils/edition.js). Set before seed/index are required.
+  process.env.STAYCHAT_EDITION = process.env.STAYCHAT_EDITION || 'desk';
   const pkg = require(path.join(ROOT, 'package.json'));
   process.env.APP_VERSION = process.env.APP_VERSION || pkg.version;
   loadSecrets(path.join(data, 'desktop-secrets.json'));

@@ -1,17 +1,19 @@
 // server/routes/plans.js
-// Superadmin-only: subscription plan catalog, payment gateway catalog, and
+// Platform surfaces: subscription plan catalog, payment gateway catalog, and
 // tenant subscription lifecycle actions (assign/upgrade/downgrade/suspend/
 // terminate). This manages billing STATE — it does not process real payments
 // (no live Stripe/Paystack/crypto charge is made); it's the control surface
 // an operator uses to reflect what was agreed/paid outside the system.
+// Hosted: platform superadmin only. Desk edition: no superadmin exists — the
+// hotel's own admin manages this, scoped to their own hotel.
 const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
-const { requireAuth, requireRole, audit } = require('../middleware/auth');
+const { requireAuth, requirePlatformOperator, audit } = require('../middleware/auth');
 const { sanitizeTenant } = require('../utils/tenant-secrets');
 
 const router = express.Router();
-router.use(requireAuth, requireRole('superadmin'));
+router.use(requireAuth, requirePlatformOperator);
 
 // ── Plans ────────────────────────────────────────────────────────────
 router.get('/plans', (req, res) => {
@@ -94,6 +96,11 @@ router.delete('/gateways/:id', (req, res) => {
 router.post('/tenants/:tenantId/subscription', (req, res) => {
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.tenantId);
   if (!tenant) return res.status(404).json({ error: 'Hotel not found' });
+  // A desk hotel admin can only move their OWN subscription — never another
+  // hotel's (platform superadmin keeps full scope on hosted).
+  if (req.user.role !== 'superadmin' && tenant.id !== req.user.tenantId) {
+    return res.status(403).json({ error: 'Not your hotel' });
+  }
   const { planId, billingCycle, action } = req.body;
 
   if (['assign', 'upgrade', 'downgrade'].includes(action)) {

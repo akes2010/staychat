@@ -347,6 +347,14 @@ window.openUpgradeModal = async function (payload) {
 window.requestPlanFromModal = async function (planId) {
   try {
     const r = await API.post('/api/billing/request-plan', { planId, billingCycle: 'monthly' });
+    // Desk edition: no platform operator exists to approve anything — the
+    // request activates the plan immediately; show the live Billing page.
+    if (r.activated) {
+      closeModal();
+      toast('Plan activated — ' + ((r.plan && r.plan.name) || planId), 'success', 4000);
+      navigate('billing');
+      return;
+    }
     // Platform payments automated: the gateway's hosted checkout activates the
     // plan via webhook — send the hotel straight there.
     if (r.checkoutUrl) {

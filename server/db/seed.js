@@ -10,6 +10,7 @@ require('./migrate');
 const db = require('./connection');
 const bcrypt = require('bcryptjs');
 const { nanoid } = require('nanoid');
+const { isDesk } = require('../utils/edition');
 
 // bcrypt rounds - higher is more secure but slower
 const BCRYPT_ROUNDS = 12;
@@ -17,6 +18,14 @@ const BCRYPT_ROUNDS = 12;
 function id(prefix) { return prefix + '_' + nanoid(10); }
 
 function seed() {
+  // The Desk edition (desktop app) has no platform operator: it must never
+  // seed a superadmin, and any left behind by an earlier desktop install is
+  // removed here so the Super Admin console can't come back. This runs on
+  // every boot — the tenants-exist skip below returns for existing databases.
+  if (isDesk()) {
+    const removed = db.prepare("DELETE FROM users WHERE role = 'superadmin'").run();
+    if (removed.changes) console.log('→ Desk edition: removed ' + removed.changes + ' superadmin login(s)');
+  }
   const existing = db.prepare('SELECT COUNT(*) as c FROM tenants').get();
   if (existing.c > 0 && process.env.FORCE_SEED !== '1') {
     console.log('• Tenants already exist — skipping seed (set FORCE_SEED=1 to force).');
@@ -63,7 +72,10 @@ function seed() {
     INSERT INTO users (id, tenant_id, name, email, password_hash, role, department, avatar, phone, active)
     VALUES (@id,@tenant_id,@name,@email,@password_hash,@role,@department,@avatar,@phone,1)
   `);
-  insertUser.run({ id:id('user'), tenant_id:null, name:'Super Admin', email:'superadmin@staychat.io', password_hash:passwordHash, role:'superadmin', department:null, avatar:'SA', phone:null });
+  // Hosted edition only — the desktop app has no superadmin (see isDesk above).
+  if (!isDesk()) {
+    insertUser.run({ id:id('user'), tenant_id:null, name:'Super Admin', email:'superadmin@staychat.io', password_hash:passwordHash, role:'superadmin', department:null, avatar:'SA', phone:null });
+  }
   const adminUserId = id('user');
   // Booking engine ON for every seeded hotel — mirrors what signup does for
   // real tenants, so a freshly seeded deployment has the demo booking funnel
@@ -399,7 +411,7 @@ function seed() {
   console.log(`  ║  Password: ${demoPassword}`.padEnd(63) + '║');
   console.log('  ║  Note: Set DEMO_PASSWORD env var to customize'.padEnd(63) + '║');
   console.log('  ╠═══════════════════════════════════════════════════════════════════╣');
-  console.log('  ║  superadmin@staychat.io       — Super Admin (all hotels)'.padEnd(63) + '║');
+  if (!isDesk()) console.log('  ║  superadmin@staychat.io       — Super Admin (all hotels)'.padEnd(63) + '║');
   console.log('  ║  admin@hospitally.com         — Hotel Admin (Hospitally Grand)'.padEnd(63) + '║');
   console.log('  ║  reception@hospitally.com     — Receptionist'.padEnd(63) + '║');
   console.log('  ║  felix@hospitally.com         — Housekeeping Staff'.padEnd(63) + '║');

@@ -173,6 +173,13 @@ async function requestPlanFromModalShared(planId, cycle) {
   if (!canManageBilling()) { toast('Only the hotel admin can change plans', 'error'); return; }
   try {
     const r = await API.post('/api/billing/request-plan', { planId, billingCycle: cycle || 'monthly' });
+    // Desk edition: there is no platform operator to approve anything — the
+    // request activates the plan immediately, so skip the reference step.
+    if (r.activated) {
+      toast('Plan activated — ' + ((r.plan && r.plan.name) || planId), 'success', 4000);
+      loadBilling();
+      return;
+    }
     if (r.checkoutUrl) {
       toast('Redirecting to secure checkout…', 'success', 4000);
       setTimeout(() => { window.location.href = r.checkoutUrl; }, 800);

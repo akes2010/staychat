@@ -85,6 +85,17 @@ staychat-desk
 
 (Package name is `staychat-os`; the launcher/menu entry is **StayChat Desk**.)
 
+**Option C — `.pacman` (Arch Linux / Manjaro / EndeavourOS)**
+
+```bash
+sudo pacman -U staychat-os-1.0.0.pacman
+staychat-desk
+```
+
+(`pacman -U` installs any local package file regardless of its extension.
+Built with the `pacman` target of the `desktop-release` workflow or
+`npm run dist:linux`.)
+
 **First launch:** creates and seeds the database in `~/.config/StayChat Desk`.
 **LAN access:** if you use `ufw`, open the port: `sudo ufw allow 3000/tcp`.
 
@@ -97,10 +108,12 @@ Demo data is seeded automatically on first launch. Sign in with (or click
 
 | Role | Email | Password |
 |---|---|---|
-| Super Admin | `superadmin@staychat.io` | `Demo@123456` |
 | Hotel Admin | `admin@hospitally.com` | `Demo@123456` |
 | Receptionist | `reception@hospitally.com` | `Demo@123456` |
 | …full list in [`README.md`](../README.md) → Quick Start | | |
+
+The desktop edition has **no platform Super Admin** — the Hotel Admin owns
+this install (plans, billing and settings for their own hotel).
 
 Change the demo passwords (or re-seed without demo data) before real use.
 
@@ -160,6 +173,7 @@ decrypt.
 | Windows | Settings → Apps → **StayChat Desk** → Uninstall | Kept in `%APPDATA%\StayChat Desk` — delete manually for a clean wipe |
 | macOS | Delete `StayChat Desk.app` from Applications | Kept in `~/Library/Application Support/StayChat Desk` |
 | Linux (deb) | `sudo dpkg -r staychat-os` | Kept in `~/.config/StayChat Desk` |
+| Linux (pacman) | `sudo pacman -R staychat-os` | Kept in `~/.config/StayChat Desk` |
 | Linux (AppImage) | Delete the `.AppImage` file | Kept in `~/.config/StayChat Desk` |
 
 ---
@@ -190,12 +204,13 @@ npm run desktop          # launch the app
 npm run dist          # current OS
 npm run dist:win      # NSIS .exe      (works from Linux too)
 npm run dist:mac      # .dmg           (build on macOS)
-npm run dist:linux    # .AppImage + .deb
+npm run dist:linux    # .AppImage + .deb + .pacman
 ```
 
-- The `.deb` target needs an Ubuntu/Debian-like host (electron-builder's
-  bundled `fpm`/ruby requires `libcrypt.so.1` — absent on Arch-based systems;
-  CI's Ubuntu runner is fine).
+- The `.deb` and `.pacman` targets both go through electron-builder's bundled
+  `fpm`/ruby, which requires `libcrypt.so.1` — present on Ubuntu/Debian (CI's
+  runner is fine) but **absent on Arch**: `sudo pacman -S libxcrypt-compat`
+  before building those targets on Arch itself.
 - Icons: `build/icon.png` (512×512) is the installer/app icon; regenerate with
   `npm run icons`.
 

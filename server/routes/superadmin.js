@@ -3,13 +3,30 @@ const express = require('express');
 const { hashPassword } = require('../utils/password-pool'); // bcrypt runs OFF the request thread
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
-const { requireAuth, requireRole, audit } = require('../middleware/auth');
+const { requireAuth, requirePlatformOperator, audit } = require('../middleware/auth');
 const { PLAN_CATALOG, sweepExpiredTrials } = require('../services/entitlements');
 const billing = require('../services/billing');
 const { sanitizeTenant } = require('../utils/tenant-secrets');
 
 const router = express.Router();
-router.use(requireAuth, requireRole('superadmin'));
+router.use(requireAuth, requirePlatformOperator);
+
+// ── Edition scoping ────────────────────────────────────────────────────
+// Hosted: every route below runs as the platform superadmin and spans all
+// hotels. Desk edition: there is no superadmin — the hotel's own admin passes
+// the gate above, so every query collapses to their own hotel (scope()),
+// while operations that provision, suspend or delete hotels stay platform-only.
+function scope(req) {
+  return req.user.role === 'superadmin' ? null : req.user.tenantId;
+}
+function ownsTenant(req, tenantId) {
+  return req.user.role === 'superadmin' || tenantId === req.user.tenantId;
+}
+function platformOnly(req, res) {
+  if (req.user.role === 'superadmin') return true;
+  res.status(403).json({ error: 'Only the platform operator can manage hotels' });
+  return false;
+}
 
 // ── Platform Billing (automated subscription payments) ───────────────────
 // The platform operator's own gateway credentials — NOT a hotel's. When at
@@ -72,22 +89,35 @@ function publicTenant(t) {
 }
 
 router.get('/tenants', (req, res) => {
-  const rows = db.prepare('SELECT * FROM tenants ORDER BY created_at DESC').all();
+  const own = scope(req);
+  const rows = own
+    ? db.prepare('SELECT * FROM tenants WHERE id = ?').all(own)
+    : db.prepare('SELECT * FROM tenants ORDER BY created_at DESC').all();
   res.json(rows.map(publicTenant));
 });
 
 router.get('/overview', (req, res) => {
-  const tenants = db.prepare('SELECT * FROM tenants').all();
+  const own = scope(req);
+  const tenants = own
+    ? db.prepare('SELECT * FROM tenants WHERE id = ?').all(own)
+    : db.prepare('SELECT * FROM tenants').all();
   const totalMrr = tenants.reduce((s, t) => s + (t.mrr || 0), 0);
-  const totalRooms = db.prepare('SELECT COUNT(*) as c FROM rooms').get().c;
+  const totalRooms = own
+    ? db.prepare('SELECT COUNT(*) as c FROM rooms WHERE tenant_id = ?').get(own).c
+    : db.prepare('SELECT COUNT(*) as c FROM rooms').get().c;
   const activeCount = tenants.filter(t => t.status === 'active').length;
   const trialCount = tenants.filter(t => t.status === 'trial').length;
   const suspendedCount = tenants.filter(t => t.status === 'suspended').length;
-  const revenueAllTime = db.prepare("SELECT COALESCE(SUM(amount),0) s FROM platform_subscriptions WHERE status IN ('active','superseded')").get().s;
+  const revenueAllTime = own
+    ? db.prepare("SELECT COALESCE(SUM(amount),0) s FROM platform_subscriptions WHERE status IN ('active','superseded') AND tenant_id = ?").get(own).s
+    : db.prepare("SELECT COALESCE(SUM(amount),0) s FROM platform_subscriptions WHERE status IN ('active','superseded')").get().s;
+  const pendingApprovals = own
+    ? db.prepare("SELECT COUNT(*) c FROM platform_subscriptions WHERE status = 'pending_approval' AND tenant_id = ?").get(own).c
+    : billing.countPending();
   res.json({
     totalHotels: tenants.length, activeHotels: activeCount, totalMrr, totalRooms,
     trialHotels: trialCount, suspendedHotels: suspendedCount,
-    pendingApprovals: billing.countPending(), revenueAllTime,
+    pendingApprovals, revenueAllTime,
   });
 });
 
@@ -95,9 +125,14 @@ router.get('/overview', (req, res) => {
 // GET /api/superadmin/subscriptions?status=pending_approval
 router.get('/subscriptions', (req, res) => {
   const { status } = req.query;
-  const rows = status
-    ? db.prepare('SELECT * FROM platform_subscriptions WHERE status = ? ORDER BY requested_at DESC LIMIT 200').all(status)
-    : db.prepare('SELECT * FROM platform_subscriptions ORDER BY requested_at DESC LIMIT 200').all();
+  const own = scope(req);
+  const where = [];
+  const params = [];
+  if (status) { where.push('status = ?'); params.push(status); }
+  if (own) { where.push('tenant_id = ?'); params.push(own); }
+  const rows = db.prepare('SELECT * FROM platform_subscriptions' +
+    (where.length ? ' WHERE ' + where.join(' AND ') : '') +
+    ' ORDER BY requested_at DESC LIMIT 200').all(...params);
   const tenantName = db.prepare('SELECT id, name FROM tenants WHERE id = ?');
   res.json(rows.map(s => {
     const t = tenantName.get(s.tenant_id);
@@ -109,6 +144,9 @@ router.get('/subscriptions', (req, res) => {
 // Marks payment received → tenant goes live on the requested plan immediately.
 router.post('/subscriptions/:id/approve', (req, res) => {
   try {
+    const pending = db.prepare('SELECT tenant_id FROM platform_subscriptions WHERE id = ?').get(req.params.id);
+    if (!pending) return res.status(404).json({ error: 'Subscription not found' });
+    if (!ownsTenant(req, pending.tenant_id)) return res.status(403).json({ error: 'Not your hotel' });
     const sub = billing.approveSubscription(req.params.id, {
       approvedBy: req.user.name || 'superadmin',
       gatewayRef: req.body.gatewayRef || null,
@@ -123,6 +161,9 @@ router.post('/subscriptions/:id/approve', (req, res) => {
 // POST /api/superadmin/subscriptions/:id/reject  { reason? }
 router.post('/subscriptions/:id/reject', (req, res) => {
   try {
+    const pending = db.prepare('SELECT tenant_id FROM platform_subscriptions WHERE id = ?').get(req.params.id);
+    if (!pending) return res.status(404).json({ error: 'Subscription not found' });
+    if (!ownsTenant(req, pending.tenant_id)) return res.status(403).json({ error: 'Not your hotel' });
     const sub = billing.rejectSubscription(req.params.id, req.body.reason);
     audit(req, 'billing.subscription_rejected', 'platform_subscription', sub.id, { reason: req.body.reason || null });
     res.json(sub);
@@ -133,7 +174,10 @@ router.post('/subscriptions/:id/reject', (req, res) => {
 
 // GET /api/superadmin/billing-events — platform-wide billing trail
 router.get('/billing-events', (req, res) => {
-  res.json(db.prepare('SELECT * FROM billing_events ORDER BY created_at DESC LIMIT 300').all());
+  const own = scope(req);
+  res.json(own
+    ? db.prepare('SELECT * FROM billing_events WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 300').all(own)
+    : db.prepare('SELECT * FROM billing_events ORDER BY created_at DESC LIMIT 300').all());
 });
 
 // POST /api/superadmin/sweep-trials — flip expired trials to suspended
@@ -145,6 +189,7 @@ router.post('/sweep-trials', (req, res) => {
 });
 
 router.post('/tenants', async (req, res) => {
+  if (!platformOnly(req, res)) return;
   const { name, plan, rooms, email, country, subdomain } = req.body;
   if (!name) return res.status(400).json({ error: 'Hotel name is required' });
   if (!['starter','pro','enterprise'].includes(plan)) return res.status(400).json({ error: 'Invalid plan' });
@@ -174,6 +219,12 @@ router.post('/tenants', async (req, res) => {
 router.patch('/tenants/:id', (req, res) => {
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+  if (!ownsTenant(req, tenant.id)) return res.status(403).json({ error: 'Not your hotel' });
+  // Status flips are platform operations — a desk hotel admin suspending
+  // their own hotel would lock the whole install out (requireTenant 403s).
+  if (req.user.role !== 'superadmin' && req.body.status !== undefined) {
+    return res.status(403).json({ error: 'Only the platform operator can change a hotel status' });
+  }
 
   // Only real, writable columns. `rooms` is NOT a column — room count is derived
   // (see publicTenant), so accepting it here would throw "no such column: rooms".
@@ -200,6 +251,7 @@ router.patch('/tenants/:id', (req, res) => {
 });
 
 router.post('/tenants/:id/suspend', (req, res) => {
+  if (!platformOnly(req, res)) return;
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
   db.prepare(`UPDATE tenants SET status = 'suspended', updated_at = datetime('now') WHERE id = ?`).run(tenant.id);
@@ -208,6 +260,7 @@ router.post('/tenants/:id/suspend', (req, res) => {
 });
 
 router.post('/tenants/:id/reactivate', (req, res) => {
+  if (!platformOnly(req, res)) return;
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
   db.prepare(`UPDATE tenants SET status = 'active', updated_at = datetime('now') WHERE id = ?`).run(tenant.id);
@@ -216,6 +269,7 @@ router.post('/tenants/:id/reactivate', (req, res) => {
 });
 
 router.delete('/tenants/:id', (req, res) => {
+  if (!platformOnly(req, res)) return;
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
   db.prepare('DELETE FROM tenants WHERE id = ?').run(tenant.id); // cascades via FK
@@ -224,8 +278,10 @@ router.delete('/tenants/:id', (req, res) => {
 });
 
 router.get('/audit-log', (req, res) => {
-  const rows = db.prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 200').all();
-  res.json(rows);
+  const own = scope(req);
+  res.json(own
+    ? db.prepare('SELECT * FROM audit_log WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 200').all(own)
+    : db.prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 200').all());
 });
 
 module.exports = router;
