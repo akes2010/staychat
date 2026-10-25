@@ -170,4 +170,16 @@ const buildDir = path.join(__dirname, '..', 'build');
 fs.mkdirSync(buildDir, { recursive: true });
 fs.writeFileSync(path.join(buildDir, 'icon.png'), encodePNG(renderIcon(1024, {}), 1024));
 console.log('✓ build/icon.png (1024x1024)');
+
+// Linux package icon set — pointing `linux.icon` at this directory makes
+// electron-builder install one hicolor entry per file. Sizes must be dirs
+// the freedesktop hicolor theme DECLARES: it has 256x256 and 512x512 but
+// no 1024x1024, so a bare 1024px build/icon.png lands where icon lookup
+// never looks (desktop shows a generic white card).
+const linuxIconDir = path.join(buildDir, 'icons-linux');
+fs.mkdirSync(linuxIconDir, { recursive: true });
+for (const size of [256, 512]) {
+  fs.writeFileSync(path.join(linuxIconDir, `${size}x${size}.png`), encodePNG(renderIcon(size, {}), size));
+  console.log(`✓ build/icons-linux/${size}x${size}.png (${size}x${size})`);
+}
 console.log('\nDone. Reference them from manifest.json / HTML heads.');

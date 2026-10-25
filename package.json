@@ -126,6 +126,7 @@
         }
       ],
       "category": "Office",
+      "icon": "build/icons-linux",
       "synopsis": "Hotel management system — local desktop edition"
     }
   }

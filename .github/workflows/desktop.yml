@@ -54,6 +54,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libarchive-tools
       - run: npx electron-builder ${{ matrix.args }} --publish never
+      - name: Verify package icons land in declared hicolor dirs
+        if: runner.os == 'Linux'
+        run: node scripts/verify-linux-icons.js
       - uses: actions/upload-artifact@v4
         with:
           name: staychat-desk-${{ matrix.os }}

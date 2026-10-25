@@ -35,6 +35,9 @@ tablets and PCs on the same network from that one machine.
 - **Firewall prompt:** click **Allow access** on the private network —
   otherwise other front-desk devices can't open the app (you can skip this if
   you'll only ever use this one computer).
+- **Shortcuts:** the installer already placed *StayChat Desk* on your Desktop
+  and in the Start menu. To also pin it to the taskbar: right-click its icon →
+  **Pin to taskbar** (Windows doesn't let installers pin it automatically).
 
 **Data folder:** `%APPDATA%\StayChat Desk`
 (i.e. `C:\Users\<you>\AppData\Roaming\StayChat Desk` — type it into the File
@@ -59,6 +62,9 @@ Explorer address bar. *File → Open Data Folder* in the app opens it too.)
 - Terminal alternative: `xattr -cr "/Applications/StayChat Desk.app"`
 - **Network prompt:** allow incoming connections if other devices should reach
   the app.
+- **Desktop + Dock:** on first launch the app places a *StayChat Desk* link on
+  your Desktop. To keep it in the Dock for daily use: right-click the Dock
+  icon → **Options → Keep in Dock**.
 
 **Data folder:** `~/Library/Application Support/StayChat Desk`
 
@@ -97,6 +103,10 @@ Built with the `pacman` target of the `desktop-release` workflow or
 `npm run dist:linux`.)
 
 **First launch:** creates and seeds the database in `~/.config/StayChat Desk`.
+**Shortcuts:** the package installs an app-menu entry, and on first launch the
+app also drops a **StayChat Desk** launcher icon onto your Desktop — this works
+for the AppImage too, and respects a localized desktop folder (e.g.
+`~/Escritorio`).
 **LAN access:** if you use `ufw`, open the port: `sudo ufw allow 3000/tcp`.
 
 ---
@@ -211,8 +221,12 @@ npm run dist:linux    # .AppImage + .deb + .pacman
   `fpm`/ruby, which requires `libcrypt.so.1` — present on Ubuntu/Debian (CI's
   runner is fine) but **absent on Arch**: `sudo pacman -S libxcrypt-compat`
   before building those targets on Arch itself.
-- Icons: `build/icon.png` (512×512) is the installer/app icon; regenerate with
-  `npm run icons`.
+- Icons: `build/icon.png` (1024×1024) is the installer/app icon (mac `.icns` /
+  Windows `.ico`); `build/icons-linux/` (256/512) is what the Linux packages
+  install into the hicolor theme — both are generated together by
+  `npm run icons`. (A bare 1024px icon can't be used for Linux packages:
+  the freedesktop hicolor theme doesn't declare `1024x1024`, so icon lookup
+  would miss it and desktops show a generic white card.)
 
 **Smoke-test the exact boot path the app uses (no GUI):**
 

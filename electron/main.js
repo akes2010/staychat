@@ -11,6 +11,7 @@ const { app, BrowserWindow, Menu, dialog, shell, ipcMain } = require('electron')
 const path = require('path');
 
 const { boot } = require('./boot-server');
+const { ensureDesktopShortcut } = require('./desktop-shortcuts');
 
 // ── Auto-update (packaged builds only) ──────────────────────────────────────
 // electron-updater reads resources/app-update.yml (written by electron-builder
@@ -256,6 +257,26 @@ if (!gotLock) {
         '\n\nIf port 3000 is in use by another app, set STAYCHAT_PORT and try again.'
       );
       app.quit();
+    }
+
+    // Packaged installs only: put a launcher on the Desktop where the
+    // platform offers no installer-side way to (Linux .pacman/.deb/AppImage,
+    // macOS). Windows is covered by the NSIS installer's shortcuts. Runs at
+    // most once — see desktop-shortcuts.js — and never blocks startup.
+    if (app.isPackaged) {
+      try {
+        const r = ensureDesktopShortcut({
+          platform: process.platform,
+          home: require('os').homedir(),
+          markerPath: path.join(app.getPath('userData'), '.desktop-shortcut-done'),
+          execPath: process.execPath,
+          appImage: process.env.APPIMAGE,
+          iconSource: path.join(__dirname, '..', 'public', 'icon-512.png'),
+        });
+        if (r.created) console.log('desktop shortcut created');
+      } catch (err) {
+        console.warn('desktop shortcut skipped:', err.message);
+      }
     }
   });
 
