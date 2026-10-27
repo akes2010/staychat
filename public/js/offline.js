@@ -184,17 +184,15 @@ window.Offline = (() => {
   }
 
   async function tryRefresh() {
+    // Shared session refresh (api.js). Four modules used to refresh on their
+    // own; the single-use refresh cookie turned any overlap into a full
+    // session revocation, which is exactly what made staff sign in "again and
+    // again" — especially after an outage, when the outbox flush and a page
+    // load's own restore both came back at once.
+    if (typeof API === 'undefined' || !API.refreshSession) return false;
     try {
-      const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
-      if (!res.ok) return false;
-      const data = await res.json().catch(() => null);
-      if (data && window.App) {
-        if (data.accessToken) App.accessToken = data.accessToken;
-        if (data.user) App.user = data.user;
-        if (data.tenant) App.tenant = data.tenant;
-        if (data.entitlements) App.entitlements = data.entitlements;
-      }
-      return !!(data && data.accessToken);
+      const r = await API.refreshSession();
+      return !!(r && r.status === 'ok');
     } catch (e) { return false; }
   }
 

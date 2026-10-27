@@ -12,6 +12,9 @@
 //   6. a deliberately bad queued request comes back 404 and is FLAGGED FOR
 //      STAFF REVIEW (conflict state) instead of being retried forever
 //   7. logout-style wipe clears the outbox
+//   8. a network drop mid-session re-opens the shell from the LOCAL session
+//      snapshot instead of dumping the desk back on the sign-in form, and
+//      revalidates itself silently once the connection returns
 'use strict';
 const { spawn } = require('child_process');
 const http = require('http');
@@ -229,6 +232,46 @@ const apiGet = (p, token) => fetch(BASE + p, { headers: { Authorization: 'Bearer
 
       const ledgerOpens = await evl(`(async () => { Offline.openLedger(); await new Promise(r => setTimeout(r, 300)); const html = document.getElementById('modal-container').innerHTML; closeModal(); return html.includes('needs review') && html.includes('Bad check-in'); })()`);
       ledgerOpens === true ? ok('ledger modal lists the flagged conflict for staff review') : bad('ledger modal does not show the flagged conflict');
+
+      console.log('── Session survives a network drop (no re-login) ──');
+      const snapSaved = await evl(`(() => {
+        try {
+          const raw = localStorage.getItem('staychat.session-snapshot.v1');
+          const snap = raw ? JSON.parse(raw) : null;
+          return !!(snap && snap.user && snap.user.id);
+        } catch (e) { return false; }
+      })()`);
+      snapSaved === true
+        ? ok('session snapshot saved on this device after sign-in')
+        : bad('no local session snapshot after sign-in');
+
+      // Cut the network again and replay the boot restore — exactly what
+      // happens when the desk reopens the installed PWA mid-outage.
+      await send('Network.emulateNetworkConditions', { offline: true, latency: 20, downloadThroughput: -1, uploadThroughput: -1 });
+      await sleep(300);
+      await evl(`(async () => {
+        window.App.user = null; window.App.accessToken = null;
+        window.App.tenant = null; window.App.tenantId = null; window.App.permissions = [];
+        document.getElementById('app').classList.remove('visible');
+        document.getElementById('auth-screen').style.display = '';
+        await tryRestoreSession();
+      })()`);
+      const restored = await waitFor(evl, `!!(window.App && App.user)`, true, 10000);
+      const onLoginScreen = await evl(`document.getElementById('auth-screen').style.display !== 'none'`);
+      (restored === true && onLoginScreen === false)
+        ? ok('offline boot reopens the session from the local snapshot — NOT the login form')
+        : bad('offline boot fell back to the login form (user=' + restored + ', showingLogin=' + onLoginScreen + ')');
+      const noTokenOffline = await evl(`App.accessToken === null`);
+      noTokenOffline === true
+        ? ok('offline boot invents no credentials (access token stays null until revalidated)')
+        : bad('unexpected access token after offline boot');
+
+      // Back online → the shell revalidates itself with no user action.
+      await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+      const revalidated = await waitFor(evl, `!!(window.App && App.accessToken)`, true, 15000);
+      revalidated === true
+        ? ok('back online: session revalidated automatically — nobody had to sign in again')
+        : bad('session never revalidated after the connection came back');
 
       console.log('── Logout hygiene: outbox wipe ──');
       const wiped = await evl(`(async () => { await PWA.wipeCaches(); const c = await Offline.counts(); return c.pending + c.conflict + c.error; })()`);

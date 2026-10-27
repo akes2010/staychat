@@ -69,7 +69,8 @@ async function doSignup() {
   }
 }
 
-function startApp(user, accessToken, tenant, entitlements) {
+function startApp(user, accessToken, tenant, entitlements, opts) {
+  const offlineRestore = !!(opts && opts.offlineRestore);
   window.App.user = user;
   window.App.tenantId = user.tenantId || null;
   window.App.tenant = tenant || null;
@@ -80,6 +81,15 @@ function startApp(user, accessToken, tenant, entitlements) {
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').classList.add('visible');
 
+  // Remember who was signed in here so a dead Wi-Fi link can reopen this
+  // shell (see tryRestoreSession) instead of demanding the password again.
+  // Deliberately NOT the access token: it lives 15 minutes anyway, and the
+  // httpOnly refresh cookie is what actually gets the session back.
+  if (!offlineRestore) saveSessionSnapshot(user, tenant, entitlements);
+  if (offlineRestore) {
+    toast('📴 You are offline — reopening your last session from this device. Your data is here; anything you change will sync when the connection returns.', 'warn', 9000);
+  }
+
   setupSidebar();
   WSClient.setTokenGetter(() => window.App.accessToken);
   WSClient.reconnectWithNewTenant(); // fresh connection with the current token (no-op if already up)
@@ -89,16 +99,24 @@ function startApp(user, accessToken, tenant, entitlements) {
   if (typeof applyTheme === 'function' && user.theme) applyTheme(user.theme);
   if (typeof showTrialBanner === 'function') showTrialBanner();
   showInstallButtonIfAvailable();
+  // Pull the desk's data onto this device in the background so the installed
+  // PWA can still render rooms, bookings, guests… during a network outage —
+  // not only the handful of pages this user happened to open while online.
+  // (Re-run automatically on every 'online' event; see pwa.js.)
+  if (window.PWA && !offlineRestore && typeof navigator !== 'undefined' && navigator.onLine) {
+    setTimeout(() => { try { PWA.warmCache(); } catch (e) { /* non-fatal */ } }, 1500);
+  }
 
   const landingPage = user.role === 'superadmin' && !App.tenantId ? 'superadmin'
     : (user.role === 'cashier' || user.role === 'barman') ? 'pos'
     : 'dashboard';
   navigate(landingPage);
-  toast('Welcome back, ' + user.name + '!', 'success');
+  if (!offlineRestore) toast('Welcome back, ' + user.name + '!', 'success');
 }
 
 async function doLogout() {
   try { await API.post('/api/auth/logout', {}); } catch (e) { /* ignore */ }
+  clearSessionSnapshot();
   window.App.user = null;
   window.App.tenantId = null;
   window.App.tenant = null;
@@ -144,15 +162,28 @@ let __restoreInflight = null;
 async function tryRestoreSession() {
   if (__restoreInflight) return __restoreInflight;
   __restoreInflight = (async () => {
-    try {
-      // The refresh call itself returns a fresh user+tenant+accessToken, so a
-      // separate /me call beforehand is redundant — this also fixes session
-      // restore silently failing if /me succeeded but refresh then failed.
-      const refreshed = await API.post('/api/auth/refresh', {});
-      startApp(refreshed.user, refreshed.accessToken, refreshed.tenant, refreshed.entitlements);
-    } catch (e) {
-      // No valid session — show login screen (already visible by default).
+    // ONE refresh for the whole page (shared with the 401 retry in api.js,
+    // the WS 4001 handler and the offline outbox) — presenting the single-use
+    // refresh cookie twice is what used to revoke every session.
+    const r = await API.refreshSession();
+    if (r.status === 'ok') {
+      startApp(r.data.user, r.data.accessToken, r.data.tenant, r.data.entitlements);
+      return;
     }
+    if (r.status === 'unauthorized') {
+      // The server has ruled the cookie dead — a genuine sign-out.
+      clearSessionSnapshot();
+      return; // login screen is already visible by default
+    }
+    // 'unavailable': the server could not be reached at all (offline desk,
+    // Wi-Fi flap, deploy in progress). The refresh cookie is very likely
+    // still perfectly good, so do NOT fall back to the sign-in form — that is
+    // what made staff retype their password every time the network blinked,
+    // and impossible to satisfy while actually offline. Reopen the shell from
+    // the session this device saved last time; armOfflineSessionRecovery()
+    // re-validates it the moment connectivity returns.
+    const snap = readSessionSnapshot();
+    if (snap) startApp(snap.user, null, snap.tenant, snap.entitlements, { offlineRestore: true });
   })();
   try {
     return await __restoreInflight;
@@ -160,3 +191,63 @@ async function tryRestoreSession() {
     __restoreInflight = null;
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OFFLINE SESSION SNAPSHOT
+// A minimal record of "who was signed in on this device" kept in
+// localStorage. It holds NO credentials — no password, no access token, no
+// refresh token (the refresh cookie is httpOnly and never leaves the server).
+// It exists purely so the PWA can boot its cached shell and cached data when
+// the network is gone; the very first authenticated call after connectivity
+// returns re-validates the real session and overwrites it.
+// ═══════════════════════════════════════════════════════════════════════════
+const SESSION_SNAPSHOT_KEY = 'staychat.session-snapshot.v1';
+const SESSION_SNAPSHOT_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // matches refresh-cookie life
+
+function saveSessionSnapshot(user, tenant, entitlements) {
+  try {
+    if (!user) return;
+    localStorage.setItem(SESSION_SNAPSHOT_KEY, JSON.stringify({
+      user, tenant: tenant || null, entitlements: entitlements || null, savedAt: Date.now(),
+    }));
+  } catch (e) { /* private mode / quota — offline boot simply falls back to login */ }
+}
+
+function readSessionSnapshot() {
+  try {
+    const raw = localStorage.getItem(SESSION_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap || !snap.user || !snap.user.id) { clearSessionSnapshot(); return null; }
+    if (Date.now() - (snap.savedAt || 0) > SESSION_SNAPSHOT_MAX_AGE) { clearSessionSnapshot(); return null; }
+    return snap;
+  } catch (e) {
+    clearSessionSnapshot();
+    return null;
+  }
+}
+
+function clearSessionSnapshot() {
+  try { localStorage.removeItem(SESSION_SNAPSHOT_KEY); } catch (e) { /* non-fatal */ }
+}
+
+// Re-validate a snapshot-booted session as soon as the network is back.
+// Reads served from the service-worker cache never produce a 401, so without
+// this the shell could sit there with a null access token (no live socket, no
+// writes) until the member of staff happened to trigger an uncached call.
+function armOfflineSessionRecovery() {
+  if (typeof window === 'undefined') return;
+  window.addEventListener('online', async () => {
+    if (!window.App || !App.user || App.accessToken) return; // nothing to repair
+    const r = await API.refreshSession();
+    if (r.status === 'ok') {
+      if (typeof WSClient !== 'undefined') WSClient.reconnectWithNewTenant();
+      if (typeof navigate === 'function' && App.page) navigate(App.page);
+      toast('Back online — your session is live again.', 'success', 4000);
+    } else if (r.status === 'unauthorized') {
+      clearSessionSnapshot();
+      API.handoffToLogin();
+    }
+  });
+}
+armOfflineSessionRecovery();

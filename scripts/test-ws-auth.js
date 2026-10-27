@@ -117,9 +117,16 @@ function wsHandshake(token, tenantId) {
   });
 }
 
-// ── Load the real ws-client.js in a sandbox and drive its state machine ──
+// ── Load the real api.js + ws-client.js in a sandbox and drive its state
+// machine ────────────────────────────────────────────────────────────────────
+// api.js MUST be loaded too: index.html loads it before ws-client.js, and
+// ws-client deliberately delegates token refresh to API.refreshSession() —
+// four separate copies of the refresh routine were exactly what made the
+// single-use refresh cookie get presented twice and revoke every session.
+// The sandbox therefore mirrors the real script order.
 function runClientStateMachine() {
   return new Promise((resolve) => {
+    const apiSrc = fs.readFileSync(path.join(ROOT, 'public/js/api.js'), 'utf8');
     const src = fs.readFileSync(path.join(ROOT, 'public/js/ws-client.js'), 'utf8');
     const events = [];
     let wsFactory;
@@ -138,9 +145,12 @@ function runClientStateMachine() {
         // Round-trip through the real server carrying the httpOnly cookies
         // captured from login (the sandbox has no real cookie jar).
         const res = await postJson('/api/auth/refresh', {}, { Cookie: cookieJar });
+        const body = JSON.stringify(res.body);
         return {
           ok: res.status === 200,
+          status: res.status,
           json: async () => res.body,
+          text: async () => body, // API.refreshSession reads the body as text
         };
       },
       // Real timers — the stub must actually run callbacks for the simulated
@@ -151,6 +161,7 @@ function runClientStateMachine() {
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
     // `const` declarations don't attach to the sandbox global — re-expose.
+    vm.runInContext(apiSrc, sandbox);
     vm.runInContext(src + '\n;this.WSClient = WSClient;', sandbox);
     const WSClient = sandbox.WSClient;
 

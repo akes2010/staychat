@@ -12,43 +12,26 @@ const WSClient = (() => {
   let accessTokenGetter = () => null;
   let backoffTimer = null;
   let stopped = true; // true when deliberately closed (logout / session gone)
-  let refreshing = null; // in-flight token refresh promise
-  let refreshBackoffUntil = 0; // after a 429, wait out the server's window
 
   function setTokenGetter(fn) { accessTokenGetter = fn; }
 
   // Ask the server for a fresh access token via the httpOnly refresh cookie.
-  // Returns true on success. Concurrent callers share one in-flight refresh.
+  // Returns true on success.
+  //
+  // This used to keep its OWN fetch + in-flight flag. So did api.js,
+  // auth.js and offline.js — and because the refresh cookie is single-use,
+  // two of them firing in the same instant made the server revoke every
+  // session for the user ("you have been logged out again"). Everyone now
+  // funnels through API.refreshSession(), which dedupes within the tab and
+  // takes an exclusive Web Lock across tabs.
   async function refreshAccessToken() {
-    if (refreshing) return refreshing;
-    if (Date.now() < refreshBackoffUntil) return false;
-    refreshing = (async () => {
-      try {
-        const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
-        if (res.status === 429) {
-          // Rate-limited: don't keep poking the server every reconnect. Sit
-          // out the limiter's window; the WS reconnect backoff keeps ticking.
-          refreshBackoffUntil = Date.now() + 60 * 1000;
-          return false;
-        }
-        refreshBackoffUntil = 0;
-        if (!res.ok) return false;
-        const data = await res.json().catch(() => null);
-        // Publish the fresh session exactly like login does.
-        if (data && window.App) {
-          if (data.accessToken) window.App.accessToken = data.accessToken;
-          if (data.user) window.App.user = data.user;
-          if (data.tenant) window.App.tenant = data.tenant;
-          if (data.entitlements) window.App.entitlements = data.entitlements;
-        }
-        return !!(data && data.accessToken);
-      } catch (e) {
-        return false;
-      } finally {
-        refreshing = null;
-      }
-    })();
-    return refreshing;
+    if (typeof API === 'undefined' || !API.refreshSession) return false;
+    try {
+      const r = await API.refreshSession();
+      return !!(r && r.status === 'ok');
+    } catch (e) {
+      return false;
+    }
   }
 
   function connect() {
