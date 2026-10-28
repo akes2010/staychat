@@ -52,7 +52,12 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    # No ports exposed to the host — Caddy is the only public entrypoint.
+    # Debug/login access from any device on the LAN (user-requested):
+    # binds ALL interfaces, so the login page opens at http://<this-machine>:3000
+    # from phones/tablets too. Turn this back to 127.0.0.1 to lock it to this
+    # machine only.
+    ports:
+      - "0.0.0.0:3000:3000"
 
   caddy:
     image: caddy:2-alpine
