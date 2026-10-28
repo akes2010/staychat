@@ -118,10 +118,17 @@ const apiGet = (p, token) => fetch(BASE + p, { headers: { Authorization: 'Bearer
   // Occupy ONE room (the highest number) so the offline warm has a real
   // settle/checkout target — checkout-check + balance?roomNumber are warmed
   // for non-available rooms. The test below reserves the first FREE room.
+  // MUST be scoped to the demo hotel's tenant: this is a MULTI-TENANT DB
+  // (a fresh seed gives another hotel rooms 301-303), and the desk only ever
+  // sees its OWN tenant's rooms — occupying another tenant's room made the
+  // "occupied room" warm check fail on fresh seeds (CI) while passing on a
+  // dirty dev DB where the demo tenant happens to hold the highest number.
   {
     const Database = require('better-sqlite3');
     const dbc = new Database(path.join(dataDir, 'staychat.db'));
-    const target = dbc.prepare('SELECT id FROM rooms ORDER BY CAST(number AS INTEGER) DESC, number DESC LIMIT 1').get();
+    const target = dbc.prepare(`SELECT id FROM rooms
+      WHERE tenant_id = (SELECT tenant_id FROM users WHERE email = 'reception@hospitally.com')
+      ORDER BY CAST(number AS INTEGER) DESC, number DESC LIMIT 1`).get();
     if (target) dbc.prepare(`UPDATE rooms SET status = 'occupied', guest_name = 'Warm Target' WHERE id = ?`).run(target.id);
     dbc.close();
   }
