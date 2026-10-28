@@ -145,10 +145,13 @@ PAGES.settings = function () {
         '<div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn outline sm" onclick="window.__saveEngineConfig()">Save Booking Engine</button>' +
         '<a href="/book.html?hotel=' + escapeHtml(settings.subdomain || '') + '&v=2" target="_blank" rel="noopener" class="btn ghost sm">Preview booking page ↗</a></div></div>' +
 
+      ((App.user && (App.user.role === 'hotel_admin' || App.user.role === 'superadmin')) ?
       '<div style="background:var(--error-bg);border:1.5px solid var(--error-border);border-radius:var(--radius-lg);padding:18px">' +
-        '<div style="font-weight:700;color:var(--error);margin-bottom:8px">Danger Zone</div>' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px"><p style="font-size:13px;color:var(--text3)">Permanently delete all operational data (rooms, guests, orders, staff, etc). Your hotel profile and login stay intact.</p>' +
-        '<button class="btn danger sm" onclick="window.__doFactoryReset()">Factory Reset</button></div></div>' +
+        '<div style="font-weight:700;color:var(--error);margin-bottom:10px">Data Management (admin account only)</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px"><p style="font-size:13px;color:var(--text3)"><b>Export partial database</b> — download users, transactions, bookings, rooms, halls, pool, gym, POS (bar &amp; restaurant) and other services as a JSON file. Credentials are never included.</p>' +
+        '<button class="btn outline sm" style="white-space:nowrap" onclick="window.__exportPartialData()">⬇ Export Data</button></div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px"><p style="font-size:13px;color:var(--text3)"><b>Partial reset</b> — erase all transactions, users, products &amp; prices, room management and other module records. <b>Settings and module configuration stay</b> (floors, categories, halls, pools, gyms, printers, payment setup) and your admin login stays.</p>' +
+        '<button class="btn danger sm" style="white-space:nowrap" onclick="window.__doFactoryReset()">Partial Reset</button></div></div>' : '') +
     '</div>';
   }
 
@@ -293,17 +296,34 @@ PAGES.settings = function () {
   function val(id) { const e = document.getElementById(id); return e ? e.value : undefined; }
   function checked(id) { const e = document.getElementById(id); return e ? e.checked : undefined; }
 
-  // Factory reset is the most destructive action in the system (it deletes
-  // every room/guest/booking). A confirm-click alone is too easy to hit on
-  // autopilot — require the operator to TYPE the hotel name to arm the button.
+  // Partial reset is the most destructive action in the system (it deletes
+  // every transaction, user, product and room). A confirm-click alone is too
+  // easy to hit on autopilot — require the operator to TYPE the hotel name to
+  // arm the button. Settings and module configuration are NOT touched.
+  window.__exportPartialData = async () => {
+    try {
+      const data = await API.get('/api/settings/data-export');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (settings.subdomain || 'hotel') + '-export-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      const sets = Object.keys(data || {}).filter(k => k !== 'meta').length;
+      toast('Export downloaded — ' + sets + ' datasets, credentials excluded', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  };
   window.__doFactoryReset = () => {
     const hotel = settings.name || '';
-    openModal('⚠️ Factory Reset — delete ALL operational data',
-      '<div class="alert error" style="margin-bottom:14px"><b>Permanently erases</b> every room, guest, booking, order, ledger entry and closing for <b>' + escapeHtml(hotel) + '</b>. The hotel profile and logins stay. This cannot be undone.</div>' +
+    openModal('⚠️ Partial Reset — erase operational data',
+      '<div class="alert error" style="margin-bottom:14px"><b>Permanently erases</b> every transaction, user (except your admin account), product &amp; price, room, guest, booking, POS ticket, ledger entry and closing for <b>' + escapeHtml(hotel) + '</b>.<br/><br/><b>Kept:</b> hotel settings, currency &amp; payment setup, floors, room categories, halls, pools, gyms, services, printers, menu categories and your admin login. This cannot be undone.</div>' +
       '<div class="form-group"><label class="form-label">Type the hotel name to enable deletion: <b>' + escapeHtml(hotel) + '</b></label>' +
       '<input class="form-input" id="freset-confirm" autocomplete="off"/></div>',
       '<button class="btn outline" onclick="closeModal()">Cancel</button>' +
-      '<button class="btn danger" id="freset-go" disabled onclick="window.__executeFactoryReset()" style="opacity:.5;cursor:not-allowed">Delete everything</button>' +
+      '<button class="btn danger" id="freset-go" disabled onclick="window.__executeFactoryReset()" style="opacity:.5;cursor:not-allowed">Erase operational data</button>' +
       (function(){
         setTimeout(function(){
           const inp = document.getElementById('freset-confirm');
@@ -320,7 +340,14 @@ PAGES.settings = function () {
       { wide: false });
   };
   window.__executeFactoryReset = async () => {
-    try { await API.post('/api/settings/factory-reset', { confirmHotelName: settings.name }); toast('Factory reset done — re-seed to restore demo data', 'warn'); closeModal(); navigate('dashboard'); }
+    try {
+      const r = await API.post('/api/settings/factory-reset', { confirmHotelName: settings.name });
+      const n = r && r.erased ? Object.values(r.erased).reduce((s, v) => s + (Number(v) || 0), 0) : 0;
+      toast('Partial reset done — ' + n + ' records erased, settings & configuration kept', 'warn', 6000);
+      closeModal();
+      navigate('dashboard');
+      setTimeout(() => { try { location.reload(); } catch (e) {} }, 900);
+    }
     catch (err) { toast(err.message, 'error'); }
   };
 

@@ -223,6 +223,17 @@ router.post('/whatsapp/test', requireRole('hotel_admin', 'superadmin'), async (r
   }
 });
 
+// ── Partial reset: erase the hotel's OPERATIONAL data, keep its SETTINGS ──
+// Admin account only (hotel_admin / superadmin), armed by typing the hotel
+// name — the client must round-trip /api/settings to pass. What is ERASED:
+// transactions, every user except the acting admin, products & prices,
+// room inventory, guests, bookings, till tickets, the ledger, closings,
+// messages and the rest of the recorded business. What is KEPT: the tenants
+// row (profile, currency, payment keys, branding), booking-engine config,
+// printers, AI config, and every module DEFINITION — floors, room categories,
+// holidays, shift rotation, halls, pools, gyms & membership plans, services,
+// menu categories, POS tables, chart of accounts — plus the acting admin's
+// own login (this very session must survive the reset).
 router.post('/factory-reset', requireRole('hotel_admin', 'superadmin'), (req, res) => {
   const tid = req.tenantId;
   // Require the hotel's CURRENT NAME as a typed confirmation — the client must
@@ -232,15 +243,109 @@ router.post('/factory-reset', requireRole('hotel_admin', 'superadmin'), (req, re
   const typed = String((req.body || {}).confirmHotelName || '').trim().toLowerCase();
   const expected = String(req.tenant.name || '').trim().toLowerCase();
   if (!expected || typed !== expected) {
-    return res.status(400).json({ error: 'Confirmation mismatch — type the hotel name exactly to factory reset' });
+    return res.status(400).json({ error: 'Confirmation mismatch — type the hotel name exactly to reset' });
   }
-  const tables = ['rooms','guests','bookings','orders','menu_items','staff','maintenance_requests','conversations','messages','transactions','pos_tickets','pool_bookings','hall_bookings','halls','floors','room_categories','holidays','shifts','attendance','pools','misc_services','misc_service_orders','printers','ai_configs','vouchers','journal_lines','journal_entries','accounts','eod_closings','blocked_numbers','wifi_provisions','booking_engine_config'];
+  // Children before parents (safe whether or not the FK pragma is on).
+  const DATA_TABLES = [
+    'messages', 'conversations', 'idempotency_keys',
+    'booking_rooms', 'bookings', 'pos_tickets', 'transactions',
+    'journal_lines', 'journal_entries', 'vouchers', 'analytics_daily',
+    'rooms', 'guests', 'menu_items', 'orders', 'misc_service_orders',
+    'hall_bookings', 'pool_bookings', 'gym_bookings', 'memberships',
+    'eod_closings', 'attendance', 'maintenance_requests', 'wifi_provisions',
+  ];
+  const counts = {};
   const txn = db.transaction(() => {
-    tables.forEach(t => db.prepare(`DELETE FROM ${t} WHERE tenant_id = ?`).run(tid));
+    DATA_TABLES.forEach(t => {
+      counts[t] = db.prepare(`DELETE FROM ${t} WHERE tenant_id = ?`).run(tid).changes;
+    });
+    // Users: everybody but the acting admin. Their sessions and pending
+    // password resets go with them (explicit, so it holds even if the FK
+    // pragma is off — a deleted user must never be able to refresh back in).
+    counts.refresh_tokens = db.prepare('DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ? AND id != ?)')
+      .run(tid, req.user.id).changes;
+    counts.password_resets = db.prepare('DELETE FROM password_resets WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ? AND id != ?)')
+      .run(tid, req.user.id).changes;
+    counts.users = db.prepare('DELETE FROM users WHERE tenant_id = ? AND id != ?').run(tid, req.user.id).changes;
+    // Fresh audit trail: the reset itself is the first new entry.
+    counts.audit_log = db.prepare('DELETE FROM audit_log WHERE tenant_id = ?').run(tid).changes;
   });
   txn();
-  audit(req, 'settings.factory_reset', 'tenant', tid);
-  res.json({ ok: true, message: 'All operational data has been cleared. Hotel profile and login remain intact.' });
+  audit(req, 'settings.factory_reset', 'tenant', tid, { erased: counts });
+  res.json({
+    ok: true,
+    erased: counts,
+    message: 'Operational data cleared. Settings, module configuration and your admin login are intact.',
+  });
+});
+
+// ── Partial database export (admin account) ──────────────────────────────
+// Everything a hotel would need OUT of the system: users, transactions,
+// bookings (dates), rooms, halls, pool, gym, the POS (bar & restaurant),
+// services, operations and the ledger — as a JSON attachment. Settings and
+// tenant configuration are NOT included (that side is the reset's keep-set),
+// and credential material is stripped: password hashes and tokens never leave.
+router.get('/data-export', requireRole('hotel_admin', 'superadmin'), (req, res) => {
+  const tid = req.tenantId;
+  const all = (sql) => db.prepare(sql).all(tid);
+  const users = db.prepare('SELECT * FROM users WHERE tenant_id = ?').all(tid).map(u => {
+    const safe = { ...u };
+    delete safe.password_hash;
+    return safe;
+  });
+  const payload = {
+    meta: {
+      kind: 'staychat-partial-export',
+      exportedAt: new Date().toISOString(),
+      tenantId: tid,
+      hotel: req.tenant.name,
+      subdomain: req.tenant.subdomain,
+      note: 'Operational data only — settings and tenant configuration are intentionally excluded.',
+    },
+    users,
+    transactions: all('SELECT * FROM transactions WHERE tenant_id = ?'),
+    bookings: all('SELECT * FROM bookings WHERE tenant_id = ?'),
+    booking_rooms: all('SELECT * FROM booking_rooms WHERE tenant_id = ?'),
+    guests: all('SELECT * FROM guests WHERE tenant_id = ?'),
+    rooms: all('SELECT * FROM rooms WHERE tenant_id = ?'),
+    halls: all('SELECT * FROM halls WHERE tenant_id = ?'),
+    hall_bookings: all('SELECT * FROM hall_bookings WHERE tenant_id = ?'),
+    pools: all('SELECT * FROM pools WHERE tenant_id = ?'),
+    pool_bookings: all('SELECT * FROM pool_bookings WHERE tenant_id = ?'),
+    gyms: all('SELECT * FROM gyms WHERE tenant_id = ?'),
+    gym_bookings: all('SELECT * FROM gym_bookings WHERE tenant_id = ?'),
+    membership_plans: all('SELECT * FROM membership_plans WHERE tenant_id = ?'),
+    memberships: all('SELECT * FROM memberships WHERE tenant_id = ?'),
+    pos: {
+      tickets: all('SELECT * FROM pos_tickets WHERE tenant_id = ?'),
+      menuItems: all('SELECT * FROM menu_items WHERE tenant_id = ?'),
+      menuCategories: all('SELECT * FROM menu_categories WHERE tenant_id = ?'),
+      tables: all('SELECT * FROM pos_tables WHERE tenant_id = ?'),
+    },
+    services: {
+      roomServiceOrders: all('SELECT * FROM orders WHERE tenant_id = ?'),
+      miscServices: all('SELECT * FROM misc_services WHERE tenant_id = ?'),
+      miscOrders: all('SELECT * FROM misc_service_orders WHERE tenant_id = ?'),
+    },
+    operations: {
+      eodClosings: all('SELECT * FROM eod_closings WHERE tenant_id = ?'),
+      attendance: all('SELECT * FROM attendance WHERE tenant_id = ?'),
+      maintenance: all('SELECT * FROM maintenance_requests WHERE tenant_id = ?'),
+      wifiProvisions: all('SELECT * FROM wifi_provisions WHERE tenant_id = ?'),
+      staff: all('SELECT * FROM staff WHERE tenant_id = ?'),
+    },
+    accounting: {
+      accounts: all('SELECT * FROM accounts WHERE tenant_id = ?'),
+      journalEntries: all('SELECT * FROM journal_entries WHERE tenant_id = ?'),
+      journalLines: all('SELECT * FROM journal_lines WHERE tenant_id = ?'),
+      vouchers: all('SELECT * FROM vouchers WHERE tenant_id = ?'),
+    },
+  };
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="staychat-${req.tenant.subdomain || 'hotel'}-export-${stamp}.json"`);
+  audit(req, 'settings.data_export', 'tenant', tid, { datasets: Object.keys(payload).length });
+  res.json(payload);
 });
 
 module.exports = router;
