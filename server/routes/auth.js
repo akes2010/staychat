@@ -323,7 +323,7 @@ router.post('/demo', loginLimiter, (req, res) => {
   if (!DEMO_LOGIN_ENABLED) return res.status(404).json({ error: 'Not found' });
 
   const { role } = req.body;
-  const allowed = ['superadmin', 'hotel_admin', 'receptionist', 'staff', 'cashier', 'barman'];
+  const allowed = ['superadmin', 'hotel_admin', 'receptionist', 'staff', 'cashier', 'barman', 'porter'];
   if (!allowed.includes(role)) return res.status(400).json({ error: 'Invalid demo role' });
 
   const user = db.prepare('SELECT * FROM users WHERE role = ? ORDER BY created_at ASC LIMIT 1').get(role);

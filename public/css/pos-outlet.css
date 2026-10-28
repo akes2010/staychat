@@ -28,6 +28,10 @@
 :is(#content .pos-outlet-restaurant, #modal.pos-outlet-restaurant) .pos-cart-totals-row.grand{background:rgba(194,65,12,.10);color:var(--p)}
 :is(#content .pos-outlet-restaurant, #modal.pos-outlet-restaurant) .pos-pay-option.selected{border-color:var(--p);background:rgba(194,65,12,.10);box-shadow:0 0 0 3px rgba(194,65,12,.18)}
 :is(#content .pos-outlet-restaurant, #modal.pos-outlet-restaurant) .pos-ticket-card{border-left:4px solid var(--p)}
+/* app.css gives each outlet's ticket card its own top accent (blue for
+   restaurant, purple for bar) — re-tinted to the terminal's colour below so
+   each card reads as one theme instead of clashing with the identity. */
+#content .pos-outlet-restaurant .pos-ticket-card.restaurant{border-top-color:var(--p)}
 
 /* ── Bar terminal — dark & moody ─────────────────────────────────────── */
 :is(#content .pos-outlet-bar, #modal.pos-outlet-bar){
@@ -46,6 +50,7 @@
 :is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pos-cart-totals-row.grand{background:rgba(240,180,41,.14);color:var(--p)}
 :is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pos-pay-option.selected{border-color:var(--p);background:rgba(240,180,41,.12);box-shadow:0 0 0 3px rgba(240,180,41,.20)}
 :is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pos-ticket-card{border-left:4px solid var(--p)}
+#content .pos-outlet-bar .pos-ticket-card.bar{border-top-color:var(--p)}
 /* Amber is bright enough to read as text on navy but not behind white —
    flip the label colour on filled controls so contrast stays AA. */
 :is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .btn.primary{color:#1a1206}
