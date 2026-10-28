@@ -45,7 +45,20 @@ PAGES.pos = function () {
     '</div>';
   }
 
+  // A till operator's role pins the terminal: barman → bar, cashier →
+  // restaurant. The server enforces the same lock (server/routes/pos.js);
+  // these guards keep the console-driven UI honest too.
+  function lockedOutlet() {
+    if (!App.user) return null;
+    if (App.user.role === 'barman') return 'bar';
+    if (App.user.role === 'cashier') return 'restaurant';
+    return null;
+  }
+  function outletName(o) { return o === 'bar' ? 'Bar' : 'Restaurant'; }
+
   window.__posPickTerminal = (outlet) => {
+    const lock = lockedOutlet();
+    if (lock && outlet !== lock) { toast('Your account is locked to the ' + outletName(lock) + ' terminal.', 'error'); return; }
     openModal((outlet === 'bar' ? '🍸 Bar' : '🍽 Restaurant') + ' Terminal Sign-In',
       '<div class="form-group"><label class="form-label">Operator Name (Cashier / Barman)</label><input class="form-input" id="pt-cashier" value="' + escapeHtml(App.user ? App.user.name : '') + '"/></div>' +
       '<p style="font-size:12px;color:var(--text3);margin-top:8px">Every ticket opened on this terminal will be attributed to this operator for shift reporting.</p>',
@@ -53,13 +66,19 @@ PAGES.pos = function () {
     );
   };
   window.__posConfirmTerminal = (outlet) => {
+    const lock = lockedOutlet();
+    if (lock && outlet !== lock) { toast('Your account can only run the ' + outletName(lock) + ' terminal.', 'error'); return; }
     const cashierName = document.getElementById('pt-cashier').value.trim() || (App.user ? App.user.name : 'Operator');
     state.terminal = { outlet, cashierName };
     state.outlet = outlet;
     closeModal();
     render();
   };
-  window.__posSwitchTerminal = () => { state.terminal = null; renderTerminalScreen(); };
+  window.__posSwitchTerminal = () => {
+    const lock = lockedOutlet();
+    if (lock) { toast('Your account is locked to the ' + outletName(lock) + ' terminal — no switching.', 'error'); return; }
+    state.terminal = null; renderTerminalScreen();
+  };
 
   async function ensureMenuAndContext() {
     if (state.menuLoaded) return;

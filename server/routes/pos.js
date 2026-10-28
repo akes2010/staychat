@@ -24,6 +24,23 @@ function serialize(t) {
 
 function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
+// ── Outlet lock (fraud control) ───────────────────────────────────────
+// A till operator's role pins their terminal: a barman works the BAR terminal
+// ALONE, a cashier the RESTAURANT terminal ALONE. The UI already hides the
+// other terminal — this is the server-side half, so driving the API by hand
+// cannot read, open, edit, void or settle the OTHER outlet's tickets (the
+// classic shrinkage route: touching the neighbouring till's takings).
+// Managers/owners (hotel_admin, superadmin, staff on a till) have no lock.
+function lockedOutlet(user) {
+  if (user && user.role === 'barman') return 'bar';
+  if (user && user.role === 'cashier') return 'restaurant';
+  return null;
+}
+const OUTLET_NAMES = { bar: 'Bar', restaurant: 'Restaurant' };
+function lockedOutletError(lock, other) {
+  return 'This account is locked to the ' + OUTLET_NAMES[lock] + ' terminal — it cannot work the ' + OUTLET_NAMES[other] + ' terminal';
+}
+
 // Clamp a percentage into [0, max]. Guards against a bad/hostile discount that
 // would zero out or invert a bill (e.g. discountPct = 200 → negative total).
 function clampPct(v, max) {
@@ -59,9 +76,13 @@ function recalc(ticket) {
 // GET /api/pos/tickets?outlet=restaurant|bar&status=open
 router.get('/tickets', (req, res) => {
   const { outlet, status } = req.query;
+  // A locked till only ever receives its own outlet's tickets — the query
+  // string cannot widen it (asking for the other outlet is ignored, not honoured).
+  const lock = lockedOutlet(req.user);
+  const effOutlet = lock || outlet;
   let sql = 'SELECT * FROM pos_tickets WHERE tenant_id = ?';
   const params = [req.tenantId];
-  if (outlet) { sql += ' AND outlet = ?'; params.push(outlet); }
+  if (effOutlet) { sql += ' AND outlet = ?'; params.push(effOutlet); }
   if (status) { sql += ' AND status = ?'; params.push(status); }
   else { sql += " AND (status = 'open' OR date(created_at) = date('now'))"; }
   sql += ' ORDER BY created_at DESC';
@@ -72,7 +93,8 @@ router.get('/tickets', (req, res) => {
 // GET /api/pos/summary — today's POS snapshot for the header cards
 router.get('/summary', (req, res) => {
   const tenantId = req.tenantId;
-  const outlets = ['restaurant', 'bar'];
+  const lock = lockedOutlet(req.user);
+  const outlets = lock ? [lock] : ['restaurant', 'bar'];
   const summary = {};
   outlets.forEach(outlet => {
     const open = db.prepare(`SELECT COUNT(*) c FROM pos_tickets WHERE tenant_id = ? AND outlet = ? AND status = 'open'`).get(tenantId, outlet).c;
@@ -87,7 +109,9 @@ router.get('/summary', (req, res) => {
 // Rides the router's own pos.use gate, so any terminal operator can pick a
 // table without needing the Tables & Seating management page.
 router.get('/tables', (req, res) => {
-  const tables = db.prepare('SELECT * FROM pos_tables WHERE tenant_id = ? AND active = 1 ORDER BY location, name').all(req.tenantId);
+  const lock = lockedOutlet(req.user);
+  const tables = db.prepare('SELECT * FROM pos_tables WHERE tenant_id = ? AND active = 1 ORDER BY location, name').all(req.tenantId)
+    .filter(t => !lock || t.location === lock); // a locked till only seats its own outlet
   const seated = db.prepare("SELECT id, table_id FROM pos_tickets WHERE tenant_id = ? AND status = 'open' AND table_id IS NOT NULL").all(req.tenantId);
   const seatedBy = new Map(seated.map(s => [s.table_id, s.id]));
   res.json(tables.map(t => ({
@@ -125,6 +149,8 @@ function validateSeat(tenantId, outlet, tableId, covers, excludeTicketId) {
 router.get('/tickets/:id', (req, res) => {
   const t = db.prepare('SELECT * FROM pos_tickets WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!t) return res.status(404).json({ error: 'Ticket not found' });
+  const lock = lockedOutlet(req.user);
+  if (lock && t.outlet !== lock) return res.status(403).json({ error: lockedOutletError(lock, t.outlet) });
   res.json(serialize(t));
 });
 
@@ -132,6 +158,8 @@ router.get('/tickets/:id', (req, res) => {
 router.post('/tickets', (req, res) => {
   const { outlet, label, guestName, guestId, roomNumber, note, cashierName } = req.body;
   if (!['restaurant', 'bar'].includes(outlet)) return res.status(400).json({ error: 'outlet must be "restaurant" or "bar"' });
+  const lock = lockedOutlet(req.user);
+  if (lock && outlet !== lock) return res.status(403).json({ error: lockedOutletError(lock, outlet) });
 
   // ── Table picker: validate the seat before the ticket exists ────────────
   const coversClean = cleanCovers(req.body.covers);
@@ -174,6 +202,10 @@ router.post('/tickets', (req, res) => {
 function getOpenTicket(req, res) {
   const t = db.prepare('SELECT * FROM pos_tickets WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!t) { res.status(404).json({ error: 'Ticket not found' }); return null; }
+  // Single choke point for every ticket mutation (edit, items, void,
+  // checkout): a locked till never touches the other outlet's ticket.
+  const lock = lockedOutlet(req.user);
+  if (lock && t.outlet !== lock) { res.status(403).json({ error: lockedOutletError(lock, t.outlet) }); return null; }
   if (t.status !== 'open') { res.status(409).json({ error: 'Ticket is ' + t.status + ' and can no longer be modified' }); return null; }
   return t;
 }

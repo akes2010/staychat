@@ -14,6 +14,9 @@
 //     width (responsive),
 //   • tapping a product tile still adds it to the ticket, and a full cash
 //   • checkout still closes the ticket — the redesign changes no behaviour.
+//   • OUTLET LOCK in the real UI: a barman lands on the BAR terminal alone —
+//     no picker, no "Switch Terminal", the restaurant ticket never reaches
+//     his board, and console-driven switching is refused.
 'use strict';
 const { spawn } = require('child_process');
 const http = require('http');
@@ -98,6 +101,9 @@ async function withBrowser(fn) {
   const adminEmail = ('posvadmin-' + nanoid(4) + '@posv.test').toLowerCase();
   db.prepare(`INSERT INTO users (id, tenant_id, name, email, password_hash, role) VALUES (?,?,?,?,?, 'hotel_admin')`)
     .run('user_' + nanoid(8), tenantId, 'POS Admin', adminEmail, bcrypt.hashSync('Demo@123456', 8));
+  const barmanEmail = ('posvbarman-' + nanoid(4) + '@posv.test').toLowerCase();
+  db.prepare(`INSERT INTO users (id, tenant_id, name, email, password_hash, role) VALUES (?,?,?,?,?, 'barman')`)
+    .run('user_' + nanoid(8), tenantId, 'POS Barman', barmanEmail, bcrypt.hashSync('Demo@123456', 8));
   const insItem = db.prepare(`INSERT INTO menu_items (id, tenant_id, name, category, price) VALUES (?,?,?,?,?)`);
   [['Jollof Rice', 'Mains', 15], ['Pepper Soup', 'Soups', 20], ['Smirnoff', 'Drinks', 8], ['Biggie Beer', 'Drinks', 6]]
     .forEach(([n, c, p]) => insItem.run('mi_' + nanoid(8), tenantId, n, c, p));
@@ -227,6 +233,64 @@ async function withBrowser(fn) {
       if (openLeft === 0) ok('cash checkout closes the ticket end-to-end (behaviour intact through the redesign)');
       else bad('open tickets after checkout = ' + openLeft);
       await evl(`closeModal()`).catch(() => {});
+
+      // ── 6. Barman: his terminal ALONE (outlet lock in the real UI) ────
+      // One ticket per outlet so the board has something to hide/show.
+      const seeded = await evl(`(async () => {
+        const bar = await API.post('/api/pos/tickets', { outlet: 'bar', label: 'Bar Seed Tab' });
+        const rest = await API.post('/api/pos/tickets', { outlet: 'restaurant', label: 'Restaurant Seed' });
+        return JSON.stringify({ bar: bar && bar.id, rest: rest && rest.id });
+      })()`);
+      let seedIds = {}; try { seedIds = JSON.parse(seeded); } catch (e) {}
+      if (seedIds.bar && seedIds.rest) ok('seeded one ticket per outlet (bar + restaurant)');
+      else bad('could not seed the two outlet tickets — ' + seeded);
+
+      // Reload as the barman (fresh cookies → his session).
+      await evl(`location.reload()`).catch(() => {});
+      const shellBack = await waitFor(evl, `typeof tryRestoreSession === 'function' && typeof API !== 'undefined'`, true, 20000);
+      if (shellBack !== true) return bad('app shell never came back after reload');
+      await sleep(500);
+      const bLogin = await evl(`fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: '${barmanEmail}', password: 'Demo@123456' }) }).then(r => r.status)`);
+      if (bLogin !== 200) return bad('barman login failed (HTTP ' + bLogin + ')');
+      await evl(`if (typeof clearSessionSnapshot === 'function') clearSessionSnapshot(); tryRestoreSession()`);
+      const who = await waitFor(evl, `App.user && App.user.email`, barmanEmail, 15000);
+      if (who !== barmanEmail) return bad('session never became the barman (still ' + who + ')');
+      ok('barman signed in inside the browser');
+
+      await evl(`navigate('pos')`); await sleep(1200);
+      const bBoard = await evl(`document.getElementById('content').textContent`);
+      if (bBoard.includes('Bar Terminal') && !bBoard.includes('Sign in to a terminal')) {
+        ok('barman lands directly on HIS bar terminal (no picker offered)');
+      } else bad('barman POS screen wrong — ' + (bBoard || '').slice(0, 90));
+
+      const bHeader = await evl(`(() => {
+        const h = document.querySelector('#content .page-header');
+        return h ? Array.from(h.querySelectorAll('button')).map(b => b.textContent.trim()) : null;
+      })()`);
+      if (bHeader && !bHeader.some(b => b.includes('Switch Terminal'))) {
+        ok('no "Switch Terminal" button for a locked account');
+      } else bad('header buttons for barman — ' + JSON.stringify(bHeader));
+
+      const bCards = await evl(`JSON.stringify({
+        bar: document.querySelectorAll('.pos-ticket-card.bar').length,
+        restaurant: document.querySelectorAll('.pos-ticket-card.restaurant').length,
+      })`);
+      let cards = {}; try { cards = JSON.parse(bCards); } catch (e) {}
+      if (cards.bar >= 1 && cards.restaurant === 0) {
+        ok('board shows ONLY bar tickets — the restaurant ticket never loads');
+      } else bad('barman board cards — ' + bCards);
+
+      // Console bypass: both switch doors must refuse.
+      await evl(`window.__posSwitchTerminal()`); await sleep(400);
+      const afterSwitch = await evl(`document.getElementById('content').textContent`);
+      if (afterSwitch.includes('Bar Terminal') && !afterSwitch.includes('Sign in to a terminal')) {
+        ok('console __posSwitchTerminal() is refused (stays on his terminal)');
+      } else bad('switch from the console was NOT refused — ' + (afterSwitch || '').slice(0, 80));
+
+      await evl(`window.__posPickTerminal('restaurant')`); await sleep(400);
+      const modalUp = await evl(`!!document.getElementById('pt-cashier')`);
+      if (!modalUp) ok('console __posPickTerminal(\'restaurant\') is refused (no sign-in modal)');
+      else bad('restaurant terminal sign-in modal opened for a barman');
     });
   } finally {
     try { srv.kill(); } catch (e) {}

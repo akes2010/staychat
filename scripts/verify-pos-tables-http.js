@@ -11,6 +11,10 @@
 //   re-seat while open (label syncs, self-exclusion on the clash check),
 //   unseating (tableId: null), covers-only edits vs the current seat,
 //   void frees the table for the next ticket, audit trail.
+//   OUTLET LOCK (fraud control): a barman works the BAR terminal alone and a
+//   cashier the RESTAURANT terminal alone — list/summary/tables are scoped and
+//   cross-outlet read/edit/void/checkout/create all return 403; managers stay
+//   unlocked.
 'use strict';
 
 const fs = require('fs');
@@ -206,6 +210,73 @@ async function run() {
   // ── 7. Audit trail ──────────────────────────────────────────────────────
   const seats = db.prepare("SELECT COUNT(*) c FROM audit_log WHERE tenant_id = ? AND action = 'pos.ticket_seat'").get(tenantId).c;
   check('seat events audited (open + re-seat)', seats >= 4, 'n=' + seats);
+
+  // ── 8. Outlet lock: the barman works the BAR terminal ALONE ──────────────
+  const barman = makeUser(tenantId, 'barman');
+  const barmanTok = signAccessToken(barman);
+
+  r = await req('POST', '/api/pos/tickets', barmanTok, { outlet: 'restaurant', label: 'Sneaky restaurant tab' });
+  check('barman cannot OPEN a restaurant ticket → 403', r.status === 403 && /locked to the Bar terminal/.test(r.body && r.body.error ? r.body.error : ''),
+    'got ' + r.status + ' ' + JSON.stringify(r.body).slice(0, 110));
+  r = await req('POST', '/api/pos/tickets', barmanTok, { outlet: 'bar', label: 'Bar tab' });
+  check('barman opens a ticket on his OWN bar terminal → 201', r.status === 201 && r.body.outlet === 'bar', 'got ' + r.status);
+  const barTk = r.body;
+
+  r = await req('GET', '/api/pos/tickets', barmanTok);
+  check('barman ticket list holds ONLY bar tickets',
+    r.status === 200 && r.body.length > 0 && r.body.every(x => x.outlet === 'bar'),
+    'outlets=' + JSON.stringify([...new Set((r.body || []).map(x => x.outlet))]));
+  r = await req('GET', '/api/pos/tickets?outlet=restaurant', barmanTok);
+  check('barman asking for ?outlet=restaurant still gets ONLY bar',
+    r.status === 200 && r.body.every(x => x.outlet === 'bar'), 'n=' + (r.body && r.body.length));
+
+  r = await req('GET', '/api/pos/summary', barmanTok);
+  check('barman summary exposes ONLY the bar terminal', r.status === 200 && r.body.bar && !r.body.restaurant,
+    'keys=' + JSON.stringify(Object.keys(r.body || {})));
+
+  r = await req('GET', '/api/pos/tables', barmanTok);
+  check('barman table picker shows ONLY bar tables',
+    r.status === 200 && r.body.length > 0 && r.body.every(x => x.location === 'bar'),
+    'n=' + (r.body && r.body.length));
+
+  r = await req('GET', '/api/pos/tickets/' + tk2.id, barmanTok);
+  check('barman cannot READ a restaurant ticket → 403', r.status === 403, 'got ' + r.status);
+  r = await req('PATCH', '/api/pos/tickets/' + tk2.id, barmanTok, { note: 'barman edit' });
+  check('barman cannot EDIT a restaurant ticket → 403', r.status === 403, 'got ' + r.status);
+  r = await req('POST', '/api/pos/tickets/' + tk2.id + '/items', barmanTok, { name: 'Free drink', price: 0 });
+  check('barman cannot add ITEMS to a restaurant ticket → 403', r.status === 403, 'got ' + r.status);
+  r = await req('POST', '/api/pos/tickets/' + tk2.id + '/void', barmanTok, {});
+  check('barman cannot VOID a restaurant ticket → 403', r.status === 403, 'got ' + r.status);
+  r = await req('POST', '/api/pos/tickets/' + tk2.id + '/checkout', barmanTok, { paymentMethod: 'cash' });
+  check('barman cannot CHECK OUT (take money from) a restaurant ticket → 403', r.status === 403, 'got ' + r.status);
+
+  // ── 9. Mirror: the cashier is locked to the RESTAURANT terminal ─────────
+  r = await req('POST', '/api/pos/tickets', cashierTok, { outlet: 'bar', label: 'Sneaky bar tab' });
+  check('cashier cannot OPEN a bar ticket → 403', r.status === 403 && /locked to the Restaurant terminal/.test(r.body && r.body.error ? r.body.error : ''),
+    'got ' + r.status);
+  r = await req('GET', '/api/pos/tickets', cashierTok);
+  check('cashier ticket list holds ONLY restaurant tickets',
+    r.status === 200 && r.body.length > 0 && r.body.every(x => x.outlet === 'restaurant'),
+    'outlets=' + JSON.stringify([...new Set((r.body || []).map(x => x.outlet))]));
+  r = await req('GET', '/api/pos/summary', cashierTok);
+  check('cashier summary exposes ONLY the restaurant terminal', r.status === 200 && r.body.restaurant && !r.body.bar,
+    'keys=' + JSON.stringify(Object.keys(r.body || {})));
+  r = await req('GET', '/api/pos/tables', cashierTok);
+  check('cashier table picker shows ONLY restaurant tables',
+    r.status === 200 && r.body.length > 0 && r.body.every(x => x.location === 'restaurant'),
+    'n=' + (r.body && r.body.length));
+  r = await req('PATCH', '/api/pos/tickets/' + barTk.id, cashierTok, { note: 'cashier edit' });
+  check('cashier cannot EDIT a bar ticket → 403', r.status === 403, 'got ' + r.status);
+  r = await req('POST', '/api/pos/tickets/' + barTk.id + '/checkout', cashierTok, { paymentMethod: 'cash' });
+  check('cashier cannot CHECK OUT a bar ticket → 403', r.status === 403, 'got ' + r.status);
+
+  // ── 10. Managers are NOT locked (they work any terminal) ────────────────
+  r = await req('GET', '/api/pos/tickets', adminTok);
+  check('admin still sees BOTH outlets (no lock for managers)',
+    r.status === 200 && r.body.some(x => x.outlet === 'restaurant') && r.body.some(x => x.outlet === 'bar'),
+    'outlets=' + JSON.stringify([...new Set((r.body || []).map(x => x.outlet))]));
+  r = await req('POST', '/api/pos/tickets', adminTok, { outlet: 'bar', label: 'Manager covers bar' });
+  check('admin may work either terminal → 201', r.status === 201, 'got ' + r.status);
 
   // ── Cleanup ─────────────────────────────────────────────────────────────
   server.close();
