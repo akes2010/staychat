@@ -23,6 +23,17 @@ PAGES.eod = function () {
   async function load() {
     wrap.innerHTML = loaderHTML('Loading end of day…');
     try {
+      // Custom departments (admin-defined) join the built-in outlets — merge
+      // their labels/icons before the first render so closings, cards and the
+      // "N of M departments" count all include them. Optional: built-ins
+      // render fine without it.
+      try {
+        const depts = await API.get('/api/eod/departments');
+        depts.filter(d => d.custom).forEach(d => {
+          DEPARTMENT_LABELS[d.key] = d.name;
+          DEPARTMENT_ICONS[d.key] = d.icon || '🏷';
+        });
+      } catch (e) { /* catalogue unavailable — keep the built-ins */ }
       if (canManageAll) {
         const [closings, overview] = await Promise.all([
           API.get('/api/eod?date=' + state.date),

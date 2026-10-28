@@ -38,6 +38,8 @@ const EXPECTED_USERS = [
   ['felix@hospitally.com', 'staff', 'hospitally'],
   ['cashier@hospitally.com', 'cashier', 'hospitally'],
   ['barman@hospitally.com', 'barman', 'hospitally'],
+  ['waiter@hospitally.com', 'waiter', 'hospitally'],
+  ['server@hospitally.com', 'server', 'hospitally'],
   ['accountant@hospitally.com', 'accountant', 'hospitally'],
   ['auditor@hospitally.com', 'auditor', 'hospitally'],
 ];

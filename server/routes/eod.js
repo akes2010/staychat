@@ -26,6 +26,20 @@ router.use(requireAuth, resolveTenant, requireTenant, requirePermission('eod.use
 
 const DEPARTMENTS = ['front_desk', 'restaurant', 'bar', 'pool', 'hall', 'misc_services'];
 
+// Admin-defined departments (Users & Permissions → Departments) close books
+// under their KEY alongside the built-ins, so a new outlet (Spa, Laundry…)
+// gets its own day-end card without touching this module's defaults. Their
+// summaries start at zero — there are no per-outlet source tables for an
+// arbitrary department yet — while every built-in keeps its real aggregation.
+function customDepartments(tenantId) {
+  try {
+    return db.prepare('SELECT key, name, icon FROM custom_departments WHERE tenant_id = ? ORDER BY created_at').all(tenantId);
+  } catch (e) { return []; } // table not migrated yet — behave exactly as before
+}
+function validDepartmentsFor(tenantId) {
+  return DEPARTMENTS.concat(customDepartments(tenantId).map(d => d.key));
+}
+
 function summarizeByMethod(rows, amountKey, methodKey) {
   const totals = {};
   rows.forEach(r => { const m = r[methodKey] || 'unknown'; totals[m] = (totals[m] || 0) + r[amountKey]; });
@@ -75,6 +89,12 @@ function deptForUser(req) {
   const staff = db.prepare('SELECT department FROM staff WHERE tenant_id = ? AND (user_id = ? OR email = ?) LIMIT 1')
     .get(req.tenantId, req.user.id, (user.email || '').toLowerCase());
   const dept = (staff?.department || user.department || '').toLowerCase();
+  // An exact match against a managed custom department wins first — its KEY
+  // is the code its closings live under. (Substring rules below would
+  // otherwise swallow a custom "Bar & Grille" into the built-in bar books.)
+  const custom = customDepartments(req.tenantId)
+    .find(d => String(d.name).toLowerCase() === dept.trim());
+  if (custom) return custom.key;
   if (dept.includes('bar')) return 'bar';
   if (dept.includes('rest') || dept.includes('kit')) return 'restaurant';
   if (dept.includes('pool')) return 'pool';
@@ -97,12 +117,29 @@ function serializeClosing(r) {
 // GET /api/eod/preview?department=&date= — live totals before closing
 router.get('/preview', (req, res) => {
   const { department, date } = req.query;
-  if (!department || !DEPARTMENTS.includes(department)) return res.status(400).json({ error: 'Valid department is required' });
+  if (!department || !validDepartmentsFor(req.tenantId).includes(department)) return res.status(400).json({ error: 'Valid department is required' });
   if (!canManageEod(req) && department !== deptForUser(req)) {
     return res.status(403).json({ error: 'You can only close out your own department' });
   }
   const d = date || new Date().toISOString().slice(0, 10);
   res.json({ department, date: d, ...computeDeptSummary(req.tenantId, department, d) });
+});
+
+// GET /api/eod/departments — the closable catalogue: built-in outlets plus
+// this tenant's custom ones, each with the label/icon the closing page
+// renders. Any signed-in EOD user may read it (their page needs the labels);
+// it carries nothing sensitive.
+router.get('/departments', (req, res) => {
+  const builtIn = [
+    { key: 'front_desk', name: 'Front Desk / Receptionist', icon: '🛎' },
+    { key: 'restaurant', name: 'Restaurant', icon: '🍽' },
+    { key: 'bar', name: 'Bar', icon: '🍸' },
+    { key: 'pool', name: 'Pool', icon: '🏊' },
+    { key: 'hall', name: 'Halls & Events', icon: '🎪' },
+    { key: 'misc_services', name: 'Other Services', icon: '🧺' },
+  ].map(d => ({ ...d, custom: false }));
+  res.json(builtIn.concat(customDepartments(req.tenantId)
+    .map(d => ({ key: d.key, name: d.name, icon: d.icon || '🏷', custom: true }))));
 });
 
 // GET /api/eod?date= — closings for a date.
@@ -143,7 +180,7 @@ router.post('/close', (req, res) => {
   // Managers may omit department (a quick "close my day" button) — front desk
   // is the natural default. Non-managers always resolve their own department.
   const department = req.body.department || (canManageEod(req) ? 'front_desk' : deptForUser(req));
-  if (!department || !DEPARTMENTS.includes(department)) return res.status(400).json({ error: 'Valid department is required' });
+  if (!department || !validDepartmentsFor(req.tenantId).includes(department)) return res.status(400).json({ error: 'Valid department is required' });
   if (!canManageEod(req) && department !== deptForUser(req)) {
     return res.status(403).json({ error: 'You can only close out your own department' });
   }

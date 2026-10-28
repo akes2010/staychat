@@ -165,6 +165,25 @@ const stamp = Date.now();
   check('custom role ENFORCED — eod.use allowed (200)', spaMine.status === 200, String(spaMine.status));
   check('custom role ENFORCED — users.manage refused (403)', (await call('GET', '/api/users', spa.token)).status === 403);
 
+  console.log('── Custom departments close their own books (EOD) ──');
+  // deptForUser maps the account's department NAME to the custom KEY, so the
+  // Spa team closes under 'spa_wellness' and can touch nothing else's books.
+  const spaClose = await call('POST', '/api/eod/close', spa.token, { department: 'spa_wellness', date: '2099-03-02' });
+  check('custom-department user closes THEIR books (201)', spaClose.status === 201, spaClose.status + ' ' + JSON.stringify(spaClose.data).slice(0, 120));
+  const spaCloseBar = await call('POST', '/api/eod/close', spa.token, { department: 'bar', date: '2099-03-02' });
+  check('custom-department user REFUSED on Bar books (403)', spaCloseBar.status === 403, String(spaCloseBar.status));
+  const spaMine2 = await call('GET', '/api/eod/mine?date=2099-03-02', spa.token);
+  check('custom-department /mine reports spa_wellness', !!(spaMine2.data && spaMine2.data.department === 'spa_wellness'), JSON.stringify(spaMine2.data && spaMine2.data.department));
+  const spaPreview = await call('GET', '/api/eod/preview?department=spa_wellness&date=2099-03-02', spa.token);
+  check('custom-department preview opens (200)', spaPreview.status === 200, String(spaPreview.status));
+  const spaCatalogue = await call('GET', '/api/eod/departments', spa.token);
+  check('EOD catalogue lists custom + built-in departments', Array.isArray(spaCatalogue.data) &&
+    spaCatalogue.data.some(d => d.key === 'spa_wellness' && d.custom) && spaCatalogue.data.some(d => d.key === 'bar' && !d.custom));
+  check('unknown department still refused (400)', (await call('POST', '/api/eod/close', spa.token, { department: 'nope_dept', date: '2099-03-02' })).status === 400);
+  const adminSpaReopen = await call('GET', '/api/eod/overview?date=2099-03-02', admin);
+  check('manager overview includes the custom closing', !!(adminSpaReopen.data && Array.isArray(adminSpaReopen.data.users) &&
+    adminSpaReopen.data.users.some(u => u.closings.some(c => c.department === 'spa_wellness'))));
+
   console.log('── Editing a custom role re-issues its holders\' sessions ──');
   const permId = role.data && role.data.id;
   const patched = await call('PATCH', '/api/users/roles/' + permId, admin, { permissions: ['eod.use', 'attendance.use', 'payments.use'] });

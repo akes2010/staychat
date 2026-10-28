@@ -142,6 +142,8 @@ Demo logins (password `Demo@123456` for all — override at seed time with the `
 | Housekeeping Staff | `felix@hospitally.com` |
 | Cashier | `cashier@hospitally.com` |
 | Barman | `barman@hospitally.com` |
+| Waiter | `waiter@hospitally.com` |
+| Server | `server@hospitally.com` |
 | Accountant | `accountant@hospitally.com` |
 | Auditor | `auditor@hospitally.com` |
 

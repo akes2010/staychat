@@ -93,6 +93,8 @@ function seed() {
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Felix Zhang', email:'felix@hospitally.com', password_hash:passwordHash, role:'staff', department:'Housekeeping', avatar:'FZ', phone:'+1 555 0101' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Marcus Bello', email:'cashier@hospitally.com', password_hash:passwordHash, role:'cashier', department:'Restaurant POS', avatar:'MB', phone:'+1 555 0121' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Diane Okoro', email:'barman@hospitally.com', password_hash:passwordHash, role:'barman', department:'Bar POS', avatar:'DO', phone:'+1 555 0122' });
+  insertUser.run({ id:id('user'), tenant_id:t1, name:'Tunde Ayo', email:'waiter@hospitally.com', password_hash:passwordHash, role:'waiter', department:'Bar Floor', avatar:'TA', phone:'+1 555 0125' });
+  insertUser.run({ id:id('user'), tenant_id:t1, name:'Sade Bello', email:'server@hospitally.com', password_hash:passwordHash, role:'server', department:'Restaurant Floor', avatar:'SB', phone:'+1 555 0126' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Grace Nnamdi', email:'accountant@hospitally.com', password_hash:passwordHash, role:'accountant', department:'Accounts', avatar:'GN', phone:'+1 555 0123' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Samuel Okoye', email:'auditor@hospitally.com', password_hash:passwordHash, role:'auditor', department:'Internal Audit', avatar:'SO', phone:'+1 555 0124' });
   insertUser.run({ id:id('user'), tenant_id:t2, name:'Azure Admin', email:'admin@azurebeach.com', password_hash:passwordHash, role:'hotel_admin', department:null, avatar:'AA', phone:'+233 24 000 0000' });
@@ -417,6 +419,8 @@ function seed() {
   console.log('  ║  felix@hospitally.com         — Housekeeping Staff'.padEnd(63) + '║');
   console.log('  ║  cashier@hospitally.com       — Cashier (Restaurant POS)'.padEnd(63) + '║');
   console.log('  ║  barman@hospitally.com        — Barman (Bar POS)'.padEnd(63) + '║');
+  console.log('  ║  waiter@hospitally.com        — Waiter (Bar POS)'.padEnd(63) + '║');
+  console.log('  ║  server@hospitally.com        — Server (Restaurant POS)'.padEnd(63) + '║');
   console.log('  ║  accountant@hospitally.com    — Accountant'.padEnd(63) + '║');
   console.log('  ║  auditor@hospitally.com      — Auditor (read-only)'.padEnd(63) + '║');
   console.log('  ╚═══════════════════════════════════════════════════════════════════╝');
