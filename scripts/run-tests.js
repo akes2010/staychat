@@ -15,9 +15,17 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
+// One machine hammers ONE throwaway server for the whole battery (plus the
+// offline-data warm, which now pulls ~100 datasets per sign-in). The
+// production per-IP limiter (200/min, server/index.js) would throttle suites
+// that mix heavy CRUD with that warm. Suites inherit this unless a caller
+// already set it — the production default of 200 is untouched.
+process.env.RATE_LIMIT_GLOBAL_MAX = process.env.RATE_LIMIT_GLOBAL_MAX || '5000';
+
 const FAST = [
   'test-role-gates.js',
   'test-idempotency.js',
+  'test-partial-reset-export.js',
   'test-ws-auth.js',
   'test-ota-flow.sh',
   'verify-booking-payment.js',
@@ -40,6 +48,7 @@ const BROWSER = [
   'browser-test-checkout-flow.js',
   'browser-test-changepw.js',
   'browser-test-offline-sync.js',
+  'browser-test-print-style.js',
   // BTS-049: logout LAST among the signing-in suites — a session teardown
   // racing a live sign-in poisoned later suites. Only walk-throughs follow.
   'browser-test-logout.js',

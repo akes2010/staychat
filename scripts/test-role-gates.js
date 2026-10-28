@@ -172,6 +172,41 @@ function check(label, cond) {
   check('receptionist: GET /api/selfhost/admin/orders → 403',
     (await status('/api/selfhost/admin/orders', recep)) === 403);
 
+  console.log('── EOD: each department sees and closes ONLY its own account ──');
+  const barman = await login('barman@hospitally.com');
+  // Fixed future date so the section never collides with a real closing.
+  const EOD_DATE = '2099-01-15';
+  const eodPost = (p, token, body) => fetch(BASE + p, {
+    method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+  const eodGet = (p, token) => fetch(BASE + p, { headers: { Authorization: 'Bearer ' + token } })
+    .then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+
+  const fdClose = await eodPost('/api/eod/close', recep, { department: 'front_desk', date: EOD_DATE });
+  check('reception closes Front Desk ' + EOD_DATE + ' → 201 (own department)', fdClose.status === 201);
+  const barClose = await eodPost('/api/eod/close', barman, { department: 'bar', date: EOD_DATE });
+  check('barman closes Bar → 201 (own department, independent record)', barClose.status === 201);
+
+  check('barman tries to close Front Desk → 403', (await eodPost('/api/eod/close', barman, { department: 'front_desk', date: EOD_DATE })).status === 403);
+  check('barman tries to close Restaurant → 403', (await eodPost('/api/eod/close', barman, { department: 'restaurant', date: EOD_DATE })).status === 403);
+
+  const barMine = await eodGet('/api/eod/mine?date=' + EOD_DATE, barman);
+  check('barman /mine reports department = bar', !!(barMine.body && barMine.body.department === 'bar'));
+  check('barman sees the Bar closing and NOTHING else', Array.isArray(barMine.body.closings) && barMine.body.closings.length > 0 && barMine.body.closings.every(c => c.department === 'bar'));
+  const barList = await eodGet('/api/eod?date=' + EOD_DATE, barman);
+  check('barman /api/eod list holds only bar closings', Array.isArray(barList.body) && barList.body.length > 0 && barList.body.every(c => c.department === 'bar'));
+  const recepMine = await eodGet('/api/eod/mine?date=' + EOD_DATE, recep);
+  check('reception sees only Front Desk — bar invisible to them', Array.isArray(recepMine.body.closings) && recepMine.body.closings.length > 0 && recepMine.body.closings.every(c => c.department === 'front_desk'));
+  check('reception: GET bar preview → 403 (other department\'s totals hidden)', (await eodGet('/api/eod/preview?department=bar&date=' + EOD_DATE, recep)).status === 403);
+  check('barman: GET restaurant preview → 403', (await eodGet('/api/eod/preview?department=restaurant&date=' + EOD_DATE, barman)).status === 403);
+  check('barman: GET /api/eod/overview → 403 (reconciliation is manager-only)', (await eodGet('/api/eod/overview?date=' + EOD_DATE, barman)).status === 403);
+  check('barman closes Bar twice → 409 (one account per department per day)', (await eodPost('/api/eod/close', barman, { department: 'bar', date: EOD_DATE })).status === 409);
+
+  const admList = await eodGet('/api/eod?date=' + EOD_DATE, admin);
+  check('admin sees BOTH departments (owner oversight intact)', Array.isArray(admList.body) && new Set(admList.body.map(c => c.department)).size >= 2);
+  check('admin: GET /api/eod/overview → 200', (await eodGet('/api/eod/overview?date=' + EOD_DATE, admin)).status === 200);
+
   console.log('\n' + (failed === 0 ? '═══ ROLE GATES: ' + passed + ' passed, 0 failed ═══' : '═══ ROLE GATES: ' + failed + ' FAILED ═══'));
   process.exit(failed === 0 ? 0 : 1);
 })().catch(e => { console.error('✗', e.message); process.exit(1); });

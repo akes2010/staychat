@@ -4,9 +4,9 @@
 //
 // Two views, driven by permission:
 //   - eod.manage users (owner/admin): the full management overview — every
-//     user's closings, per-user and grand totals, reopen controls.
-//   - everyone else: MY End of Day — only their own closings and a Close
-//     button for their own department. Other staff's numbers are invisible.
+//     department's closings, per-user and grand totals, reopen controls.
+//   - everyone else: THEIR DEPARTMENT's account only — one card, one Close
+//     button for that department. Other departments are invisible both ways.
 window.PAGES = window.PAGES || {};
 
 const DEPARTMENT_LABELS = {
@@ -49,14 +49,14 @@ PAGES.eod = function () {
     const closedTotal = mine.closings.reduce((s, c) => s + (c.totals.grossTotal || 0), 0);
 
     wrap.innerHTML = '' +
-    '<div class="page-header"><div class="page-header-left"><h1>My End of Day</h1><p>' + fmtDate(state.date) +
-      ' &middot; your personal closings — each staff member sees only their own</p></div></div>' +
+    '<div class="page-header"><div class="page-header-left"><h1>' + escapeHtml(DEPARTMENT_LABELS[mine.department] || 'My') + ' — End of Day</h1><p>' + fmtDate(state.date) +
+      ' &middot; your department&rsquo;s account — other departments can&rsquo;t see it, and you can&rsquo;t see theirs</p></div></div>' +
     '<div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">' +
       '<input type="date" class="form-input" style="max-width:180px" value="' + state.date + '" onchange="window.__eodDateChange(this.value)"/>' +
       '<button class="btn outline sm" onclick="window.__eodDateChange(\'' + new Date().toISOString().slice(0, 10) + '\')">Today</button>' +
     '</div>' +
     '<div class="grid grid-3" style="margin-bottom:20px">' +
-      metricCard('My Recorded Revenue', formatMoney(closedTotal), null, '🌙') +
+      metricCard('Department Recorded Revenue', formatMoney(closedTotal), null, '🌙') +
       metricCard('My Department', DEPARTMENT_LABELS[mine.department] || mine.department, null, DEPARTMENT_ICONS[mine.department] || '🛎') +
     '</div>' +
     '<div class="grid grid-3">' +
@@ -74,15 +74,6 @@ PAGES.eod = function () {
           : '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">Not closed yet for ' + fmtDate(state.date) + '.</div>' +
             '<button class="btn primary full" onclick="window.__openCloseDept(\'' + mine.department + '\')">Close my day</button>') +
       '</div>' +
-      // Any other closings this user personally made (e.g. before a dept change).
-      mine.closings.filter(c => c.department !== mine.department).map(c =>
-        '<div class="card">' +
-          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span style="font-size:22px">' + (DEPARTMENT_ICONS[c.department] || '🛎') + '</span>' +
-            '<div style="font-weight:700;font-size:14px">' + (DEPARTMENT_LABELS[c.department] || c.department) + '</div></div>' +
-          '<div style="font-size:12px;color:var(--text3);margin-bottom:8px">Closed by ' + escapeHtml(c.closed_by || 'you') + '</div>' +
-          '<div style="font-weight:800;font-size:20px;color:var(--p);margin-bottom:10px">' + formatMoney(c.totals.grossTotal || 0) + '</div>' +
-          (c.status === 'reopened' ? badge('Reopened', 'warn') : badge('Closed', 'success')) +
-        '</div>').join('') +
     '</div>';
   }
 

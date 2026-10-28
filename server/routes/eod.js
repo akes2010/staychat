@@ -6,11 +6,14 @@
 //
 // Visibility model (who sees whose EOD):
 //   - Users WITHOUT 'eod.manage' (cashiers, barmen, receptionists, …) see ONLY
-//     their own closings — the closings they personally submitted — and can
-//     only close a department that is actually theirs (see deptForUser).
-//     They never see other staff's numbers.
+//     THEIR DEPARTMENT's account — the closing recorded for the department
+//     they work in, whoever on that team submitted it — and can only close
+//     that department (see deptForUser). Other departments' numbers are
+//     invisible both ways: bar can't read front desk, front desk can't read
+//     bar or restaurant.
 //   - Users WITH 'eod.manage' (owner/hotel_admin/superadmin by default) see
-//     and manage EVERY user's closings: full-day overview, reopen, corrections.
+//     and manage EVERY department's closings: full-day overview, reopen,
+//     corrections.
 const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
@@ -77,6 +80,13 @@ function deptForUser(req) {
   if (dept.includes('pool')) return 'pool';
   if (dept.includes('hall') || dept.includes('event')) return 'hall';
   if (dept.includes('laundry') || dept.includes('service')) return 'misc_services';
+  // Neither record carries a department: fall back to the ROLE's own outlet —
+  // the same model the POS uses (cashier runs the restaurant till, barman the
+  // bar) — so an unassigned account can never land on another department's
+  // books. Everything that isn't a till or a desk stays front_desk, as before.
+  const role = String(req.user.role || '').toLowerCase();
+  if (role === 'barman') return 'bar';
+  if (role === 'cashier') return 'restaurant';
   return 'front_desk';
 }
 
@@ -96,28 +106,30 @@ router.get('/preview', (req, res) => {
 });
 
 // GET /api/eod?date= — closings for a date.
-//   Managers: every department/user (management overview).
-//   Everyone else: only their own closings for that date.
+//   Managers: every department (management overview).
+//   Everyone else: only THEIR department's closings for that date.
 router.get('/', (req, res) => {
   const date = req.query.date || new Date().toISOString().slice(0, 10);
   let rows;
   if (canManageEod(req)) {
     rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ?').all(req.tenantId, date);
   } else {
-    rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ? AND closed_by_user_id = ?')
-      .all(req.tenantId, date, req.user.id);
+    rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ? AND department = ?')
+      .all(req.tenantId, date, deptForUser(req));
   }
   res.json(rows.map(serializeClosing));
 });
 
-// GET /api/eod/mine?date= — "my closings" cards for the closing user's UI.
-// Returns the user's own closings plus their assigned department (so the page
-// knows which department's Close button to offer them).
+// GET /api/eod/mine?date= — "my department's account" cards for the closing
+// user's UI. Returns the closings of the user's OWN department (shared by
+// that team — whoever closed it) plus the assigned department, so the page
+// knows which department's Close button to offer. Other departments never
+// appear here.
 router.get('/mine', (req, res) => {
   const date = req.query.date || new Date().toISOString().slice(0, 10);
   const myDept = deptForUser(req);
-  const rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ? AND closed_by_user_id = ?')
-    .all(req.tenantId, date, req.user.id)
+  const rows = db.prepare('SELECT * FROM eod_closings WHERE tenant_id = ? AND date = ? AND department = ?')
+    .all(req.tenantId, date, myDept)
     .map(serializeClosing);
   res.json({ department: myDept, closings: rows, canManageAll: canManageEod(req) });
 });

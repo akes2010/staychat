@@ -17,7 +17,7 @@ assert.strictEqual(ORDER.status, 0, '--list must exit 0: ' + ORDER.stderr);
 const order = ORDER.stdout.split(/\r?\n/).filter(Boolean);
 
 // 1. logout must come after every suite that authenticates
-const authSuites = ['browser-test-checkout-flow.js', 'browser-test-settle-modal.js', 'browser-test-platform-billing.js', 'browser-test-changepw.js'];
+const authSuites = ['browser-test-checkout-flow.js', 'browser-test-settle-modal.js', 'browser-test-platform-billing.js', 'browser-test-changepw.js', 'browser-test-print-style.js'];
 let lastAuth = -1;
 for (const s of authSuites) {
   const idx = order.indexOf(s);
