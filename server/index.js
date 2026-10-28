@@ -126,7 +126,13 @@ app.use((req, res, next) => {
 // 200/min at shift start). Default keeps the tighter, safer posture.
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: Number(process.env.RATE_LIMIT_GLOBAL_MAX) || 200, // Requests per minute
+  // Per-IP budget. 200/min starved a real desk: ONE installed app's offline
+  // warm pulls ~150 reads, and several users behind a single office NAT share
+  // one IP — the resulting 429s read as "the system misbehaving" during busy
+  // hours. 1200/min (~20 req/s per IP) covers a full desk plus warms; brute
+  // force stays pinned by the much stricter auth limiter below, and
+  // RATE_LIMIT_GLOBAL_MAX overrides this when a deployment needs to tune it.
+  max: Number(process.env.RATE_LIMIT_GLOBAL_MAX) || 1200, // Requests per minute
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please slow down.' },

@@ -14,7 +14,7 @@
 //   • Navigations to unknown paths fall back to the SPA shell.
 'use strict';
 
-const VERSION = 'v9'; // v9: ships /js/offline.js (offline write outbox) + Background Sync tag → clients flush their queue the moment connectivity returns
+const VERSION = 'v10'; // v10: precache every desk page module + /js/theme.js so an installed app can open ANY page on first use offline (v9: offline write outbox + Background Sync tag)
 const SHELL_CACHE = 'staychat-shell-' + VERSION;
 const ASSET_CACHE = 'staychat-assets-' + VERSION;
 const API_CACHE = 'staychat-api-' + VERSION;
@@ -27,17 +27,18 @@ const SHELL = [
 
 const ASSETS = [
   '/js/countries.js', '/js/api.js', '/js/ws-client.js', '/js/ui.js', '/js/auth.js',
-  '/js/pwa.js', '/js/offline.js', '/js/app.js',
-  '/js/pages/dashboard.js', '/js/pages/rooms.js', '/js/pages/bookings.js',
+  '/js/pwa.js', '/js/offline.js', '/js/app.js',  '/js/pages/dashboard.js', '/js/pages/rooms.js', '/js/pages/bookings.js',
   '/js/pages/booking-engine.js', '/js/pages/wifi.js', '/js/pages/inbox.js',
   '/js/pages/orders.js', '/js/pages/pos.js', '/js/pages/pool.js', '/js/pages/halls.js',
   '/js/pages/misc.js', '/js/pages/housekeeping.js', '/js/pages/maintenance.js',
   '/js/pages/guests.js', '/js/pages/analytics.js', '/js/pages/reports.js',
   '/js/pages/staff.js', '/js/pages/shifts.js', '/js/pages/eod.js', '/js/pages/menu.js',
+  '/js/pages/menu-categories.js', '/js/pages/menu-export-import.js',
   '/js/pages/payments.js', '/js/pages/accounting.js', '/js/pages/ai.js',
-  '/js/pages/printers.js', '/js/pages/users.js', '/js/pages/settings.js',
-  '/js/pages/integrations.js', '/js/pages/billing.js', '/js/pages/superadmin.js',
-  '/js/sales.js',
+  '/js/pages/printers.js', '/js/pages/tables.js', '/js/pages/gym.js',
+  '/js/pages/fitness-memberships.js',
+  '/js/pages/users.js', '/js/pages/settings.js', '/js/pages/integrations.js',
+  '/js/pages/billing.js', '/js/pages/superadmin.js', '/js/theme.js', '/js/sales.js',
 ];
 
 self.addEventListener('install', (event) => {

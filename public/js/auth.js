@@ -102,9 +102,11 @@ function startApp(user, accessToken, tenant, entitlements, opts) {
   // Pull the desk's data onto this device in the background so the installed
   // PWA can still render rooms, bookings, guests… during a network outage —
   // not only the handful of pages this user happened to open while online.
-  // (Re-run automatically on every 'online' event; see pwa.js.)
+  // { once: true }: a page refresh inside the window skips the re-download
+  // (the data is already here) — the 'online' and appinstalled triggers in
+  // pwa.js still run unconditionally.
   if (window.PWA && !offlineRestore && typeof navigator !== 'undefined' && navigator.onLine) {
-    setTimeout(() => { try { PWA.warmCache(); } catch (e) { /* non-fatal */ } }, 1500);
+    setTimeout(() => { try { PWA.warmCache({ once: true }); } catch (e) { /* non-fatal */ } }, 1500);
   }
 
   const landingPage = user.role === 'superadmin' && !App.tenantId ? 'superadmin'

@@ -114,9 +114,21 @@ const API = (() => {
     if (typeof toast === 'function') toast('Your session has expired — please sign in again.', 'warn', 12000);
   }
 
+  // ── In-flight coalescing (steady hands on a bad network) ──────────────────
+  // Identical requests still in flight SHARE one promise: a double-click while
+  // the network is slow ("nothing happened — click again") can no longer fire
+  // a duplicate write. Once the first settles, the next click is fresh.
+  // Internal retries (401 refresh, 429 backoff) bypass this map — they await
+  // their own nested promise, never this wrapper's.
+  const inflight = new Map();
+
   async function request(method, path, body, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
     const qs = opts.tenantId ? `${path.includes('?') ? '&' : '?'}tenantId=${encodeURIComponent(opts.tenantId)}` : '';
+    const rawKey = method + '\u0000' + path + qs + '\u0000' + (body === undefined ? '' : JSON.stringify(body));
+    const isRetry = opts._isRetry === true || opts._is429Retry === true;
+    if (!isRetry && inflight.has(rawKey)) return inflight.get(rawKey);
+    const run = (async () => {
 
     // ── Offline-first (PWA outbox) ─────────────────────────────────────────
     // Call sites opt in with { offline: true, label: '…' }. Such a write is
@@ -177,6 +189,15 @@ const API = (() => {
       // session alive — the retry succeeds once the server answers again.
     }
 
+    // ── 429: back off, then retry a GET once ─────────────────────────────────
+    // Many users behind one IP can push the per-minute limiter. Reads are safe
+    // to retry after a short pause; writes never auto-retry (replaying a write
+    // blindly can double-execute it) — they surface the throttled toast below.
+    if (res.status === 429 && method === 'GET' && !opts._is429Retry) {
+      await new Promise(r => setTimeout(r, 1800));
+      return request(method, path, body, { ...opts, _is429Retry: true });
+    }
+
     // Maintenance-mode 503 is answered by global middleware BEFORE any route
     // runs — the request definitely did not execute, so it is safe to queue
     // and replay once maintenance ends (flush treats a repeat 503 as a
@@ -190,6 +211,15 @@ const API = (() => {
     try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
 
     if (!res.ok) {
+      // One calm heads-up per burst instead of a toast storm when the limiter
+      // pushes back (many users on one IP / a busy server).
+      if (res.status === 429 && typeof toast === 'function') {
+        const now = Date.now();
+        if (!request._last429 || now - request._last429 > 8000) {
+          request._last429 = now;
+          toast('The server is busy — hold on a moment and try again.', 'warn', 4000);
+        }
+      }
       const err = new Error((data && data.error) || `Request failed (${res.status})`);
       err.status = res.status;
       err.data = data;
@@ -205,6 +235,9 @@ const API = (() => {
       throw err;
     }
     return data;
+    })();
+    if (!isRetry) inflight.set(rawKey, run);
+    try { return await run; } finally { if (!isRetry) inflight.delete(rawKey); }
   }
 
   const tenantQS = () => (window.App && window.App.tenantId ? { tenantId: window.App.tenantId } : {});

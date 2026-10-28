@@ -338,13 +338,20 @@ async function connectCdp(port) {
     // ── Live-site screenshots (read-only, real :3000 server) ──────────────
     try {
       await goto('http://localhost:3000/book.html?hotel=hospitally');
-      await shot('07-live-book-page');
-      const liveHotel = await evaljs('document.getElementById("h-name").textContent');
-      const liveExpected = await hotelNameFrom('http://localhost:3000');
-      liveHotel && liveExpected && liveHotel.trim() === liveExpected
-        ? ok('LIVE server book page renders: ' + liveHotel)
-        : bad('live page: rendered ' + JSON.stringify(liveHotel) + ', API says ' + JSON.stringify(liveExpected));
-      await goto('http://localhost:3000/book.html?hotel=hospitally#fac');
+      // Capture ONLY once the live page actually rendered — otherwise a
+      // machine without the optional :3000 server overwrites the committed
+      // shot with Chrome's "site can't be reached" error page.
+      const liveHotel = await evaljs('(() => { const el = document.getElementById("h-name"); return el ? el.textContent : null; })()');
+      if (liveHotel) {
+        await shot('07-live-book-page');
+        const liveExpected = await hotelNameFrom('http://localhost:3000');
+        liveHotel && liveExpected && liveHotel.trim() === liveExpected
+          ? ok('LIVE server book page renders: ' + liveHotel)
+          : bad('live page: rendered ' + JSON.stringify(liveHotel) + ', API says ' + JSON.stringify(liveExpected));
+        await goto('http://localhost:3000/book.html?hotel=hospitally#fac');
+      } else {
+        console.log('  (live-site shot skipped: no server on :3000)');
+      }
     } catch (e) { console.log('  (live-site shot skipped: ' + e.message + ')'); }
 
   } catch (e) {

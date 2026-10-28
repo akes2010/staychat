@@ -8,7 +8,7 @@ PAGES.payments = function () {
   async function load() {
     wrap.innerHTML = loaderHTML('Loading payments…');
     try {
-      const [txns, settings] = await Promise.all([API.get('/api/payments/transactions'), API.get('/api/settings')]);
+      const [txns, settings] = await Promise.all([API.get('/api/payments/transactions?limit=2000'), API.get('/api/settings')]);
       state.txns = txns;
       state.hotelMethods = settings.paymentMethods && settings.paymentMethods.length ? settings.paymentMethods : ['cash', 'card'];
       render();
@@ -26,6 +26,7 @@ PAGES.payments = function () {
     const completed = state.txns.filter(t => t.status === 'completed');
     const total = completed.reduce((s, t) => s + t.amount, 0);
     const pending = state.txns.filter(t => t.status === 'pending');
+    const txTitle = state.txns.length >= 2000 ? 'Latest 2000 Transactions' : 'All Transactions';
 
     wrap.innerHTML = '' +
     '<div class="page-header"><div class="page-header-left"><h1>Payments</h1><p>Transaction history and balance settlement</p></div>' +
@@ -38,7 +39,7 @@ PAGES.payments = function () {
     '</div>' +
     '<div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">' +
       '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--surface2)">' +
-        '<span style="font-weight:700;font-size:15px">Recent Transactions</span><button class="btn outline sm" onclick="window.__exportTransactionsCSV()">Export CSV</button></div>' +
+        '<span style="font-weight:700;font-size:15px">' + txTitle + '</span><button class="btn outline sm" onclick="window.__exportTransactionsCSV()">Export CSV</button></div>' +
       '<div class="table-wrap" style="border:none;border-radius:0"><table><thead><tr><th>Guest / Room</th><th>Description</th><th>Method</th><th>Amount</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>' +
         (state.txns.length === 0 ? '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:30px">No transactions yet</td></tr>' : '') +
         state.txns.map(t => '<tr>' +
@@ -48,6 +49,7 @@ PAGES.payments = function () {
           '<td><div style="display:flex;gap:4px">' +
             (t.status === 'pending' ? '<button class="btn warn sm" onclick="window.__openSettleBalance({bookingId:' + (t.booking_id ? "'" + t.booking_id + "'" : 'null') + ',guestId:' + (t.guest_id ? "'" + t.guest_id + "'" : 'null') + ',roomNumber:' + (t.room_number ? "'" + t.room_number + "'" : 'null') + '})">Settle</button>' : '') +
             '<button class="btn ghost sm" onclick="window.__viewTransaction(\'' + t.id + '\')">View</button>' +
+            '<button class="btn ghost sm" onclick="window.__reprintTransaction(\'' + t.id + '\')">🖨 Reprint</button>' +
           '</div></td></tr>').join('') +
       '</tbody></table></div></div>' +
     '<div class="card"><div class="card-header"><span class="card-title">Accepted Payment Methods</span></div>' +
@@ -76,7 +78,11 @@ PAGES.payments = function () {
   // ── View transaction detail (real modal, not a toast) ──────────────────
   window.__viewTransaction = async (id) => {
     let t;
-    try { t = await API.get('/api/payments/transactions/' + id); } catch (err) { toast(err.message, 'error'); return; }
+    try { t = await API.get('/api/payments/transactions/' + id); } catch (err) {
+      // Offline: the warmed transactions list carries the same row.
+      t = (state.txns || []).find(x => x.id === id);
+      if (!t) { toast(err.message, 'error'); return; }
+    }
     openModal('Transaction Detail',
       '<div style="display:flex;flex-direction:column;gap:10px;font-size:13px">' +
         '<div><strong>Status:</strong> ' + statusBadge(t.status) + '</div>' +
@@ -90,8 +96,45 @@ PAGES.payments = function () {
         '<div><strong>Date:</strong> ' + new Date(t.created_at).toLocaleString() + '</div>' +
       '</div>',
       '<button class="btn outline" onclick="closeModal()">Close</button>' +
+      '<button class="btn primary" onclick="window.__reprintTransaction(\'' + t.id + '\')">🖨 Reprint Receipt</button>' +
       (t.status === 'pending' ? '<button class="btn primary" onclick="closeModal();window.__openSettleBalance({bookingId:' + (t.booking_id ? "'" + t.booking_id + "'" : 'null') + ',guestId:' + (t.guest_id ? "'" + t.guest_id + "'" : 'null') + ',roomNumber:' + (t.room_number ? "'" + t.room_number + "'" : 'null') + '})">Settle This</button>' : '')
     );
+  };
+
+  // ── Reprint any transaction: list → select → print ────────────────────
+  // The exact record the server holds for that transaction, rendered as the
+  // same receipt popup the settle flow uses (paper picker + Print button),
+  // with the print dialog popping automatically — a reprint is a deliberate
+  // "give me paper again" click.
+  window.__reprintTransaction = async (id) => {
+    let t;
+    try { t = await API.get('/api/payments/transactions/' + id); } catch (err) {
+      // Offline: reprint straight from the warmed list row.
+      t = (state.txns || []).find(x => x.id === id);
+      if (!t) { toast(err.message, 'error'); return; }
+    }
+    const receipt = {
+      hotelName: (App.tenant && App.tenant.name) || 'StayChat OS',
+      subtitle: t.guest_name ? (t.guest_name + (t.room_number ? ' · Room ' + t.room_number : '')) : (t.room_number ? 'Room ' + t.room_number : ''),
+      title: 'PAYMENT RECEIPT' + (t.status === 'completed' ? '' : ' (' + String(t.status || '').toUpperCase() + ')'),
+      defaultPaper: '210mm',
+      meta: [
+        ['Date', new Date(t.created_at).toLocaleString()],
+        ['Method', t.method || '—'],
+        ['Reference', t.gateway_ref || t.id],
+        ['Status', t.status || '—'],
+      ],
+      lines: [[t.description || 'Payment', '', formatMoney(t.amount)]],
+      totals: [['TOTAL', formatMoney(t.amount), true]],
+      footer: 'Reprinted copy — original reference ' + (t.gateway_ref || t.id),
+    };
+    showReceiptPopup(receipt);
+    setTimeout(() => {
+      try {
+        printReceiptWindow(receipt, receipt.defaultPaper);
+        toast('Receipt sent to the printer…', 'info');
+      } catch (e) { /* popup blocked — the preview's Print button still works */ }
+    }, 400);
   };
 
   // ── Settle a balance (room + all pending charges, in one verified action) ──

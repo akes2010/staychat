@@ -13,7 +13,12 @@ const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('payments.use'));
 
 router.get('/transactions', (req, res) => {
-  const rows = db.prepare('SELECT * FROM transactions WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 200').all(req.tenantId);
+  // The desk browses EVERY record to find one to reprint, so callers may
+  // widen the window (?limit=…, bounded). Default stays 200 — the slice the
+  // summary widgets want.
+  const wanted = Number(req.query.limit);
+  const limit = Number.isFinite(wanted) && wanted > 0 ? Math.min(Math.floor(wanted), 5000) : 200;
+  const rows = db.prepare('SELECT * FROM transactions WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ?').all(req.tenantId, limit);
   res.json(rows);
 });
 

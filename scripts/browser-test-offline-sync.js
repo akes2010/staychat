@@ -15,6 +15,10 @@
 //   8. a network drop mid-session re-opens the shell from the LOCAL session
 //      snapshot instead of dumping the desk back on the sign-in form, and
 //      revalidates itself silently once the connection returns
+//   9. the INSTALL click downloads the WHOLE system: collections + per-id
+//      workflow reads (settle/checkout, folios, inbox threads, EOD preview)
+//      sit in the SW cache, and every desk page RENDERS from that cache with
+//      the network cut again.
 'use strict';
 const { spawn } = require('child_process');
 const http = require('http');
@@ -111,6 +115,16 @@ const apiGet = (p, token) => fetch(BASE + p, { headers: { Authorization: 'Bearer
     if (fs.existsSync(path.join(ROOT, 'data', 'staychat.db' + ext))) fs.copyFileSync(path.join(ROOT, 'data', 'staychat.db' + ext), path.join(dataDir, 'staychat.db' + ext));
   }
   normalizeRoomsInCopy(dataDir); // bookable-inventory precondition
+  // Occupy ONE room (the highest number) so the offline warm has a real
+  // settle/checkout target — checkout-check + balance?roomNumber are warmed
+  // for non-available rooms. The test below reserves the first FREE room.
+  {
+    const Database = require('better-sqlite3');
+    const dbc = new Database(path.join(dataDir, 'staychat.db'));
+    const target = dbc.prepare('SELECT id FROM rooms ORDER BY CAST(number AS INTEGER) DESC, number DESC LIMIT 1').get();
+    if (target) dbc.prepare(`UPDATE rooms SET status = 'occupied', guest_name = 'Warm Target' WHERE id = ?`).run(target.id);
+    dbc.close();
+  }
   const srv = spawn('node', [path.join(ROOT, 'server', 'index.js')], {
     env: Object.assign({}, process.env, { PORT: String(PORT), DATA_DIR: dataDir, NODE_ENV: 'production' }),
     stdio: 'ignore',
@@ -159,7 +173,7 @@ const apiGet = (p, token) => fetch(BASE + p, { headers: { Authorization: 'Bearer
 
       // Stash a room id while still online (the write path under test is the
       // queue, not the read cache).
-      const roomId = await evl(`(async () => { const rooms = await API.get('/api/rooms'); return rooms && rooms[0] && rooms[0].id; })()`);
+      const roomId = await evl(`(async () => { const rooms = await API.get('/api/rooms'); const free = (rooms || []).find(r => r.status !== 'occupied'); return free ? free.id : (rooms && rooms[0] && rooms[0].id); })()`);
       if (!roomId) return bad('no rooms available for the booking precondition');
       ok('room id stashed for the reservation (' + roomId + ')');
 
@@ -272,6 +286,159 @@ const apiGet = (p, token) => fetch(BASE + p, { headers: { Authorization: 'Bearer
       revalidated === true
         ? ok('back online: session revalidated automatically — nobody had to sign in again')
         : bad('session never revalidated after the connection came back');
+
+      console.log('── Whole desk downloaded for offline use (install-time warm) ──');
+      // The exact moment under test: the operator clicks "Install app" —
+      // pwa.js's appinstalled handler must kick off the full data download.
+      await evl(`window.dispatchEvent(new Event('appinstalled'))`);
+      const installToast = await waitFor(evl, `document.body.textContent.includes('desk datasets')`, true, 15000);
+      installToast === true
+        ? ok('appinstalled (the install click) starts the full data download — toast confirms it')
+        : bad('appinstalled event did not trigger the warm/download toast');
+      // The 'online' event above re-ran PWA.warmCache(); poll the SW's API
+      // cache until the desk's reads land (4-way parallel warm on localhost).
+      const warmed = await waitFor(evl, `(async () => {
+        const names = await caches.keys();
+        const name = names.filter(n => n.indexOf('staychat-api-') === 0).sort().pop();
+        if (!name) return false;
+        const keys = await (await caches.open(name)).keys();
+        return keys.length >= 20;
+      })()`, true, 30000);
+      warmed === true
+        ? ok('SW API cache filled with the warmed desk data (≥20 reads)')
+        : bad('SW API cache never filled — warmCache/pwa.js did not run or saved nothing');
+      const missing = await evl(`(async () => {
+        const names = await caches.keys();
+        const name = names.filter(n => n.indexOf('staychat-api-') === 0).sort().pop();
+        if (!name) return ['no api cache at all'];
+        const cache = await caches.open(name);
+        // Spot-check reads from pages this receptionist never opened, plus
+        // one entry that only exists because of the expanded inventory —
+        // each must sit under the EXACT url its page will request.
+        const need = ['/api/rooms', '/api/bookings', '/api/guests', '/api/staff',
+          '/api/settings', '/api/shifts', '/api/menu', '/api/payments/transactions?limit=2000',
+          '/api/reports/types', '/api/room-setup/holidays', '/api/bookings/facilities/pending',
+          '/api/halls/bookings', '/api/gym/registrations'];
+        const missing = [];
+        for (const p of need) if (!(await cache.match(API.cacheUrl(p)))) missing.push(p);
+        return missing;
+      })()`);
+      Array.isArray(missing) && missing.length === 0
+        ? ok('every spot-checked desk read is cached byte-for-byte under its page URL')
+        : bad('missing from the offline cache: ' + JSON.stringify(missing));
+
+      // Per-id workflow reads: the money flows a bad network used to break.
+      const missingDetail = await evl(`(async () => {
+        const names = await caches.keys();
+        const name = names.filter(n => n.indexOf('staychat-api-') === 0).sort().pop();
+        if (!name) return ['no api cache at all'];
+        const cache = await caches.open(name);
+        const out = [];
+        const has = p => cache.match(API.cacheUrl(p)).then(r => !!r);
+        // Settle/checkout: the occupied room seeded above needs BOTH reads.
+        const rooms = await API.get('/api/rooms');
+        const occ = (rooms || []).find(r => r.status === 'occupied');
+        if (occ) {
+          const p1 = '/api/rooms/' + occ.id + '/checkout-check';
+          const p2 = '/api/payments/balance?roomNumber=' + encodeURIComponent(occ.number);
+          if (!(await has(p1))) out.push(p1);
+          if (!(await has(p2))) out.push(p2);
+        } else out.push('no occupied room in the DB copy — seed failed');
+        // Guest bill (folio) + booking-settle balance.
+        const books = await API.get('/api/bookings');
+        const b0 = (books || [])[0];
+        if (b0) {
+          const p1 = '/api/bookings/' + b0.id + '/folio';
+          const p2 = '/api/payments/balance?bookingId=' + b0.id;
+          if (!(await has(p1))) out.push(p1);
+          if (!(await has(p2))) out.push(p2);
+        } else out.push('no bookings in the DB copy');
+        // Inbox thread CONTENTS (the /messages url the page asks for).
+        const convs = await API.get('/api/inbox/conversations');
+        if (convs && convs.length) {
+          const p = '/api/inbox/conversations/' + convs[0].id + '/messages';
+          if (!(await has(p))) out.push(p);
+        }
+        // EOD close preview for this user's own department, for TODAY.
+        const today = new Date().toISOString().slice(0, 10);
+        const mine = await API.get('/api/eod/mine?date=' + today);
+        if (mine && mine.department) {
+          const p = '/api/eod/preview?department=' + mine.department + '&date=' + today;
+          if (!(await has(p))) out.push(p);
+        }
+        return out;
+      })()`);
+      Array.isArray(missingDetail) && missingDetail.length === 0
+        ? ok('settle/checkout/folio/inbox/EOD workflow reads are all cached under their exact page URLs')
+        : bad('workflow reads missing offline: ' + JSON.stringify(missingDetail));
+
+      console.log('── Whole system renders OFFLINE (network cut again, cache-only) ──');
+      await send('Network.emulateNetworkConditions', { offline: true, latency: 20, downloadThroughput: -1, uploadThroughput: -1 });
+      await sleep(300);
+      const offPages = [
+        ['dashboard', 'Command Center'], ['rooms', 'Room Management'],
+        ['bookings', 'Bookings & Reservations'], ['guests', 'Guest Profiles'],
+        ['payments', 'Payments'], ['eod', 'End of Day'],
+        ['inbox', 'WhatsApp Inbox'], ['orders', 'Room Service Orders'],
+        ['reports', 'Report Management'], ['analytics', 'Analytics & Reports'],
+        ['shifts', 'Shifts & Attendance'], ['housekeeping', 'Housekeeping'],
+        ['maintenance', 'Maintenance'], ['pool', 'Pool Bookings'],
+        ['halls', 'Halls & Events'], ['gym', 'Gym & Fitness'],
+        ['wifi', 'Guest Wi-Fi'],
+      ];
+      const broken = [];
+      for (const [page, heading] of offPages) {
+        await evl(`navigate('${page}')`);
+        const got = await waitFor(evl,
+          `(() => { const h = document.querySelector('#content h1'); return !!h && h.textContent.indexOf(${JSON.stringify(heading)}) !== -1; })()`,
+          true, 5000);
+        if (got !== true) broken.push(page);
+      }
+      await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+      await sleep(300);
+      broken.length === 0
+        ? ok('all ' + offPages.length + ' desk pages render offline from the local cache')
+        : bad('pages that failed offline: ' + JSON.stringify(broken));
+
+      console.log('── Steady hands: duplicate submits + rate-limit retry ──');
+      // Identical writes fired at the SAME moment while the network is slow
+      // used to double-submit. api.js now coalesces identical in-flight
+      // requests — two parallel posts must produce ONE record server-side.
+      const dup = await evl(`(async () => {
+        const name = 'Coalesce Probe ' + Date.now();
+        const [a, b] = await Promise.all([
+          API.post('/api/guests', { name }),
+          API.post('/api/guests', { name }),
+        ]);
+        if ((a && a.__offlineQueued) || (b && b.__offlineQueued)) return JSON.stringify({ queued: true });
+        const all = await API.get('/api/guests');
+        return JSON.stringify({ queued: false, count: all.filter(g => g.name === name).length });
+      })()`);
+      let dupJ = {}; try { dupJ = JSON.parse(dup); } catch (e) {}
+      if (dupJ.queued === false && dupJ.count === 1) {
+        ok('identical concurrent submits coalesce into ONE request (1 guest, not 2)');
+      } else bad('duplicate-submit guard — ' + dup);
+
+      // When the per-IP limiter pushes back (many users behind one office
+      // NAT), a read must pause and retry itself instead of dying with a red
+      // error — first call answered with a synthetic 429, second goes through.
+      const r429 = await evl(`(async () => {
+        const orig = window.fetch; let hits = 0;
+        window.fetch = function (url) {
+          if (String(url).indexOf('/api/shifts') === 0) {
+            hits++;
+            if (hits === 1) return Promise.resolve(new Response(JSON.stringify({ error: 'Too many requests' }), { status: 429, headers: { 'Content-Type': 'application/json' } }));
+          }
+          return orig.apply(window, arguments);
+        };
+        try { const rows = await API.get('/api/shifts'); return JSON.stringify({ ok: Array.isArray(rows), hits }); }
+        catch (e) { return JSON.stringify({ ok: false, err: String(e && e.message), hits }); }
+        finally { window.fetch = orig; }
+      })()`);
+      let r429j = {}; try { r429j = JSON.parse(r429); } catch (e) {}
+      if (r429j.ok === true && r429j.hits === 2) {
+        ok('a 429 backs off and the GET retries itself once (2 hits, data arrives)');
+      } else bad('429 retry — ' + r429);
 
       console.log('── Logout hygiene: outbox wipe ──');
       const wiped = await evl(`(async () => { await PWA.wipeCaches(); const c = await Offline.counts(); return c.pending + c.conflict + c.error; })()`);
