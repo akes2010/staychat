@@ -1,0 +1,64 @@
+/* public/css/pos-outlet.css
+   Visual identity for the two SEPARATED POS terminals — purely additive:
+   every selector is scoped to an outlet theme class that public/js/pages/pos.js
+   stamps on the POS page wrap and on its modals (.pos-outlet-restaurant /
+   .pos-outlet-bar), or on a terminal-picker card (.pos-pick-*). Nothing in
+   app.css or pos-terminal.css is modified — the classes only RE-DECLARE the
+   custom properties those rules already consume, so tiles, pills, ticket
+   cards, totals, buttons and badges all re-skin per terminal.
+
+   Restaurant = warm, light dining-room cream + terracotta.
+   Bar        = dark, moody amber-on-navy speakeasy.
+
+   Loaded after app.css and pos-terminal.css, so these rules win. */
+
+/* ── Terminal picker: each card previews the terminal it opens ───────── */
+#content .pos-pick-card.pos-pick-restaurant{--p:#c2410c;--p-light:#ea580c;--p-dark:#9a3412;background:#fffaf3;border-color:#f0dcc8}
+#content .pos-pick-card.pos-pick-bar{--p:#f0b429;--p-light:#f6c453;--p-dark:#a16207;--surface:#161c30;--surface2:#1e2540;--border:#2c3555;--text:#eef2ff;--text2:#c1c9e2;--text3:#8d97b8;background:#161c30;border-color:#2c3555;color:#eef2ff}
+
+/* ── Restaurant terminal — warm & light ──────────────────────────────── */
+:is(#content .pos-outlet-restaurant, #modal.pos-outlet-restaurant){
+  --p:#c2410c; --p-light:#ea580c; --p-dark:#9a3412;
+  --bg:#faf6f1; --surface:#fffdf9; --surface2:#faf4ec; --surface3:#f3ead9;
+  --border:#eadfcc; --border-dark:#dcc9ae;
+  --text:#2c1d0f; --text2:#6b563f; --text3:#a08b73;
+}
+/* The hardcoded blue accents in pos-terminal.css become terracotta here. */
+:is(#content .pos-outlet-restaurant, #modal.pos-outlet-restaurant) .pos-menu-item-price{background:rgba(194,65,12,.10);color:var(--p)}
+:is(#content .pos-outlet-restaurant, #modal.pos-outlet-restaurant) .pos-cart-totals-row.grand{background:rgba(194,65,12,.10);color:var(--p)}
+:is(#content .pos-outlet-restaurant, #modal.pos-outlet-restaurant) .pos-pay-option.selected{border-color:var(--p);background:rgba(194,65,12,.10);box-shadow:0 0 0 3px rgba(194,65,12,.18)}
+:is(#content .pos-outlet-restaurant, #modal.pos-outlet-restaurant) .pos-ticket-card{border-left:4px solid var(--p)}
+
+/* ── Bar terminal — dark & moody ─────────────────────────────────────── */
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar){
+  --p:#f0b429; --p-light:#f6c453; --p-dark:#a16207;
+  --a:#f0b429; --a-dim:#d97706;
+  --bg:#0d1120; --surface:#161c30; --surface2:#1e2540; --surface3:#262e4d;
+  --border:#2c3555; --border-dark:#3a4470;
+  --text:#eef2ff; --text2:#c1c9e2; --text3:#8d97b8;
+  --success:#34d399; --success-bg:#0d2a20; --success-border:#155e45;
+  --warn:#fbbf24; --warn-bg:#2e2410; --warn-border:#5b4517;
+  --error:#f87171; --error-bg:#331618; --error-border:#5b2427;
+  --info:#60a5fa; --info-bg:#12233f; --info-border:#24487a;
+}
+/* Hardcoded blue accents in pos-terminal.css become amber here. */
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pos-menu-item-price{background:rgba(240,180,41,.14);color:var(--p)}
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pos-cart-totals-row.grand{background:rgba(240,180,41,.14);color:var(--p)}
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pos-pay-option.selected{border-color:var(--p);background:rgba(240,180,41,.12);box-shadow:0 0 0 3px rgba(240,180,41,.20)}
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pos-ticket-card{border-left:4px solid var(--p)}
+/* Amber is bright enough to read as text on navy but not behind white —
+   flip the label colour on filled controls so contrast stays AA. */
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .btn.primary{color:#1a1206}
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pill.active{color:#1a1206}
+/* Navy-tinted receipt panel + search fields so inputs don't glare white. */
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .form-input,
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .form-select{background:var(--surface2);color:var(--text);border-color:var(--border-dark)}
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .form-input::placeholder{color:var(--text3)}
+
+/* ── Unmistakable terminal tag in the page header ────────────────────── */
+#content .pos-outlet-restaurant .page-header-left h1::after{content:'🍽 RESTAURANT';margin-left:12px;vertical-align:middle;padding:5px 12px;border-radius:999px;background:rgba(194,65,12,.12);color:var(--p);font-size:11px;font-weight:800;letter-spacing:.09em}
+#content .pos-outlet-bar .page-header-left h1::after{content:'🍸 BAR';margin-left:12px;vertical-align:middle;padding:5px 12px;border-radius:999px;background:rgba(240,180,41,.16);color:var(--p);font-size:11px;font-weight:800;letter-spacing:.09em}
+@media(max-width:560px){
+  #content .pos-outlet-restaurant .page-header-left h1::after,
+  #content .pos-outlet-bar .page-header-left h1::after{display:block;margin:6px 0 0}
+}

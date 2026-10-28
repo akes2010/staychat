@@ -2,9 +2,17 @@
 // Point of Sale — Restaurant & Bar. Open tickets accumulate items, then get
 // checked out via Cash / Card (paid immediately) or Room Charge / Customer Bill
 // (posted as a pending transaction to be settled later — see Payments page).
+//
+// One page, three entry points (the outlets are now fully separated):
+//   PAGES.pos          — the generic terminal picker, unchanged behaviour
+//   PAGES.posRestaurant — the Restaurant till, straight in, warm theme
+//   PAGES.posBar        — the Bar till, straight in, dark theme
+// The dedicated pages pin the outlet from the sidebar link; the role's server-
+// side lock (lockedOutlet) still wins if there is one, so a cashier driven to
+// the Bar page can only ever open the restaurant terminal.
 window.PAGES = window.PAGES || {};
 
-PAGES.pos = function () {
+function buildPOSPage(forcedOutlet) {
   const wrap = el('div', 'fa');
   const state = { outlet: 'restaurant', tickets: [], menu: [], rooms: [], guests: [], bookings: [], summary: {}, menuLoaded: false, terminal: null };
 
@@ -20,6 +28,9 @@ PAGES.pos = function () {
       // Cashier/Barman/Server/Waiter accounts are locked to their outlet — no terminal picker, no switching.
       if (!state.terminal && App.user && (App.user.role === 'cashier' || App.user.role === 'server')) state.terminal = { outlet: 'restaurant', cashierName: App.user.name, locked: true };
       if (!state.terminal && App.user && (App.user.role === 'barman' || App.user.role === 'waiter')) state.terminal = { outlet: 'bar', cashierName: App.user.name, locked: true };
+      // Dedicated terminal page (Restaurant POS / Bar POS in the sidebar):
+      // sign in straight away, no picker. The role's lock wins if there is one.
+      if (!state.terminal && forcedOutlet) state.terminal = { outlet: lockedOutlet() || forcedOutlet, cashierName: App.user ? App.user.name : 'Operator', locked: true };
       if (state.terminal) state.outlet = state.terminal.outlet;
       if (!state.terminal) renderTerminalScreen();
       else render();
@@ -28,17 +39,27 @@ PAGES.pos = function () {
     }
   }
 
+  // Every POS modal (new ticket, ticket builder, checkout) carries the active
+  // terminal's theme class — modals live outside #content, so the class is
+  // stamped on #modal right after openModal renders it.
+  function openPOSModal(title, bodyHTML, footerHTML, opts) {
+    openModal(title, bodyHTML, footerHTML, opts);
+    const m = document.getElementById('modal');
+    if (m && state.outlet) m.classList.add('pos-outlet-' + state.outlet);
+  }
+
   function renderTerminalScreen() {
+    wrap.className = 'fa';
     const r = state.summary.restaurant || { openTickets: 0, revenueToday: 0 };
     const b = state.summary.bar || { openTickets: 0, revenueToday: 0 };
     wrap.innerHTML = '' +
     '<div class="page-header"><div class="page-header-left"><h1>Point of Sale</h1><p>Sign in to a terminal to start selling</p></div></div>' +
     '<div class="grid grid-2" style="max-width:640px;margin:20px auto;gap:16px">' +
-      '<div class="card" style="text-align:center;padding:28px 20px;cursor:pointer" onclick="window.__posPickTerminal(\'restaurant\')">' +
+      '<div class="card pos-pick-card pos-pick-restaurant" style="text-align:center;padding:28px 20px;cursor:pointer" onclick="window.__posPickTerminal(\'restaurant\')">' +
         '<div style="font-size:40px;margin-bottom:10px">🍽</div><div style="font-weight:800;font-size:16px;margin-bottom:4px">Restaurant Terminal</div>' +
         '<div style="font-size:12px;color:var(--text3)">' + r.openTickets + ' open tickets &middot; ' + formatMoney(r.revenueToday) + ' today</div>' +
       '</div>' +
-      '<div class="card" style="text-align:center;padding:28px 20px;cursor:pointer" onclick="window.__posPickTerminal(\'bar\')">' +
+      '<div class="card pos-pick-card pos-pick-bar" style="text-align:center;padding:28px 20px;cursor:pointer" onclick="window.__posPickTerminal(\'bar\')">' +
         '<div style="font-size:40px;margin-bottom:10px">🍸</div><div style="font-weight:800;font-size:16px;margin-bottom:4px">Bar Terminal</div>' +
         '<div style="font-size:12px;color:var(--text3)">' + b.openTickets + ' open tickets &middot; ' + formatMoney(b.revenueToday) + ' today</div>' +
       '</div>' +
@@ -89,6 +110,9 @@ PAGES.pos = function () {
   }
 
   function render() {
+    // Terminal identity: the whole POS surface wears its outlet's theme
+    // (public/css/pos-outlet.css) — warm restaurant vs dark bar.
+    wrap.className = 'fa pos-outlet-' + state.outlet;
     const outletTickets = state.tickets.filter(t => t.outlet === state.outlet);
     const open = outletTickets.filter(t => t.status === 'open');
     const closedToday = outletTickets.filter(t => t.status === 'closed').sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
@@ -142,7 +166,7 @@ PAGES.pos = function () {
     // Fresh table list per open — occupancy changes while the board is used.
     try { state.posTables = await API.get('/api/pos/tables'); } catch (e) { state.posTables = []; }
     const occupiedRooms = state.rooms.filter(r => r.status === 'occupied');
-    openModal('New ' + (state.outlet === 'bar' ? 'Bar Tab' : 'Restaurant Ticket'),
+    openPOSModal('New ' + (state.outlet === 'bar' ? 'Bar Tab' : 'Restaurant Ticket'),
       '<div style="margin-bottom:14px">' +
         (state.posTables && state.posTables.filter(x => x.location === state.outlet).length
           ? '<label class="form-label">Pick a table — seated tables are locked</label>' +
@@ -236,7 +260,7 @@ PAGES.pos = function () {
       (!menuSearch || m.name.toLowerCase().includes(menuSearch.toLowerCase()))
     );
 
-    openModal((ticket.outlet === 'bar' ? '🍸 ' : '🍽 ') + escapeHtml(ticket.label),
+    openPOSModal((ticket.outlet === 'bar' ? '🍸 ' : '🍽 ') + escapeHtml(ticket.label),
       '<div class="pos-layout">' +
         '<div>' +
           '<div class="filter-pills" style="margin-bottom:8px">' + cats.map(c => '<button class="pill ' + (menuCat === c ? 'active' : '') + '" onclick="window.__posSetCat(\'' + id_(ticket) + '\',\'' + escapeJsInAttr(c) + '\')">' + escapeHtml(c) + '</button>').join('') + '</div>' +
@@ -349,7 +373,7 @@ PAGES.pos = function () {
       const change = method === 'cash' ? Math.max(0, cashTendered - t.total) : 0;
       const shortfall = method === 'cash' && cashTendered > 0 && cashTendered < t.total ? t.total - cashTendered : 0;
 
-      openModal('Checkout — ' + escapeHtml(ticket.label),
+      openPOSModal('Checkout — ' + escapeHtml(ticket.label),
         '<div class="pos-pay-grid" style="margin-bottom:16px">' +
           payOptionHTML('cash', '💵', 'Cash', 'Enter tendered amount') +
           payOptionHTML('card', '💳', 'Card', 'Paid in full now') +
@@ -515,4 +539,8 @@ PAGES.pos = function () {
   WSClient.on('pos.ticket.voided', () => load());
 
   return wrap;
-};
+}
+
+PAGES.pos = () => buildPOSPage(null);
+PAGES.posRestaurant = () => buildPOSPage('restaurant');
+PAGES.posBar = () => buildPOSPage('bar');

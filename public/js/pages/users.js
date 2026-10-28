@@ -26,7 +26,7 @@ const CAPABILITY_LABELS = {
 };
 
 const ROLE_OPTIONS = [
-  ['staff', 'Staff'], ['receptionist', 'Receptionist'], ['hotel_admin', 'Hotel Admin'],
+  ['staff', 'Staff'], ['receptionist', 'Receptionist'], ['porter', 'Porter (Front Office)'], ['hotel_admin', 'Hotel Admin'],
   ['cashier', 'Cashier (POS — Restaurant)'], ['barman', 'Barman (POS — Bar)'],
   ['waiter', 'Waiter (POS — Bar)'], ['server', 'Server (POS — Restaurant)'],
   ['accountant', 'Accountant'], ['auditor', 'Auditor (read-only)'],
@@ -36,7 +36,7 @@ const ROLE_OPTIONS = [
 // under "Roles & Departments" are merged in at render time, and typing any
 // other value still works — users.department has always been free text.
 const DEPARTMENT_SUGGESTIONS = [
-  'Front Desk', 'Bar', 'Restaurant', 'Housekeeping', 'Kitchen',
+  'Front Desk', 'Front Office', 'Bar', 'Restaurant', 'Housekeeping', 'Kitchen',
   'Maintenance', 'Pool', 'Hall', 'Gym', 'Spa', 'Laundry',
 ];
 
@@ -60,7 +60,7 @@ PAGES.users = function () {
   const roleBadge = (r) => ({
     hotel_admin: badge('Hotel Admin', 'info'), receptionist: badge('Receptionist', 'success'), staff: badge('Staff', 'default'),
     superadmin: badge('Super Admin', 'warn'), cashier: badge('Cashier', 'info'), barman: badge('Barman', 'info'),
-    waiter: badge('Waiter', 'info'), server: badge('Server', 'info'),
+    waiter: badge('Waiter', 'info'), server: badge('Server', 'info'), porter: badge('Porter', 'info'),
     accountant: badge('Accountant', 'success'), auditor: badge('Auditor', 'default'),
   }[r] || badge((state.customRoles.find(c => c.key === r) || {}).name || r, 'success'));
 

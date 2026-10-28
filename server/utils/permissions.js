@@ -67,6 +67,11 @@ const ROLE_DEFAULTS = {
   // They take orders and clock in, but hold no pricing/manage power.
   waiter: ['pos.use', 'orders.manage', 'attendance.use', 'eod.use'],
   server: ['pos.use', 'orders.manage', 'attendance.use', 'eod.use'],
+  // Front-office helper (F&B): sees the lobby picture and the seating plan,
+  // works the WhatsApp line and clocks in — but no till, no pricing, no
+  // money and no records to edit. Purely additive: an existing account can
+  // only reach these permissions if an admin picks the porter role for it.
+  porter: ['dashboard.view', 'inbox.use', 'tables.use', 'attendance.use'],
   accountant: ['dashboard.view', 'accounting.view', 'accounting.manage', 'payments.use', 'analytics.view'],
   auditor: ['dashboard.view', 'accounting.view', 'analytics.view'], // read-only by construction: never granted *.manage
 };

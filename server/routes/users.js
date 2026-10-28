@@ -15,7 +15,7 @@ const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requireRole('hotel_admin', 'superadmin'));
 
 // Config
-const ASSIGNABLE_ROLES = ['hotel_admin', 'receptionist', 'staff', 'cashier', 'barman', 'accountant', 'auditor', 'waiter', 'server'];
+const ASSIGNABLE_ROLES = ['hotel_admin', 'receptionist', 'staff', 'cashier', 'barman', 'accountant', 'auditor', 'waiter', 'server', 'porter'];
 // Built-in keys are reserved: a tenant's custom roles can never shadow one, so
 // resolution (ROLE_DEFAULTS vs custom_roles) stays unambiguous forever.
 const RESERVED_ROLE_KEYS = ASSIGNABLE_ROLES.concat(['superadmin']);

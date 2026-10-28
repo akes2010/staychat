@@ -35,6 +35,7 @@ const EXPECTED_USERS = [
   ['superadmin@staychat.io', 'superadmin', null],
   ['admin@hospitally.com', 'hotel_admin', 'hospitally'],
   ['reception@hospitally.com', 'receptionist', 'hospitally'],
+  ['porter@hospitally.com', 'porter', 'hospitally'],
   ['felix@hospitally.com', 'staff', 'hospitally'],
   ['cashier@hospitally.com', 'cashier', 'hospitally'],
   ['barman@hospitally.com', 'barman', 'hospitally'],

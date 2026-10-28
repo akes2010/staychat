@@ -152,20 +152,22 @@ async function withBrowser(fn) {
       else bad('sidebar tables nav item missing — ' + JSON.stringify(navInfo));
 
       // The F&B block is grouped under a "Restaurant & Bar" section header:
-      // header → Point of Sale → Menu Manager → Tables → closing divider.
+      // header → Restaurant POS → Bar POS → Menu Manager → Tables → closing divider.
       const groupInfo = await evl(`(() => {
         const kids = Array.from(document.getElementById('sb-nav').children);
         const names = kids.map(k => k.classList.contains('sb-section')
           ? (k.classList.contains('sb-divider') ? '[DIVIDER]' : '[' + k.textContent.trim() + ']')
           : k.getAttribute('data-page'));
-        return { hdr: names.indexOf('[Restaurant & Bar]'), pos: names.indexOf('pos'),
+        return { hdr: names.indexOf('[Restaurant & Bar]'), posRest: names.indexOf('posRestaurant'),
+                 posBar: names.indexOf('posBar'),
                  menu: names.indexOf('menu'), tables: names.indexOf('tables'),
                  divider: names.indexOf('[DIVIDER]') };
       })()`);
-      if (groupInfo && groupInfo.hdr >= 0 && groupInfo.pos === groupInfo.hdr + 1 &&
-          groupInfo.menu === groupInfo.hdr + 2 && groupInfo.tables === groupInfo.hdr + 3 &&
-          groupInfo.divider === groupInfo.hdr + 4) {
-        ok('sidebar groups POS → Menu Manager → Tables under "Restaurant & Bar" with a closing divider');
+      if (groupInfo && groupInfo.hdr >= 0 && groupInfo.posRest === groupInfo.hdr + 1 &&
+          groupInfo.posBar === groupInfo.hdr + 2 &&
+          groupInfo.menu === groupInfo.hdr + 3 && groupInfo.tables === groupInfo.hdr + 4 &&
+          groupInfo.divider === groupInfo.hdr + 5) {
+        ok('sidebar groups Restaurant POS → Bar POS → Menu Manager → Tables under "Restaurant & Bar" with a closing divider');
       } else bad('F&B sidebar grouping wrong — ' + JSON.stringify(groupInfo));
 
       await evl(`navigate('tables')`); await sleep(800);

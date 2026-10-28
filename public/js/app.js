@@ -22,7 +22,8 @@ function can(capability) {
 
 const PAGE_TITLES = {
   dashboard: 'Dashboard', rooms: 'Room Management', inbox: 'WhatsApp Inbox', orders: 'Room Service Orders',
-  pos: 'Point of Sale',  bookings: 'Bookings & Reservations', pool: 'Pool Bookings', halls: 'Hall & Event Bookings', gym: 'Gym & Fitness',
+  pos: 'Point of Sale', posRestaurant: 'Restaurant POS', posBar: 'Bar POS',
+  bookings: 'Bookings & Reservations', pool: 'Pool Bookings', halls: 'Hall & Event Bookings', gym: 'Gym & Fitness',
   tables: 'Tables & Seating',
   billing: 'Billing & Plan',
   wifi: 'Guest Wi-Fi', engine: 'Booking Engine',
@@ -50,7 +51,14 @@ function getNavItems() {
     // ── Restaurant & Bar — the F&B block lives under one sidebar section
     // header (items must stay contiguous: setupSidebar prints the header once
     // per run of sectioned items and a closing divider when it ends).
-    { page: 'pos', ico: '🧾', label: 'Point of Sale', cap: 'pos.use', section: 'Restaurant & Bar' },
+    // The two tills are now separate pages with separate nav entries: the
+    // Restaurant terminal and the Bar terminal. `outlet` gates who sees which
+    // — a till operator's locked outlet (cashier/server → restaurant,
+    // barman/waiter → bar) only ever sees their own; outlet-neutral roles
+    // (managers, superadmin, custom roles) see both. `pos` (the generic
+    // terminal picker) stays routable but is no longer a sidebar entry.
+    { page: 'posRestaurant', ico: '🍽', label: 'Restaurant POS', cap: 'pos.use', section: 'Restaurant & Bar', outlet: 'restaurant' },
+    { page: 'posBar', ico: '🍸', label: 'Bar POS', cap: 'pos.use', section: 'Restaurant & Bar', outlet: 'bar' },
     { page: 'menu', ico: '📋', label: 'Menu Manager', cap: 'menu.manage', section: 'Restaurant & Bar' },
     { page: 'tables', ico: '🪑', label: 'Tables', cap: 'tables.use', section: 'Restaurant & Bar' },
     { page: 'pool', ico: '🏊', label: 'Pool Bookings', cap: 'pool.use' },
@@ -73,7 +81,17 @@ function getNavItems() {
     { page: 'integrations', ico: '🔌', label: 'API Integrations', cap: 'settings.manage' },
     { page: 'settings', ico: '⚙️', label: 'Settings', cap: 'settings.manage' },
   ];
-  const visible = all.filter(x => !x.cap || can(x.cap));
+  const visible = all.filter(x => {
+    if (x.cap && !can(x.cap)) return false;
+    if (x.outlet) {
+      // Mirrors the server-side outlet lock (server/routes/pos.js): bar roles
+      // never see the restaurant entry and vice versa.
+      const r = App.user.role;
+      const mine = (r === 'barman' || r === 'waiter') ? 'bar' : (r === 'cashier' || r === 'server') ? 'restaurant' : null;
+      if (mine && mine !== x.outlet) return false;
+    }
+    return true;
+  });
   if (App.user.role === 'superadmin') visible.push({ page: 'superadmin', ico: '👑', label: 'Super Admin', section: 'Admin' });
   return visible;
 }
@@ -82,7 +100,7 @@ function setupSidebar() {
   const u = App.user;
   document.getElementById('sb-user-av').textContent = u.avatar || u.name.slice(0, 2).toUpperCase();
   document.getElementById('sb-user-name').textContent = u.name;
-  const roleLabels = { superadmin: 'Super Admin', hotel_admin: 'Hotel Admin', receptionist: 'Receptionist', staff: 'Staff', cashier: 'Cashier', barman: 'Barman', waiter: 'Waiter', server: 'Server' };
+  const roleLabels = { superadmin: 'Super Admin', hotel_admin: 'Hotel Admin', receptionist: 'Receptionist', staff: 'Staff', cashier: 'Cashier', barman: 'Barman', waiter: 'Waiter', server: 'Server', porter: 'Porter' };
   document.getElementById('sb-user-role').textContent = App.tenant ? App.tenant.name : (u.role === 'superadmin' ? 'All Hotels' : (roleLabels[u.role] || u.role));
 
   const nav = document.getElementById('sb-nav');
@@ -156,7 +174,7 @@ function closeSidebar() { document.getElementById('sidebar').classList.remove('m
 
 const PAGE_CAPS = {
   dashboard: 'dashboard.view', billing: 'billing.manage', rooms: 'rooms.manage', bookings: 'bookings.manage', inbox: 'inbox.use',
-  orders: 'orders.manage', pos: 'pos.use', pool: 'pool.use', halls: 'halls.use', gym: 'gym.use', misc: 'orders.manage',
+  orders: 'orders.manage', pos: 'pos.use', posRestaurant: 'pos.use', posBar: 'pos.use', pool: 'pool.use', halls: 'halls.use', gym: 'gym.use', misc: 'orders.manage',
   tables: 'tables.use',
   housekeeping: 'housekeeping.manage', maintenance: 'maintenance.manage', guests: 'guests.manage',
   analytics: 'analytics.view', reports: 'analytics.view', staff: 'staff.manage', shifts: 'attendance.use', eod: 'eod.use', menu: 'menu.manage',
@@ -168,6 +186,16 @@ function navigate(page) {
   if (PAGE_CAPS[page] && !can(PAGE_CAPS[page])) {
     toast('You don\'t have permission to access that module', 'error');
     return;
+  }
+  // Outlet pages (Restaurant POS / Bar POS): a till operator can only ever
+  // land on their OWN terminal — mirror of the server-side outlet lock, so a
+  // stray console `navigate('posBar')` still renders the restaurant till for
+  // a cashier instead of the wrong theme and the wrong ticket board.
+  if ((page === 'posBar' || page === 'posRestaurant') && App.user) {
+    const r = App.user.role;
+    const mine = (r === 'barman' || r === 'waiter') ? 'bar' : (r === 'cashier' || r === 'server') ? 'restaurant' : null;
+    const want = page === 'posBar' ? 'bar' : 'restaurant';
+    if (mine && mine !== want) page = mine === 'bar' ? 'posBar' : 'posRestaurant';
   }
   if (page === 'billing' && App.user && App.user.role === 'superadmin' && !App.tenantId) {
     toast('Billing is managed per hotel — pick one in Super Admin first', 'info');

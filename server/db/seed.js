@@ -90,6 +90,7 @@ function seed() {
 
   insertUser.run({ id:adminUserId, tenant_id:t1, name:'John Manager', email:'admin@hospitally.com', password_hash:passwordHash, role:'hotel_admin', department:null, avatar:'JM', phone:'+1 555 0001' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Priya Sharma', email:'reception@hospitally.com', password_hash:passwordHash, role:'receptionist', department:'Front Desk', avatar:'PS', phone:'+1 555 0108' });
+  insertUser.run({ id:id('user'), tenant_id:t1, name:'Emeka Obi', email:'porter@hospitally.com', password_hash:passwordHash, role:'porter', department:'Front Office', avatar:'EO', phone:'+1 555 0127' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Felix Zhang', email:'felix@hospitally.com', password_hash:passwordHash, role:'staff', department:'Housekeeping', avatar:'FZ', phone:'+1 555 0101' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Marcus Bello', email:'cashier@hospitally.com', password_hash:passwordHash, role:'cashier', department:'Restaurant POS', avatar:'MB', phone:'+1 555 0121' });
   insertUser.run({ id:id('user'), tenant_id:t1, name:'Diane Okoro', email:'barman@hospitally.com', password_hash:passwordHash, role:'barman', department:'Bar POS', avatar:'DO', phone:'+1 555 0122' });
@@ -416,6 +417,7 @@ function seed() {
   if (!isDesk()) console.log('  ║  superadmin@staychat.io       — Super Admin (all hotels)'.padEnd(63) + '║');
   console.log('  ║  admin@hospitally.com         — Hotel Admin (Hospitally Grand)'.padEnd(63) + '║');
   console.log('  ║  reception@hospitally.com     — Receptionist'.padEnd(63) + '║');
+  console.log('  ║  porter@hospitally.com        — Porter (Front Office)'.padEnd(63) + '║');
   console.log('  ║  felix@hospitally.com         — Housekeeping Staff'.padEnd(63) + '║');
   console.log('  ║  cashier@hospitally.com       — Cashier (Restaurant POS)'.padEnd(63) + '║');
   console.log('  ║  barman@hospitally.com        — Barman (Bar POS)'.padEnd(63) + '║');
