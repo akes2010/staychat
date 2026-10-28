@@ -82,7 +82,7 @@ function setupSidebar() {
   const u = App.user;
   document.getElementById('sb-user-av').textContent = u.avatar || u.name.slice(0, 2).toUpperCase();
   document.getElementById('sb-user-name').textContent = u.name;
-  const roleLabels = { superadmin: 'Super Admin', hotel_admin: 'Hotel Admin', receptionist: 'Receptionist', staff: 'Staff', cashier: 'Cashier', barman: 'Barman' };
+  const roleLabels = { superadmin: 'Super Admin', hotel_admin: 'Hotel Admin', receptionist: 'Receptionist', staff: 'Staff', cashier: 'Cashier', barman: 'Barman', waiter: 'Waiter', server: 'Server' };
   document.getElementById('sb-user-role').textContent = App.tenant ? App.tenant.name : (u.role === 'superadmin' ? 'All Hotels' : (roleLabels[u.role] || u.role));
 
   const nav = document.getElementById('sb-nav');

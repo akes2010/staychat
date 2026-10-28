@@ -34,6 +34,10 @@ function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 function lockedOutlet(user) {
   if (user && user.role === 'barman') return 'bar';
   if (user && user.role === 'cashier') return 'restaurant';
+  // Floor staff pin to their outlet the same way: waiter → bar, server →
+  // restaurant (built in; custom roles choose their terminal freely).
+  if (user && user.role === 'waiter') return 'bar';
+  if (user && user.role === 'server') return 'restaurant';
   return null;
 }
 const OUTLET_NAMES = { bar: 'Bar', restaurant: 'Restaurant' };

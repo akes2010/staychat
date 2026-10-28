@@ -62,16 +62,40 @@ const ROLE_DEFAULTS = {
   staff: ['dashboard.view', 'rooms.manage', 'housekeeping.manage', 'maintenance.manage', 'inbox.use', 'pos.use', 'orders.manage', 'attendance.use', 'eod.use'],
   cashier: ['pos.use', 'eod.use'],
   barman: ['pos.use', 'eod.use'],
+  // Floor staff, outlet-pinned like the till operators: a waiter works the BAR
+  // terminal, a server the RESTAURANT terminal (same server-side outlet lock).
+  // They take orders and clock in, but hold no pricing/manage power.
+  waiter: ['pos.use', 'orders.manage', 'attendance.use', 'eod.use'],
+  server: ['pos.use', 'orders.manage', 'attendance.use', 'eod.use'],
   accountant: ['dashboard.view', 'accounting.view', 'accounting.manage', 'payments.use', 'analytics.view'],
   auditor: ['dashboard.view', 'accounting.view', 'analytics.view'], // read-only by construction: never granted *.manage
 };
+
+// Admin-defined roles (Users & Permissions → Roles): the user's role key is
+// looked up in the tenant's custom_roles row, whose permission list plays the
+// same role ROLE_DEFAULTS plays for built-ins. Unknown keys (built-in removed,
+// or no custom row) resolve to [] — exactly what `ROLE_DEFAULTS[role] || []`
+// returned before, so nothing existing changes behaviour.
+function customRoleDefaults(user) {
+  if (!user || !user.tenant_id || !user.role) return [];
+  // Lazy require: permissions.js must stay importable before the DB exists
+  // (scripts, --check tools) and must not create a require cycle.
+  let db;
+  try { db = require('../db/connection'); } catch (e) { return []; }
+  try {
+    const row = db.prepare('SELECT permissions FROM custom_roles WHERE tenant_id = ? AND key = ?').get(user.tenant_id, user.role);
+    if (!row) return [];
+    try { return JSON.parse(row.permissions || '[]'); } catch (e) { return []; }
+  } catch (e) { return []; }
+}
 
 function effectivePermissions(user) {
   if (user.role === 'superadmin') return CAPABILITIES.slice();
   if (user.permissions_customized) {
     try { return JSON.parse(user.permissions || '[]'); } catch (e) { return []; }
   }
-  return (ROLE_DEFAULTS[user.role] || []).slice();
+  if (ROLE_DEFAULTS[user.role]) return ROLE_DEFAULTS[user.role].slice();
+  return customRoleDefaults(user);
 }
 
 function hasPermission(user, capability) {
@@ -91,4 +115,4 @@ function requirePermission(capability) {
   };
 }
 
-module.exports = { CAPABILITIES, ROLE_DEFAULTS, effectivePermissions, hasPermission, requirePermission };
+module.exports = { CAPABILITIES, ROLE_DEFAULTS, effectivePermissions, customRoleDefaults, hasPermission, requirePermission };

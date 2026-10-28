@@ -110,7 +110,7 @@ function startApp(user, accessToken, tenant, entitlements, opts) {
   }
 
   const landingPage = user.role === 'superadmin' && !App.tenantId ? 'superadmin'
-    : (user.role === 'cashier' || user.role === 'barman') ? 'pos'
+    : (user.role === 'cashier' || user.role === 'barman' || user.role === 'waiter' || user.role === 'server') ? 'pos'
     : 'dashboard';
   navigate(landingPage);
   if (!offlineRestore) toast('Welcome back, ' + user.name + '!', 'success');

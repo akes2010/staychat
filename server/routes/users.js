@@ -8,16 +8,47 @@ const { hashPassword } = require('../utils/password-pool'); // bcrypt runs OFF t
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
-const { CAPABILITIES, ROLE_DEFAULTS, effectivePermissions } = require('../utils/permissions');
+const { CAPABILITIES, ROLE_DEFAULTS, effectivePermissions, customRoleDefaults } = require('../utils/permissions');
 const { assertLimit } = require('../services/entitlements');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requireRole('hotel_admin', 'superadmin'));
 
 // Config
-const ASSIGNABLE_ROLES = ['hotel_admin', 'receptionist', 'staff', 'cashier', 'barman', 'accountant', 'auditor'];
+const ASSIGNABLE_ROLES = ['hotel_admin', 'receptionist', 'staff', 'cashier', 'barman', 'accountant', 'auditor', 'waiter', 'server'];
+// Built-in keys are reserved: a tenant's custom roles can never shadow one, so
+// resolution (ROLE_DEFAULTS vs custom_roles) stays unambiguous forever.
+const RESERVED_ROLE_KEYS = ASSIGNABLE_ROLES.concat(['superadmin']);
+const ROLE_KEY_RE = /^[a-z][a-z0-9_]{1,29}$/;
 const BCRYPT_ROUNDS = 12;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// ── Custom roles & departments (admin-defined, tenant-scoped) ────────────────
+// Both live in their own additive tables — see the migration. A role's key is
+// what lands in users.role; a department's NAME is what lands in
+// users.department (that column has always been free text).
+function listCustomRoles(tenantId) {
+  try {
+    return db.prepare('SELECT * FROM custom_roles WHERE tenant_id = ? ORDER BY created_at').all(tenantId).map(serializeCustomRole);
+  } catch (e) { return []; } // table not migrated yet — behave exactly as before
+}
+function serializeCustomRole(r) {
+  let permissions = [];
+  try { permissions = JSON.parse(r.permissions || '[]'); } catch (e) { /* keep [] */ }
+  return { id: r.id, key: r.key, name: r.name, department: r.department || null, permissions, createdAt: r.created_at };
+}
+function tenantRoleKeys(tenantId) {
+  try { return db.prepare('SELECT key FROM custom_roles WHERE tenant_id = ?').all(tenantId).map(r => r.key); }
+  catch (e) { return []; }
+}
+// Role must be built-in OR one of this tenant's custom roles.
+function isValidRoleFor(tenantId, role) {
+  return ASSIGNABLE_ROLES.includes(role) || tenantRoleKeys(tenantId).includes(role);
+}
+function slugify(s) {
+  return String(s || '').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30);
+}
 
 // ── Validation Helpers ───────────────────────────────────────────────────────
 
@@ -77,7 +108,7 @@ function serialize(u) {
     active: !!u.active,
     lastLoginAt: u.last_login_at,
     createdAt: u.created_at,
-    roleDefaults: ROLE_DEFAULTS[u.role] || [],
+    roleDefaults: ROLE_DEFAULTS[u.role] || (u.permissions_customized ? [] : customRoleDefaults(u)),
     permissionsCustomized: !!u.permissions_customized,
     effectivePermissions: effectivePermissions(u),
   };
@@ -91,9 +122,153 @@ router.get('/', (req, res) => {
   res.json(rows.map(serialize));
 });
 
-// GET /api/users/capabilities — the full capability catalog
+// GET /api/users/capabilities — the full capability catalog, plus this
+// tenant's custom roles so the UI can offer them (and pre-check their
+// permission checklist) exactly like the built-ins.
 router.get('/capabilities', (req, res) => {
-  res.json({ capabilities: CAPABILITIES, roleDefaults: ROLE_DEFAULTS });
+  const custom = listCustomRoles(req.tenantId);
+  const roleDefaults = { ...ROLE_DEFAULTS };
+  custom.forEach(c => { roleDefaults[c.key] = c.permissions; });
+  res.json({
+    capabilities: CAPABILITIES,
+    roleDefaults,
+    assignableRoles: ASSIGNABLE_ROLES.concat(custom.map(c => c.key)),
+    customRoles: custom,
+  });
+});
+
+// ── Custom roles CRUD (admin-only; router already requires hotel_admin+) ────
+router.get('/roles', (req, res) => {
+  res.json(listCustomRoles(req.tenantId));
+});
+
+router.post('/roles', (req, res) => {
+  try {
+    const { name, department, permissions } = req.body;
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
+    const key = slugify(req.body.key || name);
+    if (!ROLE_KEY_RE.test(key)) {
+      return res.status(400).json({ error: 'Role key must start with a letter and use only a-z, 0-9, _ (max 30 chars)' });
+    }
+    if (RESERVED_ROLE_KEYS.includes(key)) {
+      return res.status(400).json({ error: '“' + key + '” is a built-in role — pick another key' });
+    }
+    if (permissions !== undefined && !validatePermissions(permissions)) {
+      return res.status(400).json({ error: 'Invalid permissions array' });
+    }
+    const dup = db.prepare('SELECT id FROM custom_roles WHERE tenant_id = ? AND key = ?').get(req.tenantId, key);
+    if (dup) return res.status(409).json({ error: 'A custom role with this key already exists' });
+
+    const id = 'role_' + nanoid(12);
+    db.prepare(`INSERT INTO custom_roles (id, tenant_id, key, name, department, permissions) VALUES (?,?,?,?,?,?)`)
+      .run(id, req.tenantId, key, sanitizeString(name), sanitizeString(department) || null,
+           JSON.stringify(Array.isArray(permissions) ? permissions : []));
+    audit(req, 'custom_role.create', 'custom_role', id, { key, name });
+    res.status(201).json(serializeCustomRole(db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(id)));
+  } catch (err) {
+    console.error('Error creating custom role:', err);
+    res.status(500).json({ error: 'Failed to create custom role' });
+  }
+});
+
+router.patch('/roles/:id', (req, res) => {
+  try {
+    const role = db.prepare('SELECT * FROM custom_roles WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+    if (!role) return res.status(404).json({ error: 'Custom role not found' });
+
+    const updates = {};
+    if (req.body.name !== undefined) {
+      if (!String(req.body.name).trim()) return res.status(400).json({ error: 'name cannot be empty' });
+      updates.name = sanitizeString(req.body.name);
+    }
+    if (req.body.department !== undefined) updates.department = sanitizeString(req.body.department) || null;
+    if (req.body.permissions !== undefined) {
+      if (!validatePermissions(req.body.permissions)) return res.status(400).json({ error: 'Invalid permissions array' });
+      updates.permissions = JSON.stringify(req.body.permissions);
+    }
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields to update' });
+
+    updates.updated_at = new Date().toISOString();
+    const setClause = Object.keys(updates).map(k => k + ' = @' + k).join(', ');
+    db.prepare('UPDATE custom_roles SET ' + setClause + ' WHERE id = @id').run({ ...updates, id: role.id });
+
+    // Live staff of this role hold JWTs carrying the OLD permission list — the
+    // same revoke-on-permission-change rule the per-user editor follows.
+    db.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ? AND role = ?)')
+      .run(req.tenantId, role.key);
+
+    audit(req, 'custom_role.update', 'custom_role', role.id, { key: role.key, fields: Object.keys(updates) });
+    res.json(serializeCustomRole(db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(role.id)));
+  } catch (err) {
+    console.error('Error updating custom role:', err);
+    res.status(500).json({ error: 'Failed to update custom role' });
+  }
+});
+
+router.delete('/roles/:id', (req, res) => {
+  try {
+    const role = db.prepare('SELECT * FROM custom_roles WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+    if (!role) return res.status(404).json({ error: 'Custom role not found' });
+    // ACTIVE holders would wake up with zero permissions (their key no longer
+    // resolves) — refuse until they've been reassigned. Deactivated accounts
+    // don't count: they can't sign in anyway.
+    const holders = db.prepare('SELECT COUNT(*) c FROM users WHERE tenant_id = ? AND role = ? AND active = 1').get(req.tenantId, role.key).c;
+    if (holders > 0) {
+      return res.status(409).json({ error: holders + ' active user(s) still use this role — reassign them first' });
+    }
+    db.prepare('DELETE FROM custom_roles WHERE id = ?').run(role.id);
+    audit(req, 'custom_role.delete', 'custom_role', role.id, { key: role.key });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error deleting custom role:', err);
+    res.status(500).json({ error: 'Failed to delete custom role' });
+  }
+});
+
+// ── Custom departments CRUD ─────────────────────────────────────────────────
+router.get('/departments', (req, res) => {
+  try {
+    res.json(db.prepare('SELECT * FROM custom_departments WHERE tenant_id = ? ORDER BY created_at').all(req.tenantId)
+      .map(d => ({ id: d.id, key: d.key, name: d.name, icon: d.icon || '🏷', createdAt: d.created_at })));
+  } catch (e) { res.json([]); }
+});
+
+router.post('/departments', (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
+    const key = slugify(req.body.key || name);
+    if (!ROLE_KEY_RE.test(key)) {
+      return res.status(400).json({ error: 'Department key must start with a letter and use only a-z, 0-9, _ (max 30 chars)' });
+    }
+    const dup = db.prepare('SELECT id FROM custom_departments WHERE tenant_id = ? AND key = ?').get(req.tenantId, key);
+    if (dup) return res.status(409).json({ error: 'A department with this key already exists' });
+
+    const id = 'dept_' + nanoid(12);
+    const icon = sanitizeString(req.body.icon) || '🏷';
+    db.prepare('INSERT INTO custom_departments (id, tenant_id, key, name, icon) VALUES (?,?,?,?,?)')
+      .run(id, req.tenantId, key, sanitizeString(name), icon.slice(0, 8));
+    audit(req, 'custom_department.create', 'custom_department', id, { key, name });
+    res.status(201).json({ id, key, name: sanitizeString(name), icon: icon.slice(0, 8) });
+  } catch (err) {
+    console.error('Error creating custom department:', err);
+    res.status(500).json({ error: 'Failed to create department' });
+  }
+});
+
+router.delete('/departments/:id', (req, res) => {
+  try {
+    const dept = db.prepare('SELECT * FROM custom_departments WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+    if (!dept) return res.status(404).json({ error: 'Department not found' });
+    // users.department is free text, so this never orphans a row — existing
+    // accounts keep their label; it just stops being offered as a suggestion.
+    db.prepare('DELETE FROM custom_departments WHERE id = ?').run(dept.id);
+    audit(req, 'custom_department.delete', 'custom_department', dept.id, { key: dept.key });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error deleting custom department:', err);
+    res.status(500).json({ error: 'Failed to delete department' });
+  }
 });
 
 // POST /api/users — create a new user
@@ -106,8 +281,8 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'name, email, password and role are required' });
     }
     
-    // Validate role
-    if (!ASSIGNABLE_ROLES.includes(role)) {
+    // Validate role — built-in, or one of this tenant's custom roles
+    if (!isValidRoleFor(req.tenantId, role)) {
       return res.status(400).json({ error: 'Invalid role' });
     }
     
@@ -197,7 +372,7 @@ router.patch('/:id', (req, res) => {
     if (req.body.active !== undefined) updates.active = req.body.active ? 1 : 0;
     
     if (req.body.role !== undefined) {
-      if (!ASSIGNABLE_ROLES.includes(req.body.role)) {
+      if (!isValidRoleFor(req.tenantId, req.body.role)) {
         return res.status(400).json({ error: 'Invalid role' });
       }
       updates.role = req.body.role;

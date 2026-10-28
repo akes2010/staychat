@@ -85,8 +85,8 @@ function deptForUser(req) {
   // bar) — so an unassigned account can never land on another department's
   // books. Everything that isn't a till or a desk stays front_desk, as before.
   const role = String(req.user.role || '').toLowerCase();
-  if (role === 'barman') return 'bar';
-  if (role === 'cashier') return 'restaurant';
+  if (role === 'barman' || role === 'waiter') return 'bar';
+  if (role === 'cashier' || role === 'server') return 'restaurant';
   return 'front_desk';
 }
 

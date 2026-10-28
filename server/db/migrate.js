@@ -812,10 +812,20 @@ function migrate() {
   if (!userCols.includes('permissions')) db.exec("ALTER TABLE users ADD COLUMN permissions TEXT NOT NULL DEFAULT '[]'");
   if (!userCols.includes('theme')) db.exec("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'green'");
 
+  // A legacy users rebuild that ever dies mid-flight (e.g. hitting a role its
+  // old CHECK didn't know) leaves its scratch table behind, and every later
+  // boot then fails with "table users_new already exists". `users` is the live
+  // table — the scratch copy is always safe to discard.
+  db.exec('DROP TABLE IF EXISTS users_new');
+
   // users.role CHECK constraint → add dedicated POS-terminal-only roles (cashier, barman).
   // SQLite can't alter a CHECK constraint in place, so rebuild the table.
+  // Guard on the CHECK itself, not on the substring 'cashier': once a later
+  // pass has stripped the constraint entirely (custom roles, below), this
+  // legacy rebuild must never re-fire — its 6-role CHECK would reject the
+  // seeded accountant/auditor rows and strand the table mid-rebuild.
   const usersTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
-  if (usersTableSql && !usersTableSql.sql.includes('cashier')) {
+  if (usersTableSql && /CHECK\s*\(\s*role\s+IN/i.test(usersTableSql.sql) && !usersTableSql.sql.includes('cashier')) {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       CREATE TABLE users_new (
@@ -921,8 +931,10 @@ function migrate() {
 
   // users.role CHECK constraint → add accountant/auditor roles + permissions_customized flag.
   // SQLite can't alter a CHECK constraint in place, so rebuild the table.
+  // Same CHECK-presence guard as the pass above: once the constraint is gone
+  // (custom roles), this legacy rebuild must stay dormant.
   const usersTableSql2 = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
-  if (usersTableSql2 && !usersTableSql2.sql.includes('accountant')) {
+  if (usersTableSql2 && /CHECK\s*\(\s*role\s+IN/i.test(usersTableSql2.sql) && !usersTableSql2.sql.includes('accountant')) {
     db.pragma('foreign_keys = OFF');
     db.exec(`
       CREATE TABLE users_new (
@@ -949,6 +961,60 @@ function migrate() {
     `);
     db.pragma('foreign_keys = ON');
   }
+
+  // ── Built-in waiter/server roles + admin-defined roles & departments ────
+  // Waiter (bar) and Server (restaurant) join the built-in roster, and admins
+  // can now define their OWN roles and departments from Users & Permissions.
+  // SQLite still can't alter a CHECK in place, so the table is rebuilt from
+  // its OWN stored schema with ONLY the role CHECK stripped — role membership
+  // is now enforced in code (ASSIGNABLE_ROLES ∪ the tenant's custom_roles),
+  // which is what lets new roles land later without another rebuild. Every
+  // other column, constraint and row is copied verbatim, and the guard means
+  // this runs once: databases that already lost the CHECK are untouched.
+  const usersTableSql3 = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+  if (usersTableSql3 && /CHECK\s*\(\s*role\s+IN/i.test(usersTableSql3.sql)) {
+    db.pragma('foreign_keys = OFF');
+    try {
+      const userCols = db.pragma('table_info(users)').map(c => c.name);
+      const rebuiltSql = usersTableSql3.sql
+        .replace(/^\s*CREATE\s+TABLE\s+["'`]?users["'`]?/i, 'CREATE TABLE users_new3')
+        .replace(/CHECK\s*\(\s*role\s+IN\s*\([^)]*\)\)/i, '');
+      db.exec('DROP TABLE IF EXISTS users_new3;' + rebuiltSql);
+      db.exec('INSERT INTO users_new3 (' + userCols.join(', ') + ') SELECT ' + userCols.join(', ') + ' FROM users');
+      db.exec('DROP TABLE users; ALTER TABLE users_new3 RENAME TO users; CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);');
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  }
+
+  // Tenant-defined roles & departments — purely additive tables (Users &
+  // Permissions → manage). custom_roles.key is what lands in users.role;
+  // custom_departments.name is what lands in users.department (the column has
+  // always been free text, so nothing existing changes behaviour).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS custom_roles (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      department TEXT,
+      permissions TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(tenant_id, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_custom_roles_tenant ON custom_roles(tenant_id);
+    CREATE TABLE IF NOT EXISTS custom_departments (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      icon TEXT DEFAULT '🏷',
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(tenant_id, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_custom_departments_tenant ON custom_departments(tenant_id);
+  `);
 
   // ══════════════════════════════════════════════════════════
   // PERFORMANCE INDEXES — for frequently queried columns

@@ -17,9 +17,9 @@ PAGES.pos = function () {
       ]);
       state.tickets = tickets;
       state.summary = summary;
-      // Cashier/Barman accounts are locked to their outlet — no terminal picker, no switching.
-      if (!state.terminal && App.user && App.user.role === 'cashier') state.terminal = { outlet: 'restaurant', cashierName: App.user.name, locked: true };
-      if (!state.terminal && App.user && App.user.role === 'barman') state.terminal = { outlet: 'bar', cashierName: App.user.name, locked: true };
+      // Cashier/Barman/Server/Waiter accounts are locked to their outlet — no terminal picker, no switching.
+      if (!state.terminal && App.user && (App.user.role === 'cashier' || App.user.role === 'server')) state.terminal = { outlet: 'restaurant', cashierName: App.user.name, locked: true };
+      if (!state.terminal && App.user && (App.user.role === 'barman' || App.user.role === 'waiter')) state.terminal = { outlet: 'bar', cashierName: App.user.name, locked: true };
       if (state.terminal) state.outlet = state.terminal.outlet;
       if (!state.terminal) renderTerminalScreen();
       else render();
@@ -45,13 +45,13 @@ PAGES.pos = function () {
     '</div>';
   }
 
-  // A till operator's role pins the terminal: barman → bar, cashier →
-  // restaurant. The server enforces the same lock (server/routes/pos.js);
-  // these guards keep the console-driven UI honest too.
+  // A till operator's role pins the terminal: barman/waiter → bar,
+  // cashier/server → restaurant. The server enforces the same lock
+  // (server/routes/pos.js); these guards keep the console-driven UI honest too.
   function lockedOutlet() {
     if (!App.user) return null;
-    if (App.user.role === 'barman') return 'bar';
-    if (App.user.role === 'cashier') return 'restaurant';
+    if (App.user.role === 'barman' || App.user.role === 'waiter') return 'bar';
+    if (App.user.role === 'cashier' || App.user.role === 'server') return 'restaurant';
     return null;
   }
   function outletName(o) { return o === 'bar' ? 'Bar' : 'Restaurant'; }

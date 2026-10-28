@@ -26,6 +26,7 @@ const FAST = [
   'test-role-gates.js',
   'test-idempotency.js',
   'test-partial-reset-export.js',
+  'test-custom-roles.js',
   'test-ws-auth.js',
   'test-ota-flow.sh',
   'verify-booking-payment.js',
