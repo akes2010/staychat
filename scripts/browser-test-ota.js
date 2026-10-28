@@ -342,13 +342,18 @@ async function connectCdp(port) {
       // machine without the optional :3000 server overwrites the committed
       // shot with Chrome's "site can't be reached" error page.
       const liveHotel = await evaljs('(() => { const el = document.getElementById("h-name"); return el ? el.textContent : null; })()');
-      if (liveHotel) {
+      const liveExpected = liveHotel ? await hotelNameFrom('http://localhost:3000') : null;
+      if (liveHotel && liveExpected) {
         await shot('07-live-book-page');
-        const liveExpected = await hotelNameFrom('http://localhost:3000');
-        liveHotel && liveExpected && liveHotel.trim() === liveExpected
+        liveHotel.trim() === liveExpected
           ? ok('LIVE server book page renders: ' + liveHotel)
           : bad('live page: rendered ' + JSON.stringify(liveHotel) + ', API says ' + JSON.stringify(liveExpected));
         await goto('http://localhost:3000/book.html?hotel=hospitally#fac');
+      } else if (liveHotel) {
+        // A non-demo server owns :3000 (e.g. the local Docker app): there is
+        // no demo hotel to assert against, and capturing it would overwrite
+        // the committed demo shot — skip, same as "no server on :3000".
+        console.log('  (live-site shot skipped: :3000 serves a non-demo tenant — API has no hospitally hotel)');
       } else {
         console.log('  (live-site shot skipped: no server on :3000)');
       }
