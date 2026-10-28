@@ -1,5 +1,12 @@
+# Build-script approvals. pnpm ≥11 reads allowBuilds (map of name → bool);
+# pnpm 10 reads onlyBuiltDependencies (list) — keep both so installs work on
+# either major. Unapproved lifecycle scripts hard-fail installs (strict dep
+# builds), which aborted the server deploy before migrations ran.
 onlyBuiltDependencies:
   - better-sqlite3
-  # pnpm ≥10 hard-fails any install whose build scripts aren't allow-listed;
-  # electron-winstaller (via electron-builder) broke the server's deploy mid-run.
+  # electron-winstaller arrives via electron-builder (Desk packaging only)
   - electron-winstaller
+
+allowBuilds:
+  better-sqlite3: true
+  electron-winstaller: true
