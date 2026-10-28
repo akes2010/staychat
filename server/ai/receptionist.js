@@ -77,8 +77,9 @@ function fallbackReply(messageText) {
 }
 
 // ── Provider resolution ─────────────────────────────────────────────────────
-// ai_configs.api_key is stored plaintext today (see routes/ai-config.js); it is
-// also accepted encrypted (crypto-store blob) — both decode here.
+// ai_configs.api_key is encrypted at rest (crypto-store v1: blob, see
+// routes/ai-config.js); legacy plaintext rows are still accepted here — both
+// decode.
 function configApiKey(config) {
   if (!config || !config.api_key) return null;
   if (typeof config.api_key === 'string' && config.api_key.startsWith('v1:')) {
