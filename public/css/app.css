@@ -373,3 +373,32 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--surface2);padd
 @media(max-width:900px){.pos-layout{grid-template-columns:1fr}.pos-cart-panel{position:static}}
 @media(max-width:480px){.pos-pay-grid{grid-template-columns:1fr}}
 
+/* ══ PRINT — dark, legible paper output ═════════════════════════════════
+   The desk prints from every screen (slips, reports, closings) via Ctrl+P /
+   window.print(). On screen the UI relies on muted greys and colored chrome
+   that come out faint — or vanish entirely — on paper. Force black-on-white
+   with heavier type, drop all chrome, and when a modal is open (Wi-Fi slip,
+   booking slip…) print ONLY the modal, never the whole dashboard behind it. */
+@media print {
+  html, body { background:#fff !important; }
+  * { color:#000 !important; background-color:transparent !important; box-shadow:none !important; text-shadow:none !important; }
+  body { font-weight:600; }
+  h1, h2, h3, th, strong, b, .modal-title, .page-header h1, .metric-value, .nav-item { font-weight:800 !important; }
+  a { color:#000 !important; text-decoration:underline; }
+  /* Chrome never belongs on paper. */
+  .sidebar, .topbar, #toast-area, #offline-queue-badge, #auth-screen,
+  button, input, select, textarea, .modal-close, .no-print { display:none !important; }
+  .main-wrap { display:block !important; }
+  .content { height:auto !important; overflow:visible !important; padding:0 !important; }
+  .table-wrap { overflow:visible !important; }
+  table { page-break-inside:auto; }
+  tr { page-break-inside:avoid; }
+  /* Modal open? It IS the document to print — the app behind it disappears. */
+  body:has(#modal-container:not(:empty)) #app { display:none !important; }
+  #modal-container, .overlay { position:static !important; inset:auto !important; display:block !important; background:#fff !important; padding:0 !important; min-height:0 !important; }
+  .modal { max-width:none !important; max-height:none !important; overflow:visible !important; border-radius:0 !important; animation:none !important; border:none !important; }
+  .modal-header, .modal-footer { position:static !important; background:transparent !important; }
+  .modal-footer { border-top:1px solid #000 !important; }
+  .modal-body { padding:0 !important; }
+}
+

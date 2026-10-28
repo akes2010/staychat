@@ -153,9 +153,12 @@ function formatMoney(amount, currency) {
 // ── Receipt printing ─────────────────────────────────────────────────────
 // Opens a correctly-sized browser print window for a receipt. widthMM should
 // be '80mm' / '58mm' for a thermal printer, or '210mm' for an A4 printer.
+// Everything prints HEAVY and pure black — thin/normal weights come off the
+// thermal head (and off laser drafts) as faint grey that staff can't read.
 function printReceiptWindow(receipt, widthMM) {
   widthMM = widthMM || '80mm';
   const isThermal = widthMM !== '210mm';
+  const inkWeight = isThermal ? '700' : '600';
   const win = window.open('', '_blank', 'width=480,height=720');
   const rows = (receipt.lines || []).map(l =>
     '<div class="row"><span class="desc">' + escapeHtml(l[0]) + '</span><span>' + escapeHtml(String(l[1] || '')) + '</span><span class="amt">' + escapeHtml(l[2] || '') + '</span></div>'
@@ -167,7 +170,7 @@ function printReceiptWindow(receipt, widthMM) {
 
   win.document.write('<html><head><title>' + escapeHtml(receipt.title || 'Receipt') + '</title><style>' +
     '@page { size: ' + widthMM + ' auto; margin: 3mm; } * { box-sizing: border-box; }' +
-    'body { font-family: ' + (isThermal ? "'Courier New', monospace" : "Arial, sans-serif") + '; width: ' + widthMM + '; margin: 0 auto; font-size: ' + (isThermal ? '11px' : '13px') + '; color: #000; }' +
+    'body { font-family: ' + (isThermal ? "'Courier New', monospace" : "Arial, sans-serif") + '; width: ' + widthMM + '; margin: 0 auto; font-size: ' + (isThermal ? '11px' : '13px') + '; color: #000; font-weight: ' + inkWeight + '; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     '.center { text-align: center; } .bold { font-weight: 700; } .line { border-top: 1px dashed #000; margin: 6px 0; }' +
     '.row { display: flex; justify-content: space-between; gap: 6px; padding: 1px 0; } .row .desc { flex: 2; } .row .amt { flex: 1; text-align: right; white-space: nowrap; }' +
     '.row.grand { font-weight: 800; font-size: ' + (isThermal ? '13px' : '15px') + '; border-top: 1px solid #000; margin-top: 4px; padding-top: 4px; }' +
