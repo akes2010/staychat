@@ -1,2 +1,5 @@
 onlyBuiltDependencies:
   - better-sqlite3
+  # pnpm ≥10 hard-fails any install whose build scripts aren't allow-listed;
+  # electron-winstaller (via electron-builder) broke the server's deploy mid-run.
+  - electron-winstaller
