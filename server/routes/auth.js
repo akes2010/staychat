@@ -504,8 +504,20 @@ router.post('/forgot-password', forgotLimiter, async (req, res) => {
   }
 });
 
+// Completing a reset is NOT the same risk as requesting one: staff activation
+// links are opened from the hotel's shared IP at shift start, so the 3/hour
+// forgot-password cap would block the fourth invitee. Allow a normal team
+// intake here while the token itself (one-time, expiring) is the real gate.
+const resetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many password changes from this network. Please try again shortly.' },
+});
+
 // POST /api/auth/reset-password { token, newPassword }
-router.post('/reset-password', forgotLimiter, async (req, res) => {
+router.post('/reset-password', resetLimiter, async (req, res) => {
   try {
     const { token, newPassword } = req.body || {};
     if (!token) return res.status(400).json({ error: 'Reset token is required' });
@@ -520,7 +532,7 @@ router.post('/reset-password', forgotLimiter, async (req, res) => {
     ).get(tokenHash);
     if (!reset) return res.status(400).json({ error: 'This reset link is invalid or was already used. Request a new one.' });
     if (new Date(reset.expires_at).getTime() < Date.now()) {
-      return res.status(400).json({ error: 'This reset link has expired. Request a new one — links are valid for one hour.' });
+      return res.status(400).json({ error: 'This link has expired or was already used. Request a new one.' });
     }
 
     const newHash = await hashPassword(newPassword, BCRYPT_ROUNDS);

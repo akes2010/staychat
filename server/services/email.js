@@ -286,6 +286,22 @@ function subscriptionExpiredEmail({ hotelName, planName, periodEnd }) {
   return { subject: 'Your StayChat OS subscription has expired', html, text: hotelName + ': ' + planName + ' plan expired on ' + periodEnd + '. Account suspended — data is safe.' };
 }
 
+function staffInviteEmail({ name, hotelName, roleLabel, inviteUrl, expiresInDays }) {
+  const html = wrap('Join ' + escapeHtml(hotelName || 'your hotel') + ' on StayChat OS',
+    '<p style="font-size:14px;line-height:1.7">Hi ' + escapeHtml(name || 'there') + ', you have been invited to join <b>' + escapeHtml(hotelName || 'the hotel') + '</b> on StayChat OS' +
+    (roleLabel ? ' as <b>' + escapeHtml(roleLabel) + '</b>' : '') + '.</p>' +
+    '<p style="font-size:13px;color:#475569;line-height:1.7">Choose your own password to activate your staff login. The link works once and expires in ' + escapeHtml(String(expiresInDays || 7)) + ' days.</p>' +
+    '<p style="margin:18px 0"><a href="' + inviteUrl + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;padding:11px 22px;font-weight:700;font-size:14px">Choose my password →</a></p>' +
+    '<p style="font-size:12.5px;color:#64748b">If you were not expecting this invitation, you can ignore this email — nobody can sign in until a password is chosen.</p>');
+  return {
+    subject: 'Set up your StayChat OS login — ' + (hotelName || 'your hotel'),
+    html,
+    text: 'Hi ' + (name || 'there') + ', you have been invited to join ' + (hotelName || 'the hotel') + ' on StayChat OS' +
+      (roleLabel ? ' as ' + roleLabel : '') + '.\n\nChoose your password here: ' + inviteUrl +
+      '\n\nThe link works once and expires in ' + (expiresInDays || 7) + ' days. If you were not expecting this, ignore this email.',
+  };
+}
+
 function passwordResetEmail({ name, resetUrl, expiresInMinutes }) {
   const html = wrap('Reset your password',
     '<p style="font-size:14px;line-height:1.7">Hi ' + escapeHtml(name || 'there') + ', we received a request to reset the password for your StayChat OS account.</p>' +
@@ -310,4 +326,5 @@ module.exports = {
   renewalReminderEmail,
   subscriptionExpiredEmail,
   passwordResetEmail,
+  staffInviteEmail,
 };

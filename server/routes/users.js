@@ -4,7 +4,9 @@
 'use strict';
 
 const express = require('express');
+const crypto = require('crypto');
 const { hashPassword } = require('../utils/password-pool'); // bcrypt runs OFF the request thread
+const { hashToken } = require('../utils/tokens');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
@@ -346,6 +348,82 @@ router.post('/', async (req, res) => {
   } catch (err) {
     console.error('Error creating user:', err);
     res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+// POST /api/users/invite — create a staff login and email a set-password link.
+// No password is chosen by the admin: the row gets an unusable random hash and
+// the invitee sets their own through a one-time token (the same table as
+// forgot-password). Returns the link only when email is not configured, so the
+// flow still works on a box without a mail provider.
+router.post('/invite', async (req, res) => {
+  try {
+    const { name, email, role, department, phone } = req.body || {};
+    if (!name || !email || !role) {
+      return res.status(400).json({ error: 'name, email and role are required' });
+    }
+    if (!isValidRoleFor(req.tenantId, role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
+    if (existing) {
+      return res.status(409).json({ error: 'A user with this email already exists' });
+    }
+
+    if (req.user.role !== 'superadmin' && role !== 'superadmin') {
+      const seatCount = db.prepare('SELECT COUNT(*) c FROM users WHERE tenant_id = ? AND active = 1').get(req.tenantId).c;
+      try { assertLimit(req.tenant, 'maxUsers', seatCount); }
+      catch (e) { return res.status(e.status || 402).json({ error: e.message, code: e.code, limitKey: e.limitKey, limit: e.limit, upgradeTo: e.upgradeTo }); }
+    }
+
+    const id = 'user_' + nanoid(16);
+    const passwordHash = await hashPassword(crypto.randomBytes(32).toString('hex'), BCRYPT_ROUNDS);
+    const avatar = String(name).split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+    const rawToken = nanoid(48);
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const doInvite = db.transaction(() => {
+      db.prepare(`INSERT INTO users (id, tenant_id, name, email, password_hash, role, department, avatar, phone, active)
+                  VALUES (?,?,?,?,?,?,?,?,?,1)`)
+        .run(id, req.tenantId, sanitizeString(name), normalizedEmail, passwordHash, role,
+             sanitizeString(department) || null, avatar, sanitizeString(phone) || null);
+      db.prepare('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL').run(id);
+      db.prepare('INSERT INTO password_resets (id, user_id, token_hash, expires_at) VALUES (?,?,?,?)')
+        .run('pwr_' + nanoid(10), id, tokenHash, expiresAt);
+    });
+    doInvite();
+
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    const base = String(process.env.APP_URL || ((req.headers['x-forwarded-proto'] || req.protocol) + '://' +
+      (req.headers['x-forwarded-host'] || req.get('host')))).replace(/\/+$/, '');
+    const inviteUrl = base + '/reset-password.html?token=' + rawToken;
+    const roleLabel = { hotel_admin: 'Hotel Admin', receptionist: 'Receptionist', staff: 'Staff', cashier: 'Cashier',
+      barman: 'Barman', waiter: 'Waiter', server: 'Server', porter: 'Porter', accountant: 'Accountant', auditor: 'Auditor' }[role] || role;
+
+    let emailSent = false;
+    try {
+      const emailSvc = require('../services/email');
+      const result = await emailSvc.sendEmail({ to: normalizedEmail, ...emailSvc.staffInviteEmail({
+        name: sanitizeString(name), hotelName: req.tenant.name, roleLabel, inviteUrl, expiresInDays: 7,
+      }) });
+      emailSent = !!(result && result.sent);
+    } catch (e) { /* never lose the invite because mail failed — return the link */ }
+
+    audit(req, 'user.invite', 'user', id, { email: normalizedEmail, role });
+    res.status(201).json({
+      user: serialize(user), emailSent, inviteUrl: emailSent ? null : inviteUrl, expiresAt,
+    });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'A user with this email already exists' });
+    }
+    console.error('Error inviting user:', err);
+    res.status(500).json({ error: 'Failed to invite user' });
   }
 });
 

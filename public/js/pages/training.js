@@ -56,7 +56,7 @@ PAGES.training = function () {
     REVIEW.forEach(([k]) => { out.review[k] = !!d.review[k]; });
     ROLE_PATHS.forEach(r => {
       const x = (d.roles && d.roles[r.key]) || {};
-      out.roles[r.key] = { done: !!x.done, trainer: x.trainer || '', date: x.date || '', notes: x.notes || '' };
+      out.roles[r.key] = { done: !!x.done, trainer: x.trainer || '', due: x.due || '', date: x.date || '', notes: x.notes || '' };
     });
     const g = d.goLive || {};
     out.goLive = { trainee: g.trainee || '', role: g.role || '', trainer: g.trainer || '', date: g.date || '' };
@@ -74,6 +74,53 @@ PAGES.training = function () {
     } catch (err) {
       wrap.innerHTML = errorStateHTML(err.message, "navigate('training')");
     }
+  }
+
+  function todayStr() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function dayDiff(from, to) {
+    const a = Date.parse(from + 'T00:00:00Z'), b = Date.parse(to + 'T00:00:00Z');
+    if (isNaN(a) || isNaN(b)) return 0;
+    return Math.round((b - a) / 86400000);
+  }
+  function overdueRoles() {
+    const today = todayStr();
+    return ROLE_PATHS.filter(r => {
+      const x = state.data.roles[r.key];
+      return !x.done && x.due && x.due < today;
+    }).map(r => ({ key: r.key, name: r.name, daysLate: dayDiff(state.data.roles[r.key].due, today) }));
+  }
+  function upcomingRoles() {
+    const today = todayStr();
+    return ROLE_PATHS.filter(r => {
+      const x = state.data.roles[r.key];
+      const diff = x.due ? dayDiff(today, x.due) : 99;
+      return !x.done && x.due && diff >= 0 && diff <= 3;
+    }).map(r => ({ key: r.key, name: r.name, inDays: dayDiff(today, state.data.roles[r.key].due) }));
+  }
+  function roleFlag(x) {
+    if (x.done) return badge('Signed off', 'success');
+    if (!x.due) return '<span style="font-size:11px;color:var(--text3)">No target date</span>';
+    const diff = dayDiff(todayStr(), x.due);
+    if (diff < 0) return badge('Overdue ' + Math.abs(diff) + 'd', 'error');
+    if (diff === 0) return badge('Due today', 'warn');
+    return badge('Due in ' + diff + 'd', 'default');
+  }
+  function syncBadge() {
+    if (typeof window.setTrainingOverdueCount === 'function') window.setTrainingOverdueCount(overdueRoles().length);
+  }
+  // Live flags while the trainer edits: only the badge and banner are replaced,
+  // so typing in a field never loses focus.
+  function refreshFlags() {
+    ROLE_PATHS.forEach(r => {
+      const el = document.querySelector('[data-role-flag="' + r.key + '"]');
+      if (el) el.innerHTML = roleFlag(state.data.roles[r.key]);
+    });
+    const box = document.getElementById('training-reminder');
+    if (box) box.innerHTML = reminderHTML();
+    syncBadge();
   }
 
   function progress() {
@@ -97,9 +144,9 @@ PAGES.training = function () {
 
   function roleCard(r) {
     const x = state.data.roles[r.key];
-    return '<div class="card" style="padding:16px;margin-bottom:12px">' +
+    return '<div class="card" style="padding:16px;margin-bottom:12px" data-role-card="' + r.key + '">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
-        '<div><div style="font-weight:700;font-size:14px">' + escapeHtml(r.name) + '</div>' +
+        '<div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:700;font-size:14px">' + escapeHtml(r.name) + '</span><span data-role-flag="' + r.key + '">' + roleFlag(x) + '</span></div>' +
           '<div style="font-size:11.5px;color:var(--text3);margin-top:2px">' + escapeHtml(r.shifts) + ' · chapters ' + escapeHtml(r.chapters) + '</div></div>' +
         '<label style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:' + (x.done ? 'var(--p)' : 'var(--text3)') + ';cursor:pointer">' +
           '<input type="checkbox" data-role-done="' + r.key + '"' + (x.done ? ' checked' : '') + ' style="width:16px;height:16px;accent-color:var(--p)"/> Signed off</label>' +
@@ -108,12 +155,13 @@ PAGES.training = function () {
       '<div class="form-row cols-2">' +
         '<div class="form-group" style="margin:0"><label class="form-label">Trainer</label>' +
           '<input class="form-input" data-role-field="trainer" data-role="' + r.key + '" value="' + escapeHtml(x.trainer) + '" placeholder="Who signed them off?"/></div>' +
+        '<div class="form-group" style="margin:0"><label class="form-label">Target sign-off</label>' +
+          '<input class="form-input" type="date" data-role-field="due" data-role="' + r.key + '" value="' + escapeHtml(x.due) + '"/></div>' +
         '<div class="form-group" style="margin:0"><label class="form-label">Date signed</label>' +
           '<input class="form-input" type="date" data-role-field="date" data-role="' + r.key + '" value="' + escapeHtml(x.date) + '"/></div>' +
-      '</div>' +
-      '<div class="form-group" style="margin:8px 0 0"><label class="form-label">Notes</label>' +
-        '<input class="form-input" data-role-field="notes" data-role="' + r.key + '" value="' + escapeHtml(x.notes) + '" placeholder="Refresher needed on…"/></div>' +
-      '</div>';
+        '<div class="form-group" style="margin:0"><label class="form-label">Notes</label>' +
+          '<input class="form-input" data-role-field="notes" data-role="' + r.key + '" value="' + escapeHtml(x.notes) + '" placeholder="Refresher needed on…"/></div>' +
+      '</div></div>';
   }
 
   function teamRows() {
@@ -130,6 +178,24 @@ PAGES.training = function () {
     '</div>').join('');
   }
 
+  function reminderHTML() {
+    const over = overdueRoles();
+    if (over.length) {
+      const list = over.map(r => '<b>' + escapeHtml(r.name) + '</b> (' + r.daysLate + ' day' + (r.daysLate === 1 ? '' : 's') + ' late)').join(', ');
+      return '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--error-bg);border:1px solid var(--error-border);border-left:4px solid var(--error);border-radius:10px;padding:12px 14px;margin-bottom:16px">' +
+        '<div><div style="font-weight:700;font-size:13.5px;color:var(--error)">' + over.length + ' role sign-off' + (over.length === 1 ? ' is' : 's are') + ' overdue</div>' +
+          '<div style="font-size:12.5px;color:var(--text2);margin-top:3px;line-height:1.5">' + list + '. Sign them off or set a new target date.</div></div>' +
+        '<button class="btn outline sm" onclick="window.__trainingReviewOverdue()">Review</button></div>';
+    }
+    const soon = upcomingRoles();
+    if (soon.length) {
+      const list = soon.map(r => '<b>' + escapeHtml(r.name) + '</b> ' + (r.inDays === 0 ? 'today' : 'in ' + r.inDays + ' day' + (r.inDays === 1 ? '' : 's'))).join(', ');
+      return '<div style="background:var(--warn-bg);border:1px solid var(--warn-border);border-left:4px solid var(--warn);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12.5px;line-height:1.5">' +
+        '<b style="color:var(--warn)">Sign-off target coming up:</b> ' + list + '.</div>';
+    }
+    return '';
+  }
+
   function render() {
     const pr = progress();
     const u = App.user || {};
@@ -141,6 +207,8 @@ PAGES.training = function () {
           '<a class="btn outline" href="/StayChat-OS-Welcome-Checklist.pdf" target="_blank" rel="noopener">🖨 Print version</a>' +
           '<a class="btn primary" href="/StayChat-OS-Onboarding-Pack.zip" download>↓ Pack (ZIP)</a>' +
         '</div></div>' +
+
+      '<div id="training-reminder">' + reminderHTML() + '</div>' +
 
       '<div class="card" style="margin-bottom:16px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
@@ -217,19 +285,15 @@ PAGES.training = function () {
             '<input class="form-input" id="inv-dept" placeholder="e.g. Front Desk"/></div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">' +
-          '<button class="btn primary" id="inv-btn" onclick="window.__trainingInvite()">+ Create staff login</button>' +
-          '<span style="font-size:11.5px;color:var(--text3)">A temporary password is generated — you share it once, they change it after signing in.</span>' +
+          '<button class="btn primary" id="inv-btn" onclick="window.__trainingInvite()">Send invite</button>' +
+          '<span style="font-size:11.5px;color:var(--text3)">They get a one-time link to choose their own password — no temporary password to pass around.</span>' +
         '</div>' +
-        '<div id="inv-credentials" style="display:none;margin-top:14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">' +
-          '<div style="font-weight:700;font-size:13px;margin-bottom:6px">Account created — share these credentials</div>' +
-          '<div style="font-size:12.5px;line-height:1.8">Email: <b id="inv-cred-email"></b><br>Temporary password: <b id="inv-cred-pass" style="font-family:ui-monospace,monospace;letter-spacing:.5px"></b><br>' +
-            '<span style="color:var(--text3)">Sign in at ' + escapeHtml(location.origin) + '/app</span></div>' +
-          '<button class="btn outline sm" style="margin-top:10px" onclick="window.__trainingCopyInvite()">Copy credentials</button>' +
-        '</div>' +
+        '<div id="inv-result" style="display:none;margin-top:14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px"></div>' +
         '<div id="team-list" style="margin-top:14px">' + teamRows() + '</div>' +
       '</div>';
 
     bind();
+    syncBadge();
   }
 
   function setStatus(text, error) {
@@ -256,6 +320,7 @@ PAGES.training = function () {
   async function save() {
     if (state.saving) { scheduleSave(); return; }
     state.saving = true;
+    syncBadge();
     try {
       const res = await API.put('/api/training', { data: state.data });
       state.savedAt = res.updatedAt;
@@ -277,7 +342,11 @@ PAGES.training = function () {
         updateProgress(); scheduleSave();
       } else if (t.matches('[data-role-done]')) {
         state.data.roles[t.dataset.roleDone].done = t.checked;
-        updateProgress(); scheduleSave();
+        updateProgress(); refreshFlags(); scheduleSave();
+      } else if (t.matches('[data-role-field]')) {
+        state.data.roles[t.dataset.role][t.dataset.roleField] = t.value;
+        if (t.dataset.roleField === 'due') refreshFlags();
+        scheduleSave();
       } else if (t.matches('[data-field]')) {
         state.data[t.dataset.field] = t.value;
         scheduleSave();
@@ -296,31 +365,13 @@ PAGES.training = function () {
         scheduleSave();
       } else if (t.matches('input[data-role-field]')) {
         state.data.roles[t.dataset.role][t.dataset.roleField] = t.value;
+        if (t.dataset.roleField === 'due') refreshFlags();
         scheduleSave();
       } else if (t.matches('input[data-golive-field]')) {
         state.data.goLive[t.dataset.goliveField] = t.value;
         scheduleSave();
       }
     });
-  }
-
-  function tempPassword() {
-    const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ', lower = 'abcdefghijkmnopqrstuvwxyz';
-    const digits = '23456789', symbols = '!@#$%&*';
-    const all = upper + lower + digits + symbols;
-    const pick = s => {
-      const a = new Uint32Array(1);
-      crypto.getRandomValues(a);
-      return s[a[0] % s.length];
-    };
-    const out = [pick(upper), pick(lower), pick(digits), pick(symbols)];
-    while (out.length < 12) out.push(pick(all));
-    for (let i = out.length - 1; i > 0; i--) {
-      const a = new Uint32Array(1); crypto.getRandomValues(a);
-      const j = a[0] % (i + 1);
-      const tmp = out[i]; out[i] = out[j]; out[j] = tmp;
-    }
-    return out.join('');
   }
 
   window.__trainingInvite = async () => {
@@ -332,18 +383,25 @@ PAGES.training = function () {
     const btn = document.getElementById('inv-btn');
     btn.disabled = true;
     try {
-      const password = tempPassword();
-      await API.post('/api/users', { name, email, password, role, department });
-      document.getElementById('inv-cred-email').textContent = email;
-      document.getElementById('inv-cred-pass').textContent = password;
-      document.getElementById('inv-credentials').style.display = '';
+      const res = await API.post('/api/users/invite', { name, email, role, department });
+      const box = document.getElementById('inv-result');
+      box.style.display = '';
+      if (res.emailSent) {
+        box.innerHTML = '<div style="font-weight:700;font-size:13px;margin-bottom:4px">Invite sent to ' + escapeHtml(email) + '</div>' +
+          '<div style="font-size:12.5px;color:var(--text3);line-height:1.6">They have 7 days to choose their own password from the link in the email. Nothing else to share.</div>';
+      } else {
+        box.innerHTML = '<div style="font-weight:700;font-size:13px;margin-bottom:4px">Account created — email is not configured</div>' +
+          '<div style="font-size:12.5px;color:var(--text3);line-height:1.6;margin-bottom:8px">Send this one-time set-password link to ' + escapeHtml(email) + ' yourself. It expires in 7 days.</div>' +
+          '<div id="inv-cred-link" style="font-size:11.5px;word-break:break-all;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px;font-family:ui-monospace,monospace">' + escapeHtml(res.inviteUrl || '') + '</div>' +
+          '<button class="btn outline sm" style="margin-top:10px" onclick="window.__trainingCopyInvite()">Copy invite link</button>';
+      }
       document.getElementById('inv-name').value = '';
       document.getElementById('inv-email').value = '';
       document.getElementById('inv-dept').value = '';
       state.users = await API.get('/api/users');
       document.getElementById('team-list').innerHTML = teamRows();
       document.getElementById('team-count').textContent = state.users.filter(x => x.active).length;
-      toast('Staff login created — share the temporary password', 'success');
+      toast(res.emailSent ? 'Invite emailed' : 'Invite created — copy the link', 'success');
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -351,16 +409,20 @@ PAGES.training = function () {
     }
   };
 
+  window.__trainingReviewOverdue = () => {
+    const over = overdueRoles();
+    const first = over.length && document.querySelector('[data-role-card="' + over[0].key + '"]');
+    if (first) first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+
   window.__trainingCopyInvite = async () => {
-    const email = document.getElementById('inv-cred-email').textContent;
-    const password = document.getElementById('inv-cred-pass').textContent;
-    const text = 'StayChat OS — staff login\nSign in: ' + location.origin + '/app\nEmail: ' + email +
-      '\nTemporary password: ' + password + '\nChange the password after your first sign-in.';
+    const link = (document.getElementById('inv-cred-link') || {}).textContent || '';
+    if (!link) return;
     try {
-      await navigator.clipboard.writeText(text);
-      toast('Credentials copied', 'success');
+      await navigator.clipboard.writeText(link);
+      toast('Invite link copied', 'success');
     } catch (err) {
-      toast('Could not copy — select the details manually', 'error');
+      toast('Could not copy — select the link manually', 'error');
     }
   };
 

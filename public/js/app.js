@@ -132,6 +132,8 @@ function setupSidebar() {
 
   // Superadmin: live count of Desk PC Edition registrations awaiting payment.
   refreshSelfhostBadge();
+  // Hotel admins: flag overdue role sign-offs on the Training Tracker entry.
+  refreshTrainingBadge();
 }
 
 // ── Desk PC Edition: pending-orders badge on the Super Admin nav item ───────
@@ -159,6 +161,45 @@ async function refreshSelfhostBadge() {
   } catch (e) { /* badge is a convenience — never block the shell */ }
 }
 window.refreshSelfhostBadge = refreshSelfhostBadge;
+
+// ── Training tracker: overdue role sign-off badge ─────────────────────────
+// A target date that passes without a sign-off is easy to miss on a page the
+// trainer does not open daily, so surface the count beside the nav entry.
+function trainingToday() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function setTrainingOverdueCount(n) {
+  const item = document.querySelector('.nav-item[data-page="training"]');
+  if (!item) return;
+  let b = item.querySelector('.tr-overdue-badge');
+  if (!n || n <= 0) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('span');
+    b.className = 'badge overdue tr-overdue-badge';
+    item.appendChild(b);
+  }
+  b.textContent = String(n);
+  b.title = n + ' role sign-off' + (n === 1 ? ' is' : 's are') + ' overdue';
+}
+window.setTrainingOverdueCount = setTrainingOverdueCount;
+
+async function refreshTrainingBadge() {
+  if (!App.user || typeof can !== 'function' || !can('users.manage')) return;
+  try {
+    const r = await API.get('/api/training');
+    const roles = (r && r.data && r.data.roles) || {};
+    const today = trainingToday();
+    let n = 0;
+    Object.keys(roles).forEach(k => {
+      const x = roles[k] || {};
+      if (!x.done && x.due && x.due < today) n++;
+    });
+    setTrainingOverdueCount(n);
+  } catch (e) { /* badge is a convenience — never block the shell */ }
+}
+window.refreshTrainingBadge = refreshTrainingBadge;
 
 function toggleSidebar() {
   App.sidebarCollapsed = !App.sidebarCollapsed;
