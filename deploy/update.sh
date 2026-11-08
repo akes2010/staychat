@@ -179,6 +179,15 @@ if [ "$DO_PULL" = "1" ]; then
   echo "✓ New code: $(git log --oneline -1)"
 fi
 
+# ── 4b. Onboarding pack gate (after the pull, before anything is built) ────
+echo "→ Checking the onboarding pack…"
+if ! node scripts/build-onboarding-pack.js --check; then
+  echo "✗ The onboarding ZIP is stale for this release — build aborted, the old container is still serving"
+  echo "  Rebuild: npm run onboarding:build, commit the PDFs + ZIP, push, then retry this update."
+  exit 1
+fi
+echo "✓ Onboarding pack matches the published PDFs"
+
 # ── 5. Build the new image (old container keeps serving during the build) ──
 echo "→ Building the new image…"
 $COMPOSE build || { echo "✗ image build failed"; rollback; }

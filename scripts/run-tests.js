@@ -23,6 +23,7 @@ const path = require('path');
 process.env.RATE_LIMIT_GLOBAL_MAX = process.env.RATE_LIMIT_GLOBAL_MAX || '5000';
 
 const FAST = [
+  'test-onboarding-pack.js',
   'test-role-gates.js',
   'test-idempotency.js',
   'test-partial-reset-export.js',

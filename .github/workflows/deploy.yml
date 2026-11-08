@@ -68,6 +68,25 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Independent of CI: a manual dispatch (or a rerun) must never ship a
+      # stale onboarding ZIP. This checks the exact revision being deployed,
+      # before touching the server.
+      - name: Checkout deploy revision
+        if: steps.guard.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Node 22
+        if: steps.guard.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Onboarding pack is current
+        if: steps.guard.outputs.skip == 'false'
+        run: node scripts/build-onboarding-pack.js --check
+
       - name: Deploy via /root/deploy-dev.sh (pull → install → migrate → pm2 reload → health check)
         if: steps.guard.outputs.skip == 'false'
         env:

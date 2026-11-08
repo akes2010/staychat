@@ -38,7 +38,14 @@ if ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$REMOTE" true 2>/dev/null; then
 else
   echo "⚠ ssh key auth failed — you will be prompted for a password (or add your key: ssh-copy-id -p $SSH_PORT $REMOTE)"
 fi
-command -v node >/dev/null && node --check server/index.js && echo "✓ local syntax check passed"
+command -v node >/dev/null || { echo "✗ node is required to build and verify the onboarding pack"; exit 1; }
+node --check server/index.js && echo "✓ local syntax check passed"
+
+# Never upload a release whose onboarding ZIP does not match the PDFs.
+node scripts/build-onboarding-pack.js --check || {
+  echo "✗ Onboarding pack is stale — run: npm run onboarding:build, then commit the PDFs and ZIP";
+  exit 1;
+}
 
 # 1. Upload the repo (never the server's data, secrets, or junk)
 echo "→ Uploading code to $REMOTE:$APP_DIR …"

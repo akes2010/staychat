@@ -28,6 +28,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pack-gate-proof:
+    name: Stale onboarding ZIP fails the gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Current ZIP passes
+        run: node scripts/build-onboarding-pack.js --check
+
+      - name: Stale ZIP is rejected
+        # Proves the gate that CI and deploy rely on actually fails closed.
+        run: |
+          printf 'not a zip' > public/StayChat-OS-Onboarding-Pack.zip
+          if node scripts/build-onboarding-pack.js --check; then
+            echo "::error::A stale onboarding ZIP passed the deploy gate"
+            exit 1
+          fi
+          echo "✓ stale onboarding ZIP correctly rejected"
+
   test:
     name: Regression battery (9 suites)
     runs-on: ubuntu-latest
@@ -40,6 +63,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+
+      - name: Onboarding pack is current
+        # Fails CI (and therefore the auto-deploy) when a PDF changed without
+        # rebuilding public/StayChat-OS-Onboarding-Pack.zip.
+        run: node scripts/build-onboarding-pack.js --check
 
       - name: Native build toolchain (better-sqlite3)
         run: |

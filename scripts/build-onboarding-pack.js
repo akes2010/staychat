@@ -165,14 +165,13 @@ function watch() {
   process.on('SIGTERM', () => { watcher.close(); process.exit(0); });
 }
 
-const args = new Set(process.argv.slice(2));
-const unknown = [...args].filter(a => a !== '--check' && a !== '--watch');
-if (unknown.length) {
-  console.error('Unknown option(s): ' + unknown.join(', '));
-  process.exit(2);
-}
-
-try {
+function main() {
+  const args = new Set(process.argv.slice(2));
+  const unknown = [...args].filter(a => a !== '--check' && a !== '--watch');
+  if (unknown.length) {
+    console.error('Unknown option(s): ' + unknown.join(', '));
+    process.exit(2);
+  }
   if (args.has('--watch')) {
     if (args.has('--check')) { console.error('--watch and --check cannot be combined'); process.exit(2); }
     watch();
@@ -180,7 +179,15 @@ try {
     const result = build({ check: args.has('--check') });
     if (result.stale) process.exit(1);
   }
-} catch (err) {
-  console.error(err.message);
-  process.exit(1);
 }
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+
+module.exports = { build, makeZip, PDF_NAMES, OUT, PDF_DIR };
