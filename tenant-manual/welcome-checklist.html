@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>StayChat OS — Welcome &amp; Training Checklist</title>
+<style>
+  @page { size: A4; margin: 10mm 11mm 9mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.2pt; line-height: 1.38; color: #1d2a24; background: #fff; }
+  h1, h2, h3 { color: #0d3b28; line-height: 1.15; margin: 0; }
+  p { margin: 0 0 4px; }
+  b, strong { color: #10281d; }
+  ul { margin: 2px 0 3px; padding: 0; list-style: none; }
+  li { margin-bottom: 2.5px; }
+
+  .top { display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 2.5px solid #0d4a31; padding-bottom: 6px; margin-bottom: 7px; }
+  .top .kicker { font-size: 8.4pt; letter-spacing: .16em; text-transform: uppercase; color: #146c46; font-weight: 800; }
+  .top h1 { font-size: 27pt; letter-spacing: -.02em; margin-top: 2px; }
+  .top .sub { font-size: 11pt; color: #4a5f54; margin-top: 1px; }
+  .badge { background: #0d4a31; color: #fff; border-radius: 9px; padding: 7px 10px; text-align: center; min-width: 23mm; }
+  .badge b { display: block; color: #fff; font-size: 19pt; line-height: 1; }
+  .badge span { font-size: 7.4pt; letter-spacing: .12em; text-transform: uppercase; color: #bfe0cd; }
+
+  .fields { display: grid; grid-template-columns: 1.4fr 1.4fr 1fr; gap: 0 6mm;
+    background: #f1f8f4; border: 1px solid #d6e6dd; border-radius: 6px; padding: 6px 9px; margin-bottom: 7px; }
+  .fields div { font-size: 8.2pt; letter-spacing: .08em; text-transform: uppercase; color: #5d7468; font-weight: 700; }
+  .fields span { display: block; border-bottom: 1px solid #b9cfc4; height: 16px; margin-top: 3px; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1.06fr; gap: 0 7mm; }
+  section { margin-bottom: 11px; break-inside: avoid; }
+  h2 { font-size: 12pt; border-left: 3px solid #146c46; padding-left: 6px; margin: 0 0 3px; }
+  h2 .tag { float: right; font-size: 7.6pt; letter-spacing: .07em; text-transform: uppercase; color: #6b8378; font-weight: 700; padding-top: 3px; }
+
+  .cb { display: inline-block; width: 10px; height: 10px; border: 1.2px solid #6f8b7d; border-radius: 2px;
+    margin-right: 5px; vertical-align: -1px; background: #fff; }
+  .checks li { padding-left: 16px; text-indent: -16px; margin-bottom: 4px; }
+  .checks li b { color: #0d3a27; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 8.9pt; margin-top: 1px; }
+  th { background: #0d4a31; color: #fff; text-align: left; padding: 4px 5px; font-size: 8.7pt; }
+  td { border-bottom: 1px solid #e0eae4; padding: 4px 5px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f7fbf9; }
+  td.role { width: 21mm; }
+  td.role b { display: block; color: #0d3a27; }
+  td.role span { color: #6b8378; font-size: 7.7pt; }
+  td.ch { width: 14mm; color: #146c46; font-weight: 700; }
+  td.tick { width: 7mm; }
+  td.tick .cb { margin: 0; }
+
+  .box { border-radius: 5px; padding: 6px 10px; margin: 7px 0 10px; font-size: 9.8pt; break-inside: avoid; }
+  .rule { background: #f1f8f4; border-left: 4px solid #146c46; }
+  .tip { background: #fff9ea; border-left: 4px solid #c98a00; }
+  .box p:last-child { margin-bottom: 0; }
+
+  .sign { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 7mm; margin-top: 5px; font-size: 9pt; }
+  .sign div { border-bottom: 1px solid #9fb8ab; padding-bottom: 1px; }
+  .sign span { display: block; font-size: 7.6pt; letter-spacing: .06em; text-transform: uppercase; color: #6b8378; margin-top: 2px; }
+
+  .foot { margin-top: 8px; border-top: 1px solid #d9e7df; padding-top: 5px;
+    display: flex; justify-content: space-between; gap: 8mm; font-size: 7.7pt; color: #6b8378; }
+  .foot div:last-child { white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <div class="kicker">StayChat OS · Onboarding pack · Welcome</div>
+    <h1>Welcome &amp; training checklist</h1>
+    <div class="sub">One page from a brand-new account to a team that can run a shift without you.</div>
+  </div>
+  <div class="badge"><b>03</b><span>of 03</span></div>
+</div>
+
+<div class="fields">
+  <div>Hotel<span></span></div>
+  <div>Manager / trainer<span></span></div>
+  <div>Go-live date<span></span></div>
+</div>
+
+<div class="cols">
+  <!-- LEFT -->
+  <div class="col">
+    <section>
+      <h2>Before day one <span class="tag">setup · 30–60 min</span></h2>
+      <ul class="checks">
+        <li><span class="cb"></span><b>Owner account live.</b> Sign in at <b>/app</b> and change the password that came with the welcome email.</li>
+        <li><span class="cb"></span><b>Rooms and rates.</b> Every sellable room has a number, type and price; the room strip shows the right count.</li>
+        <li><span class="cb"></span><b>Staff accounts.</b> One login per person, with the right role. Nobody shares the owner login.</li>
+        <li><span class="cb"></span><b>WhatsApp connected.</b> Send one test thread and reply from the Inbox.</li>
+        <li><span class="cb"></span><b>Payments.</b> Cash and card methods on; gateway connected if you take online payments. Take one test payment.</li>
+        <li><span class="cb"></span><b>Booking page.</b> Open your public link on a phone and make a test booking, then cancel it.</li>
+        <li><span class="cb"></span><b>Print the pack.</b> Cheat sheet for the desk and till, a manual per department, this sheet per trainee.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>First 30 minutes with the team <span class="tag">orientation</span></h2>
+      <ul class="checks">
+        <li><span class="cb"></span><b>Dashboard tour.</b> Occupancy, arrivals today, and the pending badges they must clear before shift end.</li>
+        <li><span class="cb"></span><b>The offline rule.</b> Keep working; never write the same booking or payment twice on paper.</li>
+        <li><span class="cb"></span><b>Hand out the role path.</b> Agree shift 1 watch, shift 2 do, shift 3 own — and the sign-off slot.</li>
+        <li><span class="cb"></span><b>Show where help lives.</b> Sidebar → Help &amp; training, and the manual chapter for their role.</li>
+      </ul>
+    </section>
+
+    <div class="box rule">
+      <b>Give every new hire three things:</b> the manual chapter list for their path, the printed cheat sheet for their station, and a named trainer for the first three shifts. Reading first, clicking second.
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="col">
+    <section>
+      <h2>Week one by role <span class="tag">tick when done unaided</span></h2>
+      <table>
+        <tr><th>Role &amp; path</th><th>Chapters</th><th>Sign off only when they can, alone</th><th></th></tr>
+        <tr>
+          <td class="role"><b>Receptionist</b><span>3 shifts</span></td>
+          <td class="ch">01, 03–05, 07, 08, 23</td>
+          <td>Check in and out with a $0 balance · move a room · answer WhatsApp and create the right record</td>
+          <td class="tick"><span class="cb"></span></td>
+        </tr>
+        <tr>
+          <td class="role"><b>Food &amp; beverage</b><span>3 shifts</span></td>
+          <td class="ch">10–14, 25, 30</td>
+          <td>Open and settle a restaurant ticket · run a bar tab to a room charge · split a bill · close the department</td>
+          <td class="tick"><span class="cb"></span></td>
+        </tr>
+        <tr>
+          <td class="role"><b>Housekeeping</b><span>2 shifts + assessment</span></td>
+          <td class="ch">03, 18–20, 27</td>
+          <td>Assign, clean and release a floor · raise a repair with detail · report lost property · clock in and out</td>
+          <td class="tick"><span class="cb"></span></td>
+        </tr>
+        <tr>
+          <td class="role"><b>Accounts</b><span>3 days</span></td>
+          <td class="ch">21–25, 02, 32</td>
+          <td>Produce the day pack in 30 min · balance the journal and cash book · document a variance · refund with reason</td>
+          <td class="tick"><span class="cb"></span></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Go-live sign-off</h2>
+      <p>A signature means the person has done the job on the live system, unaided, at full speed — not just watched it.</p>
+      <div class="sign">
+        <div><span>Trainee name</span></div>
+        <div><span>Role</span></div>
+        <div><span>Trainer name</span></div>
+        <div><span>Date signed</span></div>
+      </div>
+    </section>
+
+    <div class="box tip">
+      <b>Trainer tip.</b> “Read chapters 3–5 before Thursday” works far better than “familiarise yourself with the system”. Book the sign-off before training starts; a date makes the practice real.
+    </div>
+
+    <section>
+      <h2>Two-week review <span class="tag">manager</span></h2>
+      <ul class="checks">
+        <li><span class="cb"></span>Every role has a signed-off owner for each shift.</li>
+        <li><span class="cb"></span>Re-run one drill per role (manual ch. 80) and note who needs a refresher.</li>
+        <li><span class="cb"></span>Check End of Day closes on time and variances are explained, not edited.</li>
+      </ul>
+    </section>
+  </div>
+</div>
+
+<div class="foot">
+  <div>Onboarding pack: <b>01</b> Manual (85 pp) · <b>02</b> Quick Reference (2 pp) · <b>03</b> this checklist</div>
+  <div>Role paths pp. 78–79 · Drills p. 80</div>
+</div>
+
+</body>
+</html>

@@ -161,18 +161,34 @@ function signupWelcomeEmail({ hotelName, ownerName, subdomain, plan, trialEndsAt
   // book.html (served with max-age=1d). Bump if a bad HTML deploy ships.
   const bookUrl = APP_URL ? APP_URL + '/book.html?hotel=' + encodeURIComponent(subdomain || '') + '&v=2' : null;
   const appUrl = APP_URL ? APP_URL + '/app' : null;
+  const manualUrl = APP_URL ? APP_URL + '/StayChat-OS-User-Manual.pdf' : null;
+  const cheatUrl = APP_URL ? APP_URL + '/StayChat-OS-Quick-Reference.pdf' : null;
+  const checklistUrl = APP_URL ? APP_URL + '/StayChat-OS-Welcome-Checklist.pdf' : null;
+  const packUrl = APP_URL ? APP_URL + '/StayChat-OS-Onboarding-Pack.zip' : null;
   const html = wrap('Welcome to StayChat OS, ' + (ownerName || 'there') + '!',
     '<p style="font-size:14px;line-height:1.7">Your hotel <b>' + escapeHtml(hotelName) + '</b> is live on a 30-day free trial of the <b>' + escapeHtml(plan || 'Starter') + '</b> plan' +
     (trialEndsAt ? ' (until ' + escapeHtml(String(trialEndsAt).slice(0, 10)) + ')' : '') + '. Every feature is unlocked — add your rooms, connect WhatsApp, and take bookings.</p>' +
     (paymentReference ? refBox('PAYMENT REFERENCE (activates your plan)', paymentReference) : '') +
     (bookUrl ? '<p style="font-size:13px;color:#475569">Your public booking page:<br><a href="' + bookUrl + '" style="color:#2563eb">' + escapeHtml(bookUrl) + '</a></p>' : '') +
-    (appUrl ? '<p style="margin:18px 0 0"><a href="' + appUrl + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;padding:11px 22px;font-weight:700;font-size:14px">Open my dashboard →</a></p>' : ''));
+    (appUrl ? '<p style="margin:18px 0 0"><a href="' + appUrl + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:10px;padding:11px 22px;font-weight:700;font-size:14px">Open my dashboard →</a></p>' : '') +
+    (manualUrl ? '<div style="margin-top:22px;border-top:1px solid #e2e8f0;padding-top:16px">' +
+      '<p style="font-size:14px;margin:0 0 4px"><b>Before your team\'s first shift</b></p>' +
+      '<p style="font-size:13px;color:#475569;line-height:1.7;margin:0 0 12px">The complete staff manual (85 pages) walks through every module in sidebar order, with screenshots and worked examples. The two-page cheat sheet is made to be printed for the front desk and the till.</p>' +
+      '<p style="margin:0 0 10px"><a href="' + (packUrl || manualUrl) + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;padding:9px 16px;font-weight:700;font-size:13px">Download the complete pack (ZIP) →</a></p>' +
+      '<p style="margin:0;font-size:13px;line-height:2"><a href="' + manualUrl + '" style="color:#2563eb;font-weight:700">Download the staff manual (PDF)</a><br>' +
+      (cheatUrl ? '<a href="' + cheatUrl + '" style="color:#2563eb;font-weight:700">Download the front desk &amp; POS cheat sheet (PDF)</a><br>' : '') +
+      (checklistUrl ? '<a href="' + checklistUrl + '" style="color:#2563eb;font-weight:700">Download the one-page welcome &amp; training checklist (PDF)</a>' : '') + '</p></div>' : ''));
   return {
     subject: 'Your StayChat OS trial is live — 30 days, every feature',
     html,
     text: 'Welcome to StayChat OS!\n\n' + hotelName + ' is live on a 30-day trial of the ' + (plan || 'Starter') + ' plan.' +
       (paymentReference ? '\n\nPayment reference: ' + paymentReference : '') +
-      (bookUrl ? '\n\nBooking page: ' + bookUrl : '') + (appUrl ? '\nDashboard: ' + appUrl : ''),
+      (bookUrl ? '\n\nBooking page: ' + bookUrl : '') + (appUrl ? '\nDashboard: ' + appUrl : '') +
+      (manualUrl ? '\n\nBefore your team\'s first shift:' +
+        (packUrl ? '\nComplete pack (ZIP, all three PDFs): ' + packUrl : '') +
+        '\nStaff manual (PDF): ' + manualUrl +
+        (cheatUrl ? '\nFront desk & POS cheat sheet (PDF): ' + cheatUrl : '') +
+        (checklistUrl ? '\nWelcome & training checklist (PDF): ' + checklistUrl : '') : ''),
   };
 }
 

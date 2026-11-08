@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>StayChat OS — Front Desk &amp; POS Quick Reference</title>
+<style>
+  @page { size: A4; margin: 11mm 11mm 10mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 8.55pt; line-height: 1.31; color: #1d2a24; background: #fff; }
+  h1, h2, h3 { color: #0d3b28; line-height: 1.15; margin: 0; }
+  p { margin: 0 0 4px; }
+  b, strong { color: #10281d; }
+  ul, ol { margin: 3px 0 5px 15px; padding: 0; }
+  li { margin-bottom: 2px; }
+  .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 8pt; }
+
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  .top { display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 2.5px solid #0d4a31; padding-bottom: 6px; margin-bottom: 7px; }
+  .top .kicker { font-size: 7.4pt; letter-spacing: .16em; text-transform: uppercase; color: #146c46; font-weight: 800; }
+  .top h1 { font-size: 24pt; letter-spacing: -.02em; margin-top: 2px; }
+  .top .sub { font-size: 9.6pt; color: #4a5f54; margin-top: 1px; }
+  .badge { background: #0d4a31; color: #fff; border-radius: 9px; padding: 7px 10px; text-align: center; min-width: 24mm; }
+  .badge b { display: block; color: #fff; font-size: 17pt; line-height: 1; }
+  .badge span { font-size: 6.8pt; letter-spacing: .12em; text-transform: uppercase; color: #bfe0cd; }
+  .pills { display: flex; gap: 4px; flex-wrap: wrap; margin: 0 0 7px; }
+  .pill { background: #eef5f1; border: 1px solid #d6e6dd; border-radius: 999px; padding: 1.5px 7px;
+    font-size: 7.3pt; font-weight: 600; color: #1c533c; }
+  .pill.warn { background: #fff6e6; border-color: #f1d8a8; color: #7a4c00; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 7mm; }
+  .col > *:first-child { margin-top: 0; }
+  section { margin-bottom: 3px; break-inside: avoid; }
+  h2 { font-size: 10.3pt; border-left: 3px solid #146c46; padding-left: 6px; margin: 5px 0 2px; }
+  h2 .tag { float: right; font-size: 6.6pt; letter-spacing: .08em; text-transform: uppercase; color: #6b8378; font-weight: 700; padding-top: 3px; }
+  h3 { font-size: 9.2pt; margin: 5px 0 2px; }
+  ol, ul { font-size: 8.55pt; }
+  .lead { color: #33473c; }
+  .screen { color: #146c46; font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; margin: 2px 0 4px; font-size: 7.95pt; break-inside: avoid; }
+  th { background: #0d4a31; color: #fff; text-align: left; padding: 3px 5px; font-size: 7.9pt; }
+  td { border-bottom: 1px solid #e0eae4; padding: 2.5px 5px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f7fbf9; }
+  td.n { width: 8mm; text-align: center; color: #146c46; font-weight: 800; }
+
+  .box { border-radius: 5px; padding: 4px 8px; margin: 3px 0 4px; font-size: 8.25pt; break-inside: avoid; }
+  .rule { background: #f1f8f4; border-left: 4px solid #146c46; }
+  .stop { background: #fdf0ef; border-left: 4px solid #b42318; }
+  .tip { background: #fff9ea; border-left: 4px solid #c98a00; }
+
+  .foot { margin-top: 3px; border-top: 1px solid #d9e7df; padding-top: 4px;
+    display: flex; justify-content: space-between; font-size: 7.2pt; color: #6b8378; }
+
+  .methods td:first-child { width: 27%; }
+  .methods td:first-child b { color: #0d3a27; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 5mm; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════ PAGE 1 · FRONT DESK ══════════════════════ -->
+<div class="page">
+  <div class="top">
+    <div>
+      <div class="kicker">StayChat OS · Quick reference · Front of house</div>
+      <h1>Front desk</h1>
+      <div class="sub">One shift, one page — arrivals, departures, payments and the handover.</div>
+    </div>
+    <div class="badge"><b>01</b><span>of 02</span></div>
+  </div>
+  <div class="pills">
+    <span class="pill">Print A4 · keep at the desk</span>
+    <span class="pill">Sidebar order: Dashboard → Rooms → Bookings → Guest Wi-Fi</span>
+    <span class="pill warn">Full detail: manual ch. 01–07</span>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT COLUMN -->
+    <div class="col">
+      <section>
+        <h2>Start of shift <span class="tag">5 checks</span></h2>
+        <ol>
+          <li><b>Dashboard.</b> Occupancy, revenue today, and any red pending badge on Room Service.</li>
+          <li><b>Arrivals.</b> <span class="screen">Bookings → Upcoming</span>; note names, rooms, times and any <b>Pending</b> online booking.</li>
+          <li><b>Room strip.</b> Dirty rooms must be cleaned before the first check-in — assign cleaning from <span class="screen">Rooms</span>.</li>
+          <li><b>Handover book.</b> Read the previous shift's notes before you change anything.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Check a guest in <span class="tag">5 steps</span></h2>
+        <ol>
+          <li><span class="screen">Bookings</span> → find the reservation → <b>Check-in</b>. A walk-in gets a reservation first (<b>+ New Reservation</b>, phone first, source Direct/Walk-in), then checks in.</li>
+          <li>Confirm the name and phone against the ID — never check in a placeholder name.</li>
+          <li>Check the dates, room and rate on screen, and take a deposit if the folio is not prepaid.</li>
+          <li>Confirm. The room turns <b>Occupied</b> and the guest appears on the room card.</li>
+          <li>Hand over the Wi-Fi card and the key; tell housekeeping if the guest needs anything.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Check a guest out <span class="tag">money first</span></h2>
+        <ol>
+          <li>Open the booking → <b>Checkout</b> (or the room card → Check-out).</li>
+          <li>Read the folio: room nights, POS and room-service charges, pool or hall bookings.</li>
+          <li>Settle any balance. <span class="screen">Payments → 💳 Settle a Balance</span> clears the room and every unpaid charge in one action.</li>
+          <li>Print the A4 folio and hand it to the guest.</li>
+          <li>Confirm checkout. The room turns <b>Dirty</b> — housekeeping sees it immediately.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Take a payment</h2>
+        <table class="methods">
+          <tr><th>Method</th><th>What you must check</th></tr>
+          <tr><td><b>Cash</b></td><td>Enter the amount received; check the change or shortfall shown.</td></tr>
+          <tr><td><b>Card / POS terminal</b></td><td>Take the money on the terminal first, then record it here.</td></tr>
+          <tr><td><b>Bank transfer</b></td><td>Only once the credit is visible — never on a promise.</td></tr>
+          <tr><td><b>Payment link</b></td><td>For remote guests; settle when the link is paid.</td></tr>
+        </table>
+        <div class="box rule"><b>Never</b> record a card payment you did not receive. A wrong charge is corrected at its source; refunds need a manager and a written reason.</div>
+      </section>
+
+      <section>
+        <h2>Where does this request go?</h2>
+        <table>
+          <tr><th>Guest asks for…</th><th>Go to</th></tr>
+          <tr><td>Food or drinks to the room</td><td>Room Service</td></tr>
+          <tr><td>Restaurant table / bar tab</td><td>Restaurant POS / Bar POS</td></tr>
+          <tr><td>Laundry, taxi, extra bed</td><td>Other Services</td></tr>
+          <tr><td>Pool, hall, gym session</td><td>Pool Bookings / Halls &amp; Events / Gym</td></tr>
+          <tr><td>Room cleaning, towels</td><td>Housekeeping</td></tr>
+          <tr><td>AC, plumbing, TV broken</td><td>Maintenance (+ New Incident)</td></tr>
+        </table>
+      </section>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="col">
+      <section>
+        <h2>Move a room / extend a stay</h2>
+        <ol>
+          <li>Open the booking → <b>🔀 Transfer</b>; only rooms free for the whole stay are offered.</li>
+          <li>Late checkout: <b>✎ Edit</b> the dates (a manager may be needed for the total). Tell housekeeping.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Guest Wi-Fi <span class="tag">30 seconds</span></h2>
+        <ol>
+          <li>Check-in normally; if a controller is configured, the session is created automatically.</li>
+          <li>Open <span class="screen">Guest Wi-Fi</span> → <b>Credentials</b>; print the card and hand it over.</li>
+          <li>No session? Open the booking → <b>📶 Wi-Fi</b> to provision one on demand.</li>
+          <li>Early departure: <b>Revoke</b>. Late checkout: extend the expiry instead of issuing new credentials.</li>
+        </ol>
+      </section>
+
+
+      <section>
+        <h2>When something goes wrong</h2>
+        <table>
+          <tr><th>Problem</th><th>Do this</th></tr>
+          <tr><td><b>No room for a booking</b></td><td>Stop. Check confirmation times and deposits before moving anyone. Transfer the later booking, or walk the guest with a manager's approval.</td></tr>
+          <tr><td><b>Internet down</b></td><td>Keep working: the badge shows Offline and check-ins queue. Do not write a paper receipt as well — two records, one double charge.</td></tr>
+          <tr><td><b>Guest disputes a charge</b></td><td>Open Payments, find the origin and show the itemised detail. Correct at the source; never delete a transaction.</td></tr>
+          <tr><td><b>WhatsApp stopped</b></td><td>Settings → WhatsApp: check credentials and <b>Test Connection</b>. Log enquiries with <b>+ New Conversation</b> meanwhile.</td></tr>
+        </table>
+      </section>
+
+      <section>
+        <h2>End of shift <span class="tag">handover</span></h2>
+        <ul>
+          <li>Every arrival checked in or noted; every departure closed with a zero balance.</li>
+          <li>No room left <b>Dirty</b> without a housekeeping assignment; cash counted and any variance written down.</li>
+          <li>Open issues (maintenance, late arrivals, complaints) in the handover book, with a name against each.</li>
+        </ul>
+      </section>
+
+      <div class="box tip"><b>Trainer tip.</b> Practise one check-in, one checkout and one cash settlement until each takes under two minutes. Speed at the desk comes from knowing the next screen, not from skipping a field.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>StayChat OS · Front desk quick reference · Print A4, one per shift</span>
+    <span>Page 1 of 2</span>
+  </div>
+</div>
+
+<!-- ══════════════════════ PAGE 2 · POS ══════════════════════ -->
+<div class="page">
+  <div class="top">
+    <div>
+      <div class="kicker">StayChat OS · Quick reference · Food &amp; beverage</div>
+      <h1>Restaurant &amp; bar POS</h1>
+      <div class="sub">Open a ticket, add rounds, settle it correctly, close your till.</div>
+    </div>
+    <div class="badge"><b>02</b><span>of 02</span></div>
+  </div>
+  <div class="pills">
+    <span class="pill">Sidebar → Restaurant POS / Bar POS</span>
+    <span class="pill">Restaurant receipts 80 mm</span>
+    <span class="pill">Bar receipts 58 mm</span>
+    <span class="pill warn">Full detail: manual ch. 10–14</span>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT COLUMN -->
+    <div class="col">
+      <section>
+        <h2>Open a ticket or tab</h2>
+        <ol>
+          <li><b>+ New Ticket</b>. Table chips show the outlet's tables; a chip with <b>🔒</b> already has an open ticket — never seat it twice.</li>
+          <li>Pick the table or seat, or type a label (“Table 9”, “Bar Seat 2”, “Pool Bar 1”).</li>
+          <li>Add party size; add the guest name, and link an occupied room if they are in-house.</li>
+          <li><b>Open Ticket</b>. In the bar, <b>Close</b> the tab between rounds — it stays on the board with its age and total.</li>
+        </ol>
+        <div class="box rule"><b>One ticket = one table = one payment story.</b> Add every item before you reach Checkout; the payment screen cannot invent a missing drink.</div>
+      </section>
+
+      <section>
+        <h2>Add or change items</h2>
+        <ol>
+          <li>Tap menu tiles, or search by name. Categories are the pills across the top.</li>
+          <li><b>−</b> / <b>+</b> changes quantity; zero removes the line.</li>
+          <li>Read the receipt panel before checkout: quantity, unit price, line total, service charge and tax.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Settle a ticket <span class="tag">Checkout →</span></h2>
+        <table class="methods">
+          <tr><th>Method</th><th>What to do</th></tr>
+          <tr><td><b>Cash</b></td><td>Type the amount <i>tendered</i> (what the guest handed you) — not the bill total. Check the change on screen.</td></tr>
+          <tr><td><b>Card</b></td><td>Charge the physical terminal, then record it. Card here means paid in full now.</td></tr>
+          <tr><td><b>Room Charge</b></td><td>Pick an <b>occupied</b> room and verify the guest by name. Read the existing balance preview before adding.</td></tr>
+          <tr><td><b>Customer Bill</b></td><td>Named guest or company account — use for walk-ins who settle later.</td></tr>
+          <tr><td><b>Group Account</b></td><td>The charge joins the group folio; verify the group name, not just the room.</td></tr>
+        </table>
+        <ol>
+          <li>Apply <b>Discount %</b> only with the approval your hotel requires; totals recalculate live.</li>
+          <li>Confirm. The ticket closes, the receipt opens on the outlet's paper, and the board updates.</li>
+          <li>Print or close the popup. The money is now in Payments and the day's outlet total.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Two payers, one table</h2>
+        <p>Split by <b>ticket</b>, not by hope: close one ticket for each payer (for example $40 to Room Charge, $40 by Card). Both then appear separately in the cash-up, and nobody argues about who paid what.</p>
+      </section>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="col">
+      <section>
+        <h2>Restaurant vs bar</h2>
+        <table>
+          <tr><th>Area</th><th>Restaurant</th><th>Bar</th></tr>
+          <tr><td>Wording</td><td>Table, ticket</td><td>Tab, seat / lounge</td></tr>
+          <tr><td>Flow</td><td>Order → eat → pay</td><td>Open tab → rounds → settle at end</td></tr>
+          <tr><td>Paper</td><td>80 mm</td><td>58 mm</td></tr>
+          <tr><td>Theme</td><td>Cream / terracotta</td><td>Navy / amber</td></tr>
+        </table>
+        <div class="box stop"><b>Wrong terminal?</b> A bar bill rung on the restaurant till still takes money, but it lands in the wrong outlet's cash-up. Check the header before the first item.</div>
+      </section>
+
+      <section>
+        <h2>Voids, comps, discounts</h2>
+        <table>
+          <tr><th>Situation</th><th>Correct action</th></tr>
+          <tr><td>Ticket opened by mistake, nothing served</td><td><b>Void Ticket</b> — no charge is posted.</td></tr>
+          <tr><td>Food cooked or drink served, guest unhappy</td><td><b>Discount %</b> or comp with a manager's approval, so the cost is visible in reports.</td></tr>
+          <tr><td>Guest left before ordering</td><td>Void the ticket and clear the table.</td></tr>
+          <tr><td>Price looks wrong</td><td>Do not improvise at the till. Tell the manager; fix the menu in Menu Manager.</td></tr>
+        </table>
+      </section>
+
+      <section>
+        <h2>Receipts &amp; reprints</h2>
+        <ul>
+          <li><b>80 mm</b> restaurant, <b>58 mm</b> bar, <b>A4</b> at the desk. Pick the device and paper in the print dialog.</li>
+          <li>A reprint is marked <b>“Reprinted copy — original reference …”</b>; it can never pass as an original.</li>
+          <li>Nothing prints? Check <span class="screen">Printers</span>: device type and department default. Fix the printer — don't print on the wrong machine.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Close your till</h2>
+        <ol>
+          <li>Every ticket on the board must be closed — or carry a written reason.</li>
+          <li><span class="screen">End of Day</span> → your department → <b>Close</b>. The modal shows system totals by method.</li>
+          <li>Count your cash and compare. A variance is <b>recorded with a note</b>, never edited into the system total.</li>
+          <li>Hand the close slip and any variance note to the manager; only a manager can reopen a closed day.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Five mistakes that cost money</h2>
+        <ol>
+          <li>Typing the bill total into the <b>cash tendered</b> field.</li>
+          <li>Room-charging a room that checked out this morning (it will not appear — use Card or Customer Bill).</li>
+          <li>Voiding a served item instead of discounting it, so the cost disappears from reporting.</li>
+          <li>Leaving an open tab on the board at close.</li>
+          <li>Settling a bar tab on the restaurant terminal.</li>
+        </ol>
+      </section>
+
+      <div class="box tip"><b>Trainer tip.</b> Rehearse the cash screen until change is automatic. The commonest till error is not the menu — it is the tendered-amount field.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>StayChat OS · Restaurant &amp; bar POS quick reference · Print A4, one per till</span>
+    <span>Page 2 of 2</span>
+  </div>
+</div>
+
+</body>
+</html>

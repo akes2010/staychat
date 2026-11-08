@@ -1357,6 +1357,19 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
   if (!posTicketCols.includes('covers')) db.exec('ALTER TABLE pos_tickets ADD COLUMN covers INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_pos_table ON pos_tickets(table_id, status)');
 
+  // ── Welcome & training tracker ────────────────────────────────────────
+  // One JSON document per hotel mirroring the one-page checklist PDF:
+  // setup/orientation ticks, per-role trainer sign-offs and go-live fields.
+  // A form, not relational data, so it stays a single tenant-scoped row.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS training_checklist (
+      tenant_id TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+      data TEXT NOT NULL DEFAULT '{}',
+      updated_by TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
   // ══════════════════════════════════════════════════════════
   // ANALYZE — Update query planner statistics
   // ══════════════════════════════════════════════════════════

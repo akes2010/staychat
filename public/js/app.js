@@ -32,7 +32,7 @@ const PAGE_TITLES = {
   integrations: 'API Integrations',
   accounting: 'Accounting', eod: 'End of Day', misc: 'Other Services', ai: 'AI Setup & Configuration', printers: 'Printer Management',
   reports: 'Report Management',
-  users: 'User Management & Permissions', superadmin: 'Super Admin',
+  users: 'User Management & Permissions', training: 'Welcome & Training Checklist', superadmin: 'Super Admin',
 };
 
 function getNavItems() {
@@ -76,6 +76,7 @@ function getNavItems() {
     { page: 'payments', ico: '💳', label: 'Payments', cap: 'payments.use' },
     { page: 'accounting', ico: '📒', label: 'Accounting', cap: 'accounting.view' },
     { page: 'users', ico: '🔐', label: 'Users & Permissions', cap: 'users.manage' },
+    { page: 'training', ico: '🎓', label: 'Training Tracker', cap: 'users.manage' },
     { page: 'ai', ico: '🤖', label: 'AI Setup', cap: 'ai.manage' },
     { page: 'printers', ico: '🖨️', label: 'Printers', cap: 'printers.manage' },
     { page: 'integrations', ico: '🔌', label: 'API Integrations', cap: 'settings.manage' },
@@ -179,7 +180,7 @@ const PAGE_CAPS = {
   housekeeping: 'housekeeping.manage', maintenance: 'maintenance.manage', guests: 'guests.manage',
   analytics: 'analytics.view', reports: 'analytics.view', staff: 'staff.manage', shifts: 'attendance.use', eod: 'eod.use', menu: 'menu.manage',
   payments: 'payments.use', accounting: 'accounting.view', ai: 'ai.manage', printers: 'printers.manage',
-  users: 'users.manage', settings: 'settings.manage',
+  users: 'users.manage', training: 'users.manage', settings: 'settings.manage',
 };
 
 function navigate(page) {
@@ -269,6 +270,7 @@ function openUserMenu() {
       '<div style="font-size:12px;color:var(--text3)">' + escapeHtml(App.user.email || '') + '</div></div>' +
     '<button class="user-menu-item" onclick="window.__openThemePicker()">🎨 Choose your theme</button>' +
     '<button class="user-menu-item" onclick="window.__openChangePassword()">🔒 Change password</button>' +
+    '<a class="user-menu-item" href="/StayChat-OS-User-Manual.pdf" target="_blank" rel="noopener" style="text-decoration:none">📘 Staff manual &amp; training</a>' +
     '<button class="user-menu-item" onclick="window.__doLogout && window.__doLogout()">⎋ Sign out</button>';
   document.body.appendChild(menu);
   const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); } };

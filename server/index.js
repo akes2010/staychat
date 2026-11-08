@@ -239,6 +239,7 @@ app.use('/api/reports', require('./routes/reports'));
 app.use('/api/staff', require('./routes/staff'));
 app.use('/api/shifts', require('./routes/shifts'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/training', require('./routes/training'));
 app.use('/api/menu/categories', require('./routes/menu-categories'));
 app.use('/api/menu', require('./routes/menu'));
 app.use('/api/maintenance', require('./routes/maintenance'));

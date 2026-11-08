@@ -114,6 +114,38 @@ function startApp(user, accessToken, tenant, entitlements, opts) {
     : 'dashboard';
   navigate(landingPage);
   if (!offlineRestore) toast('Welcome back, ' + user.name + '!', 'success');
+  if (!offlineRestore) maybeShowManualOnboarding();
+}
+
+// First run for a hotel admin: put the training pack in front of them once per
+// device, after the dashboard renders, without ever blocking sign-in.
+function maybeShowManualOnboarding() {
+  try {
+    if (!window.App || !App.user || App.user.role !== 'hotel_admin') return;
+    const KEY = 'sc_manual_onboarding_v1';
+    if (localStorage.getItem(KEY)) return;
+    localStorage.setItem(KEY, '1');
+    setTimeout(function () {
+      if (typeof openModal !== 'function') return;
+      openModal('Start your team on the right foot',
+        '<p style="font-size:13.5px;color:var(--text2);margin:0 0 10px">Your workspace is live. Before the first shift, download the training pack and print the desk copy.</p>' +
+        '<ul style="font-size:13px;color:var(--text2);margin:0 0 12px 18px;line-height:1.7">' +
+          '<li><b>Staff manual</b> — 85 pages, every module in sidebar order.</li>' +
+          '<li><b>Cheat sheet</b> — two pages for reception and the restaurant/bar till.</li>' +
+          '<li><b>Role paths</b> — day-by-day plans for reception, F&amp;B, housekeeping and accounts.</li>' +
+          '<li><b>Welcome checklist</b> — one page to get the hotel live and sign off each role.</li>' +
+        '</ul>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          '<a class="btn primary" href="/StayChat-OS-Onboarding-Pack.zip" download>↓ Complete pack (ZIP)</a>' +
+          '<a class="btn outline" href="/StayChat-OS-User-Manual.pdf" download>↓ Staff manual (PDF)</a>' +
+          '<a class="btn outline" href="/StayChat-OS-Quick-Reference.pdf" download>↓ Cheat sheet (PDF)</a>' +
+          '<a class="btn outline" href="/StayChat-OS-Welcome-Checklist.pdf" download>↓ Welcome checklist (PDF)</a>' +
+        '</div>' +
+        '<p style="font-size:12px;color:var(--text3);margin:12px 0 0">Or <a href="#" onclick="closeModal();navigate(\'training\');return false" style="color:var(--p);font-weight:700">open the in-app training tracker</a> to tick off setup, sign off each role and invite your team. Also available any time under your account menu → Staff manual &amp; training.</p>',
+        '<button class="btn ghost" onclick="closeModal()">Got it</button>',
+        { sub: 'Your training pack is ready' });
+    }, 1800);
+  } catch (e) { /* non-fatal — onboarding must never block the app */ }
 }
 
 async function doLogout() {
