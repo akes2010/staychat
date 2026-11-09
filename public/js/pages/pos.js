@@ -327,6 +327,10 @@ function buildPOSPage(forcedOutlet) {
       });
       toast('Ticket opened', 'success');
       state.tickets.push(ticket);
+      // Show the new card on the board straight away — the WebSocket refresh
+      // that follows is a network round-trip away, and until it lands the board
+      // still reads "0 open tickets".
+      render();
       window.__posOpenTicket(ticket.id);
     } catch (err) { toast(err.message, 'error'); }
   };

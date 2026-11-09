@@ -127,6 +127,34 @@ function maybeShowManualOnboarding() {
     localStorage.setItem(KEY, '1');
     setTimeout(function () {
       if (typeof openModal !== 'function') return;
+      // Never replace a modal the user already has open (a form they are
+      // filling in, a ticket being settled, …). Wait for the slot to go idle,
+      // and skip the nudge entirely if they stay busy.
+      const modalBusy = () => {
+        const c = document.getElementById('modal-container');
+        return !!(c && c.innerHTML.trim());
+      };
+      if (modalBusy()) {
+        let waited = 0;
+        const retry = function () {
+          waited += 750;
+          if (waited > 30000) return;
+          if (modalBusy()) setTimeout(retry, 750);
+          else showManualOnboarding();
+        };
+        setTimeout(retry, 750);
+        return;
+      }
+      showManualOnboarding();
+    }, 1800);
+  } catch (e) { /* non-fatal — onboarding must never block the app */ }
+}
+
+function showManualOnboarding() {
+  try {
+      // The deferred nudge must not fire onto the sign-in screen (or another
+      // role's session) if the admin signed out while we waited.
+      if (!window.App || !App.user || App.user.role !== 'hotel_admin') return;
       openModal('Start your team on the right foot',
         '<p style="font-size:13.5px;color:var(--text2);margin:0 0 10px">Your workspace is live. Before the first shift, download the training pack and print the desk copy.</p>' +
         '<ul style="font-size:13px;color:var(--text2);margin:0 0 12px 18px;line-height:1.7">' +
@@ -144,7 +172,6 @@ function maybeShowManualOnboarding() {
         '<p style="font-size:12px;color:var(--text3);margin:12px 0 0">Or <a href="#" onclick="closeModal();navigate(\'training\');return false" style="color:var(--p);font-weight:700">open the in-app training tracker</a> to tick off setup, sign off each role and invite your team. Also available any time under your account menu → Staff manual &amp; training.</p>',
         '<button class="btn ghost" onclick="closeModal()">Got it</button>',
         { sub: 'Your training pack is ready' });
-    }, 1800);
   } catch (e) { /* non-fatal — onboarding must never block the app */ }
 }
 
