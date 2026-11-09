@@ -9,6 +9,7 @@ const { requireAuth, resolveTenant, requireTenant, audit } = require('../middlew
 const { broadcast } = require('../ws');
 const { requirePermission, hasPermission } = require('../utils/permissions');
 const { requireEntitlement } = require('../services/entitlements');
+const { slotWithinHours } = require('../utils/facility-hours');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pool.use'), requireEntitlement('pool_bookings'));
@@ -44,6 +45,9 @@ router.post('/', (req, res) => {
   if (poolId) {
     const pool = db.prepare('SELECT * FROM pools WHERE id = ? AND tenant_id = ?').get(poolId, req.tenantId);
     if (!pool) return res.status(404).json({ error: 'Pool not found' });
+    // Pool areas are only sellable inside their published opening hours.
+    const hours = slotWithinHours(pool, startTime, endTime, { open: '08:00', close: '20:00' });
+    if (!hours.ok) return res.status(400).json({ error: pool.name + ': ' + hours.reason });
     resolvedArea = pool.name;
     resolvedPrice = price !== undefined ? price : pool.price;
   }
@@ -88,6 +92,13 @@ router.patch('/:id', (req, res) => {
   const nextDate = updates.date || b.date, nextStart = updates.start_time || b.start_time, nextEnd = updates.end_time || b.end_time;
   const nextSize = updates.party_size !== undefined ? Number(updates.party_size) : b.party_size;
   if (updates.date || updates.start_time || updates.end_time || updates.party_size !== undefined) {
+    if (b.pool_id) {
+      const pool = db.prepare('SELECT * FROM pools WHERE id = ? AND tenant_id = ?').get(b.pool_id, req.tenantId);
+      if (pool) {
+        const hours = slotWithinHours(pool, nextStart, nextEnd, { open: '08:00', close: '20:00' });
+        if (!hours.ok) return res.status(400).json({ error: pool.name + ': ' + hours.reason });
+      }
+    }
     const capacity = req.tenant.pool_capacity || 20;
     const current = overlappingHeadcount(req.tenantId, nextDate, nextStart, nextEnd, b.id);
     if (current + nextSize > capacity) return res.status(409).json({ error: 'Pool capacity would be exceeded for that time slot' });

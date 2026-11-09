@@ -76,7 +76,8 @@ PAGES.pool = function () {
         '<div class="form-group"><label class="form-label">Room (optional)</label><select class="form-select" id="np-room"><option value="">— Not a hotel guest —</option>' + occupiedRooms.map(r => '<option value="' + escapeHtml(r.number) + '">' + escapeHtml(r.number) + ' — ' + escapeHtml(r.guest_name || 'Guest') + '</option>').join('') + '</select></div>' +
         '<div class="form-group"><label class="form-label">Party Size</label><input class="form-input" type="number" min="1" id="np-size" value="1"/></div>' +
         '<div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="np-date" value="' + state.date + '" min="' + new Date().toISOString().slice(0, 10) + '"/></div>' +
-        '<div class="form-group"><label class="form-label">Pool</label><select class="form-select" id="np-pool" onchange="window.__poolPicked()">' + state.pools.filter(p => p.active).map(p => '<option value="' + p.id + '" data-price="' + p.price + '">' + escapeHtml(p.name) + ' — ' + formatMoney(p.price) + '</option>').join('') + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Pool</label><select class="form-select" id="np-pool" onchange="window.__poolPicked()">' + state.pools.filter(p => p.active).map(p => '<option value="' + p.id + '" data-price="' + p.price + '" data-open="' + escapeHtml(p.open_time || '08:00') + '" data-close="' + escapeHtml(p.close_time || '20:00') + '">' + escapeHtml(p.name) + ' — ' + formatMoney(p.price) + '</option>').join('') + '</select>' +
+          '<div id="np-hours" style="font-size:11.5px;color:var(--text3);margin-top:5px"></div></div>' +
         '<div class="form-group"><label class="form-label">Start Time</label><input class="form-input" type="time" id="np-start" value="10:00"/></div>' +
         '<div class="form-group"><label class="form-label">End Time</label><input class="form-input" type="time" id="np-end" value="12:00"/></div>' +
         '<div class="form-group"><label class="form-label">Price ($)</label><input class="form-input" type="number" min="0" id="np-price" value="' + (state.pools.find(p => p.active) ? state.pools.find(p => p.active).price : 0) + '"/></div>' +
@@ -84,11 +85,14 @@ PAGES.pool = function () {
       '<div class="form-group"><label class="form-label">Notes</label><input class="form-input" id="np-notes" placeholder="Optional notes…"/></div>',
       '<button class="btn outline" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="window.__submitPoolBooking()">Book Slot</button>'
     );
+    window.__poolPicked();
   };
   window.__poolPicked = () => {
     const sel = document.getElementById('np-pool');
-    const price = sel.options[sel.selectedIndex].dataset.price;
-    document.getElementById('np-price').value = price;
+    const opt = sel.options[sel.selectedIndex];
+    document.getElementById('np-price').value = opt.dataset.price;
+    const hint = document.getElementById('np-hours');
+    if (hint) hint.textContent = '🕒 Open ' + (opt.dataset.open || '08:00') + '–' + (opt.dataset.close || '20:00') + ' — slots must fit inside these hours.';
   };
   window.__submitPoolBooking = async () => {
     const guestName = document.getElementById('np-name').value.trim();
@@ -112,11 +116,13 @@ PAGES.pool = function () {
     openModal('Manage Pools',
       '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">' +
         (state.pools.length === 0 ? '<div style="font-size:13px;color:var(--text3)">No pools yet — add one below.</div>' :
-        state.pools.map(p => '<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border-radius:9px;padding:10px 12px">' +
+        state.pools.map(p =>        '<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border-radius:9px;padding:10px 12px">' +
           '<div style="flex:1"><div style="font-weight:600;font-size:13px">' + escapeHtml(p.name) + ' ' + badge(p.category, 'default') + '</div>' +
           (p.description ? '<div style="font-size:11px;color:var(--text3);margin:2px 0">' + escapeHtml(p.description) + '</div>' : '') +
-          '<div style="font-size:11px;color:var(--text3)">' + formatMoney(p.price) + ' &middot; Capacity ' + p.capacity + '</div></div>' +
+          '<div style="font-size:11px;color:var(--text3)">' + formatMoney(p.price) + ' &middot; Capacity ' + p.capacity + '</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:2px">🕒 Open ' + escapeHtml(p.open_time || '08:00') + '–' + escapeHtml(p.close_time || '20:00') + '</div></div>' +
           (p.active ? badge('Active', 'success') : badge('Inactive', 'default')) +
+          '<button class="btn ghost sm" onclick="window.__editPoolHours(\'' + p.id + '\')">Hours</button>' +
           '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__deletePool(\'' + p.id + '\')">Delete</button></div>').join('')) +
       '</div>' +
       '<div style="border-top:1px solid var(--border);padding-top:14px">' +
@@ -126,6 +132,8 @@ PAGES.pool = function () {
           '<div class="form-group"><label class="form-label">Category</label><select class="form-select" id="ap-category"><option>Standard</option><option>Kids</option><option>VIP</option><option>Adults Only</option><option>Outdoor</option></select></div>' +
           '<div class="form-group"><label class="form-label">Price ($ per booking)</label><input class="form-input" type="number" min="0" id="ap-price" value="0"/></div>' +
           '<div class="form-group"><label class="form-label">Capacity (guests)</label><input class="form-input" type="number" min="1" id="ap-cap" value="20"/></div>' +
+          '<div class="form-group"><label class="form-label">Opens</label><input class="form-input" type="time" id="ap-open" value="08:00"/></div>' +
+          '<div class="form-group"><label class="form-label">Closes</label><input class="form-input" type="time" id="ap-close" value="20:00"/></div>' +
         '</div>' +
         '<div class="form-group"><label class="form-label">Description</label><input class="form-input" id="ap-desc" placeholder="What makes this pool area special…"/></div>',
       '<button class="btn outline" onclick="closeModal()">Close</button><button class="btn primary" onclick="window.__addPool()">Add Pool</button>'
@@ -138,8 +146,30 @@ PAGES.pool = function () {
       await API.post('/api/room-setup/pools', {
         name, category: document.getElementById('ap-category').value, price: Number(document.getElementById('ap-price').value || 0),
         capacity: Number(document.getElementById('ap-cap').value || 20), description: document.getElementById('ap-desc').value.trim(),
+        openTime: document.getElementById('ap-open').value, closeTime: document.getElementById('ap-close').value,
       });
       toast('Pool added', 'success'); await load(); window.__managePools();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  window.__editPoolHours = (id) => {
+    const p = state.pools.find(x => x.id === id);
+    if (!p) return;
+    openModal('Operating Hours — ' + escapeHtml(p.name),
+      '<div class="form-row cols-2">' +
+        '<div class="form-group"><label class="form-label">Opens</label><input class="form-input" type="time" id="ph-open" value="' + escapeHtml(p.open_time || '08:00') + '"/></div>' +
+        '<div class="form-group"><label class="form-label">Closes</label><input class="form-input" type="time" id="ph-close" value="' + escapeHtml(p.close_time || '20:00') + '"/></div>' +
+      '</div>' +
+      '<p style="font-size:11.5px;color:var(--text3)">Bookings (desk and online) are only accepted inside these hours.</p>',
+      '<button class="btn outline" onclick="window.__managePools()">Back</button>' +
+      '<button class="btn primary" onclick="window.__savePoolHours(\'' + id + '\')">Save Hours</button>'
+    );
+  };
+  window.__savePoolHours = async (id) => {
+    const openTime = document.getElementById('ph-open').value, closeTime = document.getElementById('ph-close').value;
+    if (!openTime || !closeTime || closeTime <= openTime) { toast('Closing time must be after opening time', 'error'); return; }
+    try {
+      await API.patch('/api/room-setup/pools/' + id, { openTime, closeTime });
+      toast('Operating hours saved', 'success'); await load(); window.__managePools();
     } catch (err) { toast(err.message, 'error'); }
   };
   window.__deletePool = (id) => {

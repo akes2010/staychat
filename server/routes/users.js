@@ -9,12 +9,16 @@ const { hashPassword } = require('../utils/password-pool'); // bcrypt runs OFF t
 const { hashToken } = require('../utils/tokens');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
-const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
-const { CAPABILITIES, ROLE_DEFAULTS, effectivePermissions, customRoleDefaults } = require('../utils/permissions');
+const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
+const { CAPABILITIES, ROLE_DEFAULTS, effectivePermissions, customRoleDefaults, requirePermission } = require('../utils/permissions');
 const { assertLimit } = require('../services/entitlements');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant, requireRole('hotel_admin', 'superadmin'));
+// users.manage is the capability the sidebar exposes this module under, and
+// the permission matrix treats it as the complete capability set — so enforce
+// it here too (a custom role granted users.manage could see Users & Permissions
+// and the Training Tracker, then get 403 from every call behind them).
+router.use(requireAuth, resolveTenant, requireTenant, requirePermission('users.manage'));
 
 // Config
 const ASSIGNABLE_ROLES = ['hotel_admin', 'receptionist', 'staff', 'cashier', 'barman', 'accountant', 'auditor', 'waiter', 'server', 'porter'];

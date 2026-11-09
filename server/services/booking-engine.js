@@ -21,6 +21,7 @@ const { nanoid } = require('nanoid');
 const { effectiveRate } = require('../routes/room-setup');
 const { sendWhatsAppMessage } = require('../utils/whatsapp');
 const { isBlocked } = require('../routes/blocklist');
+const { slotWithinHours, hoursOf } = require('../utils/facility-hours');
 const emailSvc = require('./email');
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // no 0/O/1/I/L
@@ -360,6 +361,12 @@ function availablePools(tenantId) {
   return db.prepare('SELECT * FROM pools WHERE tenant_id = ? AND active = 1 ORDER BY name').all(tenantId);
 }
 
+/** Active gyms — shown to guests with their access window (memberships are
+ *  sold at the desk, so these are informational on the public page). */
+function availableGyms(tenantId) {
+  return db.prepare('SELECT * FROM gyms WHERE tenant_id = ? AND active = 1 ORDER BY name').all(tenantId);
+}
+
 /** Is a hall free for the given date/time window? Desk-made 'tentative' and
  *  'confirmed' bookings count; engine-pending ones don't (spam guard). */
 function hallIsFree(tenantId, hallId, date, startTime, endTime) {
@@ -419,6 +426,9 @@ function submitFacilityBooking(tenantId, payload) {
     const hall = db.prepare('SELECT * FROM halls WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenantId);
     if (!hall) throw Object.assign(new Error('That event space is not available'), { status: 404 });
     if (size > hall.capacity) throw Object.assign(new Error(hall.name + ' holds up to ' + hall.capacity + ' guests'), { status: 400 });
+    // Open/close hours are part of the offer — never sell outside them.
+    const hoursCheck = slotWithinHours(hall, startTime, endTime, { open: '07:00', close: '23:00' });
+    if (!hoursCheck.ok) throw Object.assign(new Error(hall.name + ': ' + hoursCheck.reason), { status: 409 });
     if (!hallIsFree(tenantId, hall.id, date, startTime, endTime)) {
       throw Object.assign(new Error(hall.name + ' is already reserved for that time — pick another slot'), { status: 409 });
     }
@@ -438,6 +448,8 @@ function submitFacilityBooking(tenantId, payload) {
   } else {
     const pool = db.prepare('SELECT * FROM pools WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenantId);
     if (!pool) throw Object.assign(new Error('That pool area is not available'), { status: 404 });
+    const hoursCheck = slotWithinHours(pool, startTime, endTime, { open: '08:00', close: '20:00' });
+    if (!hoursCheck.ok) throw Object.assign(new Error(pool.name + ': ' + hoursCheck.reason), { status: 409 });
     const capacity = pool.capacity || 20;
     const current = poolHeadcount(tenantId, pool.id, date, startTime, endTime);
     if (current + size > capacity) {
@@ -562,6 +574,8 @@ module.exports = {
   rejectByCode,
   availableHalls,
   availablePools,
+  availableGyms,
+  hoursOf,
   hallIsFree,
   poolHeadcount,
   submitFacilityBooking,

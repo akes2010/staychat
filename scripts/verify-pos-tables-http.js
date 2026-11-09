@@ -201,6 +201,8 @@ async function run() {
 
   // ── 6. Void frees the seat ──────────────────────────────────────────────
   r = await req('POST', '/api/pos/tickets/' + tk1.id + '/void', adminTok, {});
+  check('void without a reason is refused → 400', r.status === 400, 'got ' + r.status);
+  r = await req('POST', '/api/pos/tickets/' + tk1.id + '/void', adminTok, { reason: 'verify-pos-tables: released seat' });
   check('void the T1 ticket → 200', r.status === 200, 'got ' + r.status);
   r = await req('GET', '/api/pos/tables', adminTok);
   check('T1 free again after the void', r.body.find(x => x.id === t1.id).occupied === false, JSON.stringify(r.body.find(x => x.id === t1.id)));
@@ -245,7 +247,7 @@ async function run() {
   check('barman cannot EDIT a restaurant ticket → 403', r.status === 403, 'got ' + r.status);
   r = await req('POST', '/api/pos/tickets/' + tk2.id + '/items', barmanTok, { name: 'Free drink', price: 0 });
   check('barman cannot add ITEMS to a restaurant ticket → 403', r.status === 403, 'got ' + r.status);
-  r = await req('POST', '/api/pos/tickets/' + tk2.id + '/void', barmanTok, {});
+  r = await req('POST', '/api/pos/tickets/' + tk2.id + '/void', barmanTok, { reason: 'barman attempt' });
   check('barman cannot VOID a restaurant ticket → 403', r.status === 403, 'got ' + r.status);
   r = await req('POST', '/api/pos/tickets/' + tk2.id + '/checkout', barmanTok, { paymentMethod: 'cash' });
   check('barman cannot CHECK OUT (take money from) a restaurant ticket → 403', r.status === 403, 'got ' + r.status);

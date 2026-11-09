@@ -8,6 +8,7 @@ const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = requir
 const { requirePermission } = require('../utils/permissions');
 const { requireEntitlement } = require('../services/entitlements');
 const { broadcast } = require('../ws');
+const { normalizeTime, validWindow, slotWithinHours } = require('../utils/facility-hours');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('halls.use'), requireEntitlement('hall_events'));
@@ -22,11 +23,13 @@ router.get('/halls', (req, res) => {
 });
 
 router.post('/halls', requirePermission('halls.manage'), (req, res) => {
-  const { name, capacity, hourlyRate, dayRate, amenities, description, category } = req.body;
+  const { name, capacity, hourlyRate, dayRate, amenities, description, category, openTime, closeTime } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
+  const open = normalizeTime(openTime || '07:00'), close = normalizeTime(closeTime || '23:00');
+  if (!validWindow(open, close)) return res.status(400).json({ error: 'Open and close times must be valid HH:MM values with close after open' });
   const id = 'hall_' + nanoid(10);
-  db.prepare(`INSERT INTO halls (id, tenant_id, name, capacity, hourly_rate, day_rate, amenities, description, category) VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(id, req.tenantId, name, Number(capacity) || 50, Number(hourlyRate) || 0, Number(dayRate) || 0, JSON.stringify(amenities || []), description || null, category || 'Standard');
+  db.prepare(`INSERT INTO halls (id, tenant_id, name, capacity, hourly_rate, day_rate, amenities, description, category, open_time, close_time) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, req.tenantId, name, Number(capacity) || 50, Number(hourlyRate) || 0, Number(dayRate) || 0, JSON.stringify(amenities || []), description || null, category || 'Standard', open, close);
   const hall = db.prepare('SELECT * FROM halls WHERE id = ?').get(id);
   audit(req, 'hall.create', 'hall', id, { name });
   res.status(201).json(serializeHall(hall));
@@ -35,9 +38,16 @@ router.post('/halls', requirePermission('halls.manage'), (req, res) => {
 router.patch('/halls/:id', requirePermission('halls.manage'), (req, res) => {
   const hall = db.prepare('SELECT * FROM halls WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!hall) return res.status(404).json({ error: 'Hall not found' });
-  const map = { name: 'name', capacity: 'capacity', hourlyRate: 'hourly_rate', dayRate: 'day_rate', active: 'active', description: 'description', category: 'category' };
+  const map = { name: 'name', capacity: 'capacity', hourlyRate: 'hourly_rate', dayRate: 'day_rate', active: 'active', description: 'description', category: 'category', openTime: 'open_time', closeTime: 'close_time' };
   const updates = {};
   Object.entries(map).forEach(([bodyKey, col]) => { if (req.body[bodyKey] !== undefined) updates[col] = bodyKey === 'active' ? (req.body[bodyKey] ? 1 : 0) : req.body[bodyKey]; });
+  if (Object.keys(updates).some(k => k === 'open_time' || k === 'close_time')) {
+    const open = normalizeTime(updates.open_time !== undefined ? updates.open_time : hall.open_time);
+    const close = normalizeTime(updates.close_time !== undefined ? updates.close_time : hall.close_time);
+    if (!validWindow(open, close)) return res.status(400).json({ error: 'Open and close times must be valid HH:MM values with close after open' });
+    if (updates.open_time !== undefined) updates.open_time = open;
+    if (updates.close_time !== undefined) updates.close_time = close;
+  }
   if (req.body.amenities !== undefined) updates.amenities = JSON.stringify(req.body.amenities);
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields to update' });
   const setClause = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
@@ -92,6 +102,10 @@ router.post('/bookings', (req, res) => {
   const hall = db.prepare('SELECT * FROM halls WHERE id = ? AND tenant_id = ?').get(hallId, req.tenantId);
   if (!hall) return res.status(404).json({ error: 'Hall not found' });
   if (guestCount && Number(guestCount) > hall.capacity) return res.status(400).json({ error: hall.name + ' has a capacity of ' + hall.capacity + ' guests' });
+  // The hall's published operating hours are a hard boundary for both the desk
+  // and the public channel.
+  const hours = slotWithinHours(hall, startTime, endTime, { open: '07:00', close: '23:00' });
+  if (!hours.ok) return res.status(400).json({ error: hall.name + ': ' + hours.reason });
 
   const conflict = conflictCheck(req.tenantId, hallId, eventDate, startTime, endTime);
   if (conflict) return res.status(409).json({ error: hall.name + ' is already booked (' + conflict.event_name + ') during that time' });
@@ -129,6 +143,10 @@ router.patch('/bookings/:id', (req, res) => {
   const nextHall = updates.hall_id || b.hall_id, nextDate = updates.event_date || b.event_date;
   const nextStart = updates.start_time || b.start_time, nextEnd = updates.end_time || b.end_time;
   if (updates.hall_id || updates.event_date || updates.start_time || updates.end_time) {
+    const target = db.prepare('SELECT * FROM halls WHERE id = ? AND tenant_id = ?').get(nextHall, req.tenantId);
+    if (!target) return res.status(404).json({ error: 'Hall not found' });
+    const hours = slotWithinHours(target, nextStart, nextEnd, { open: '07:00', close: '23:00' });
+    if (!hours.ok) return res.status(400).json({ error: target.name + ': ' + hours.reason });
     const conflict = conflictCheck(req.tenantId, nextHall, nextDate, nextStart, nextEnd, b.id);
     if (conflict) return res.status(409).json({ error: 'That hall is already booked during the new time (' + conflict.event_name + ')' });
   }

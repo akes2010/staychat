@@ -59,6 +59,9 @@
 :is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .form-input,
 :is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .form-select{background:var(--surface2);color:var(--text);border-color:var(--border-dark)}
 :is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .form-input::placeholder{color:var(--text3)}
+/* The quantity readout has no colour of its own (it inherited the page's dark
+   body text on the navy ticket panel) — give it the theme's text colour. */
+:is(#content .pos-outlet-bar, #modal.pos-outlet-bar) .pos-qty-val{color:var(--text)}
 
 /* ── Unmistakable terminal tag in the page header ────────────────────── */
 #content .pos-outlet-restaurant .page-header-left h1::after{content:'🍽 RESTAURANT';margin-left:12px;vertical-align:middle;padding:5px 12px;border-radius:999px;background:rgba(194,65,12,.12);color:var(--p);font-size:11px;font-weight:800;letter-spacing:.09em}

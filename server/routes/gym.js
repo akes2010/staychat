@@ -13,6 +13,7 @@ const { requireAuth, resolveTenant, requireTenant, audit } = require('../middlew
 const { requirePermission, hasPermission } = require('../utils/permissions');
 const { requireEntitlement } = require('../services/entitlements');
 const { broadcast } = require('../ws');
+const { normalizeTime, validWindow } = require('../utils/facility-hours');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('gym.use'), requireEntitlement('gym_bookings'));
@@ -100,13 +101,17 @@ router.get('/gyms', (req, res) => {
 });
 
 router.post('/gyms', requirePermission('gym.manage'), (req, res) => {
-  const { name, type, facilities, description, capacity, priceDaily, priceMonthly, priceQuarterly, priceYearly } = req.body;
+  const { name, type, facilities, description, capacity, priceDaily, priceMonthly, priceQuarterly, priceYearly, openTime, closeTime } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
+  // Access window: open_time/close_time as HH:MM. Defaults mirror the schema.
+  const open = normalizeTime(openTime || '06:00'), close = normalizeTime(closeTime || '22:00');
+  if (!validWindow(open, close)) return res.status(400).json({ error: 'Open and close times must be valid HH:MM values with close after open' });
   const id = 'gym_' + nanoid(10);
-  db.prepare(`INSERT INTO gyms (id, tenant_id, name, type, facilities, description, capacity, price_daily, price_monthly, price_quarterly, price_yearly)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+  db.prepare(`INSERT INTO gyms (id, tenant_id, name, type, facilities, description, capacity, price_daily, price_monthly, price_quarterly, price_yearly, open_time, close_time)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, req.tenantId, name, type || 'Standard', JSON.stringify(facilities || []), description || null,
-         Math.max(1, Number(capacity) || 20), Number(priceDaily) || 0, Number(priceMonthly) || 0, Number(priceQuarterly) || 0, Number(priceYearly) || 0);
+         Math.max(1, Number(capacity) || 20), Number(priceDaily) || 0, Number(priceMonthly) || 0, Number(priceQuarterly) || 0, Number(priceYearly) || 0,
+         open, close);
   const gym = db.prepare('SELECT * FROM gyms WHERE id = ?').get(id);
   audit(req, 'gym.create', 'gym', id, { name });
   broadcast(req.tenantId, 'gym.created', serializeGym(gym));
@@ -117,11 +122,19 @@ router.patch('/gyms/:id', requirePermission('gym.manage'), (req, res) => {
   const gym = db.prepare('SELECT * FROM gyms WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!gym) return res.status(404).json({ error: 'Gym not found' });
   const map = { name: 'name', type: 'type', description: 'description', capacity: 'capacity',
-                priceDaily: 'price_daily', priceMonthly: 'price_monthly', priceQuarterly: 'price_quarterly', priceYearly: 'price_yearly', active: 'active' };
+                priceDaily: 'price_daily', priceMonthly: 'price_monthly', priceQuarterly: 'price_quarterly', priceYearly: 'price_yearly', active: 'active',
+                openTime: 'open_time', closeTime: 'close_time' };
   const updates = {};
   Object.entries(map).forEach(([bodyKey, col]) => {
     if (req.body[bodyKey] !== undefined) updates[col] = bodyKey === 'active' ? (req.body[bodyKey] ? 1 : 0) : req.body[bodyKey];
   });
+  if (Object.keys(updates).some(k => k === 'open_time' || k === 'close_time')) {
+    const open = normalizeTime(updates.open_time !== undefined ? updates.open_time : gym.open_time);
+    const close = normalizeTime(updates.close_time !== undefined ? updates.close_time : gym.close_time);
+    if (!validWindow(open, close)) return res.status(400).json({ error: 'Open and close times must be valid HH:MM values with close after open' });
+    if (updates.open_time !== undefined) updates.open_time = open;
+    if (updates.close_time !== undefined) updates.close_time = close;
+  }
   if (req.body.facilities !== undefined) updates.facilities = JSON.stringify(req.body.facilities || []);
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields to update' });
   const setClause = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');

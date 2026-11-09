@@ -13,10 +13,78 @@ const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { broadcast } = require('../ws');
 const { requirePermission, hasPermission } = require('../utils/permissions');
-const { postCharge } = require('../services/charges');
+const { postCharge, reverseCharge } = require('../services/charges');
+const { refundTransaction } = require('../services/refunds');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pos.use'));
+
+// ── Load-time schema upgrade (this module's own table — additive) ──────────
+// pos_tickets' original CHECK constraints only knew open/closed/void and the
+// four pre-group payment methods, so charging a ticket to a group booking
+// ('group_account') failed at the constraint, and a refund had no status to
+// live in. SQLite cannot ALTER a CHECK, so rebuild ONLY this table
+// transactionally (create wider → copy every row → drop → rename → re-index),
+// exactly like server/routes/gym.js does for gym_bookings. Idempotent.
+(function upgradePosTickets() {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pos_tickets'").get();
+  if (!row || (row.sql.includes("'refunded'") && row.sql.includes("'group_account'"))) return;
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE pos_tickets_new (
+          id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          outlet TEXT NOT NULL DEFAULT 'restaurant' CHECK(outlet IN ('restaurant','bar')),
+          label TEXT NOT NULL DEFAULT 'Walk-in',
+          table_id TEXT REFERENCES pos_tables(id) ON DELETE SET NULL,
+          covers INTEGER,
+          guest_name TEXT,
+          guest_id TEXT REFERENCES guests(id) ON DELETE SET NULL,
+          room_number TEXT,
+          items TEXT NOT NULL DEFAULT '[]',
+          subtotal REAL NOT NULL DEFAULT 0,
+          discount_pct REAL NOT NULL DEFAULT 0,
+          service_pct REAL NOT NULL DEFAULT 0,
+          tax_pct REAL NOT NULL DEFAULT 0,
+          total REAL NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','void','refunded')),
+          payment_method TEXT CHECK(payment_method IN ('cash','card','room_charge','customer_bill','group_account')),
+          transaction_id TEXT,
+          note TEXT,
+          opened_by TEXT,
+          closed_by TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          closed_at TEXT,
+          booking_id TEXT REFERENCES bookings(id) ON DELETE SET NULL,
+          cashier_name TEXT,
+          void_reason TEXT,
+          refund_reason TEXT,
+          refunded_amount REAL NOT NULL DEFAULT 0,
+          refunded_at TEXT,
+          refunded_by TEXT
+        );
+        INSERT INTO pos_tickets_new (id, tenant_id, outlet, label, table_id, covers, guest_name, guest_id, room_number,
+          items, subtotal, discount_pct, service_pct, tax_pct, total, status, payment_method, transaction_id, note,
+          opened_by, closed_by, created_at, updated_at, closed_at, booking_id, cashier_name,
+          void_reason, refund_reason, refunded_amount, refunded_at, refunded_by)
+          SELECT id, tenant_id, outlet, label, table_id, covers, guest_name, guest_id, room_number,
+          items, subtotal, discount_pct, service_pct, tax_pct, total, status, payment_method, transaction_id, note,
+          opened_by, closed_by, created_at, updated_at, closed_at, booking_id, cashier_name,
+          void_reason, refund_reason, refunded_amount, refunded_at, refunded_by FROM pos_tickets;
+        DROP TABLE pos_tickets;
+        ALTER TABLE pos_tickets_new RENAME TO pos_tickets;
+        CREATE INDEX IF NOT EXISTS idx_pos_tenant ON pos_tickets(tenant_id, status);
+        CREATE INDEX IF NOT EXISTS idx_pos_outlet ON pos_tickets(tenant_id, outlet, status);
+        CREATE INDEX IF NOT EXISTS idx_pos_table ON pos_tickets(table_id, status);
+      `);
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+})();
 
 function serialize(t) {
   return { ...t, items: JSON.parse(t.items || '[]') };
@@ -323,15 +391,77 @@ router.delete('/tickets/:id/items/:itemId', (req, res) => {
   res.json(serialize(updated));
 });
 
-// POST /api/pos/tickets/:id/void
+// POST /api/pos/tickets/:id/void — body { reason }
+// A void throws away an order nobody paid for; the written reason is what makes
+// it reviewable (why was a full tab abandoned?) rather than an unexplained gap
+// in the shift's takings. Required — the terminal asks for it before confirming.
 router.post('/tickets/:id/void', (req, res) => {
   const t = getOpenTicket(req, res); if (!t) return;
-  db.prepare(`UPDATE pos_tickets SET status = 'void', closed_by = ?, closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`)
-    .run(req.user.name, t.id);
+  const reason = String((req.body && req.body.reason) || '').trim().slice(0, 300);
+  if (!reason) return res.status(400).json({ error: 'A written reason is required to void a ticket' });
+  db.prepare(`UPDATE pos_tickets SET status = 'void', void_reason = ?, closed_by = ?, closed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`)
+    .run(reason, req.user.name, t.id);
   const updated = db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(t.id);
-  audit(req, 'pos.ticket_void', 'pos_ticket', t.id);
+  audit(req, 'pos.ticket_void', 'pos_ticket', t.id, { reason });
   broadcast(req.tenantId, 'pos.ticket.voided', serialize(updated));
   res.json(serialize(updated));
+});
+
+// POST /api/pos/tickets/:id/refund — body { reason }
+// Money leaving the till is the .manage side of the POS split (payments.manage),
+// never a cashier's day-to-day action. The original payment is reversed through
+// the ONE refund pipeline (completed cash/card) or the pending-charge reverser
+// (room charge / customer bill / group account), then the ticket itself is
+// marked 'refunded' with the reason attached for the shift report.
+router.post('/tickets/:id/refund', requirePermission('payments.manage'), (req, res) => {
+  const t = db.prepare('SELECT * FROM pos_tickets WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+  if (!t) return res.status(404).json({ error: 'Ticket not found' });
+  const lock = lockedOutlet(req.user);
+  if (lock && t.outlet !== lock) return res.status(403).json({ error: lockedOutletError(lock, t.outlet) });
+  if (t.status === 'void') return res.status(409).json({ error: 'A voided ticket was never charged — nothing to refund' });
+  if (t.status === 'open') return res.status(409).json({ error: 'This ticket is still open — void it instead of refunding' });
+  if (t.status === 'refunded') return res.status(409).json({ error: 'This ticket has already been refunded' });
+  if (t.status !== 'closed') return res.status(409).json({ error: 'Only a settled ticket can be refunded' });
+
+  const reason = String((req.body && req.body.reason) || '').trim().slice(0, 300);
+  if (!reason) return res.status(400).json({ error: 'A written reason is required to issue a refund' });
+  if (!t.transaction_id) return res.status(409).json({ error: 'This ticket has no recorded payment to refund' });
+
+  // Tickets settled before the id fix above stored a placeholder id; the charge
+  // itself is still findable by its idempotency key, so refunds keep working
+  // for those rows.
+  let txn = db.prepare('SELECT * FROM transactions WHERE id = ? AND tenant_id = ?').get(t.transaction_id, req.tenantId);
+  if (!txn) txn = db.prepare('SELECT * FROM transactions WHERE tenant_id = ? AND idempotency_key = ?').get(req.tenantId, 'pos:' + t.id);
+  if (!txn) return res.status(409).json({ error: 'The payment for this ticket is missing from the ledger — check the Payments page' });
+  if (txn.status === 'refunded' || txn.status === 'failed') {
+    return res.status(409).json({ error: 'This payment has already been refunded or reversed' });
+  }
+
+  try {
+    if (txn.status === 'completed') {
+      refundTransaction({ tenantId: req.tenantId, transactionId: txn.id, reason, user: req.user });
+    } else if (txn.status === 'pending') {
+      // Unsettled folio charge: cancel it rather than refund money that was
+      // never collected. reverseCharge is idempotent on 'pos:<ticketId>'.
+      reverseCharge(req.tenantId, 'pos:' + t.id, reason, req.user.name);
+    } else {
+      return res.status(409).json({ error: 'This payment is ' + txn.status + ' and cannot be refunded' });
+    }
+
+    const r = db.prepare(`UPDATE pos_tickets SET status = 'refunded', refund_reason = ?, refunded_amount = ?,
+                refunded_at = datetime('now'), refunded_by = ?, updated_at = datetime('now')
+                WHERE id = ? AND status = 'closed'`)
+      .run(reason, t.total, req.user.name, t.id);
+    if (r.changes === 0) return res.status(409).json({ error: 'This ticket was just refunded by someone else' });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+
+  const updated = db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(t.id);
+  audit(req, 'pos.ticket_refund', 'pos_ticket', t.id, { amount: t.total, reason, transactionId: txn.id });
+  broadcast(req.tenantId, 'pos.ticket.refunded', serialize(updated));
+  res.json({ ticket: serialize(updated), refunded: updated.refunded_amount, reason });
 });
 
 // POST /api/pos/tickets/:id/checkout — settle the ticket
@@ -422,6 +552,12 @@ router.post('/tickets/:id/checkout', (req, res) => {
       immediate: isImmediate, createdBy: req.user.name,
     });
     txn = posted.transaction;
+    // postCharge owns transaction ids; the ticket must point at the REAL ledger
+    // row (the placeholder above only claims the seat atomically). Without this
+    // the ticket's payment reference dangles and refunds cannot find the money.
+    if (txn && txn.id && txn.id !== txnId) {
+      db.prepare('UPDATE pos_tickets SET transaction_id = ? WHERE id = ?').run(txn.id, t.id);
+    }
   })();
   if (!claimed) return res.status(409).json({ error: 'This ticket has already been settled' });
 

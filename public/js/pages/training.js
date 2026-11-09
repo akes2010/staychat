@@ -7,7 +7,7 @@ window.PAGES = window.PAGES || {};
 
 PAGES.training = function () {
   const wrap = el('div', 'fa');
-  const state = { data: null, users: [], saving: false, timer: null, savedAt: null };
+  const state = { data: null, users: [], saving: false, timer: null, savedAt: null, teamError: null };
 
   const SETUP = [
     ['owner', 'Owner account live', 'Signed in at /app with your own login; password changed from the welcome email.'],
@@ -65,15 +65,35 @@ PAGES.training = function () {
 
   async function load() {
     wrap.innerHTML = loaderHTML('Loading your training checklist…');
+    let res;
     try {
-      const [res, users] = await Promise.all([API.get('/api/training'), API.get('/api/users')]);
-      state.data = normalize(res.data);
-      state.users = Array.isArray(users) ? users : [];
-      state.savedAt = res.updatedAt;
-      render();
+      res = await API.get('/api/training');
     } catch (err) {
       wrap.innerHTML = errorStateHTML(err.message, "navigate('training')");
+      return;
     }
+    state.data = normalize(res.data);
+    state.savedAt = res.updatedAt;
+    render();
+    // The staff list powers the invite panel only. Fetch it after the checklist
+    // is on screen so a failure there can never leave the page stuck on the
+    // loader/error instead of the tracker.
+    loadTeam();
+  }
+
+  async function loadTeam() {
+    try {
+      const users = await API.get('/api/users');
+      state.users = Array.isArray(users) ? users : [];
+      state.teamError = null;
+    } catch (err) {
+      state.users = [];
+      state.teamError = err.message || 'Staff accounts are unavailable';
+    }
+    const list = document.getElementById('team-list');
+    if (list) list.innerHTML = teamRows();
+    const count = document.getElementById('team-count');
+    if (count) count.textContent = state.users.filter(x => x.active).length;
   }
 
   function todayStr() {
@@ -165,6 +185,7 @@ PAGES.training = function () {
   }
 
   function teamRows() {
+    if (state.teamError) return '<div style="font-size:12px;color:var(--text3);padding:8px 0">Staff accounts could not be loaded — ' + escapeHtml(state.teamError) + '. The checklist still saves.</div>';
     const active = state.users.filter(u => u.active);
     if (!active.length) return '<div style="font-size:12px;color:var(--text3);padding:8px 0">No staff logins yet — invite the first one above.</div>';
     return active.map(u => '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">' +
@@ -398,9 +419,9 @@ PAGES.training = function () {
       document.getElementById('inv-name').value = '';
       document.getElementById('inv-email').value = '';
       document.getElementById('inv-dept').value = '';
-      state.users = await API.get('/api/users');
-      document.getElementById('team-list').innerHTML = teamRows();
-      document.getElementById('team-count').textContent = state.users.filter(x => x.active).length;
+      state.users = [];
+      state.teamError = null;
+      await loadTeam();
       toast(res.emailSent ? 'Invite emailed' : 'Invite created — copy the link', 'success');
     } catch (err) {
       toast(err.message, 'error');

@@ -40,6 +40,17 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
     .room .num { font-weight:800; font-size:16px; }
     .room .price { font-weight:800; color:var(--green-deeper); }
     .room .meta { font-size:12px; color:#64748b; margin-top:2px; }
+    .room .desc { font-size:12.5px; color:#475569; margin-top:6px; line-height:1.45; }
+    .room .amen { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+    .room .amen span { font-size:11px; font-weight:600; color:#166534; background:#ECFDF3; border:1px solid #CDEBD8;
+                       border-radius:999px; padding:2px 8px; }
+    .room .hours { font-size:11.5px; font-weight:700; color:#92400e; margin-top:6px; }
+    .req { color:#b91c1c; }
+    .gym-info { margin-top:18px; }
+    .gym-info h3 { font-size:14px; font-weight:800; margin:0 0 8px; }
+    .gym-info .gym { border:1.5px dashed #D7E3DB; border-radius:12px; padding:10px 12px; margin-top:8px; background:#F8FBF9; }
+    .gym-info .gym .n { font-weight:700; font-size:13.5px; }
+    .gym-info .gym .h { font-size:11.5px; color:#64748b; margin-top:2px; }
     .tabs { display:flex; gap:8px; margin-bottom:6px; }
     .tab { flex:1; padding:10px; border:1.5px solid #DCE5DF; background:#F3F6F4; color:var(--ink2);
            border-radius:var(--pill); font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; transition:all .15s; }
@@ -91,6 +102,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
         </div>
         <button id="f-search" style="margin-top:14px">Search Available Facilities</button>
         <div id="facilities"></div>
+        <div id="gym-info" class="gym-info"></div>
       </div>
       <div class="grid" id="guest-fields" style="display:none">
         <!-- Conformed with the system's New Reservation form (individual &
@@ -102,14 +114,15 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
           </label>
           <div id="g-groupname-wrap" style="display:none"><label>Group / Party name</label><input id="g-groupname" placeholder="e.g. Adeyemi Wedding Party"></div>
         </div>
-        <div><label>Surname</label><input id="g-surname" autocomplete="family-name"></div>
-        <div><label>First / Real Name</label><input id="g-firstname" autocomplete="given-name"></div>
-        <div><label>Phone number</label><input id="g-phone" autocomplete="tel"></div>
+        <div><label>Surname <span class="req">*</span></label><input id="g-surname" autocomplete="family-name" required maxlength="80"></div>
+        <div><label>First / Real Name <span class="req">*</span></label><input id="g-firstname" autocomplete="given-name" required maxlength="80"></div>
+        <div><label>Phone number <span class="req">*</span></label><input id="g-phone" autocomplete="tel" required placeholder="e.g. +234 801 234 5678"></div>
         <div><label>Email (optional)</label><input id="g-email" type="email" autocomplete="email"></div>
         <div class="rooms-extra" style="grid-column:1/-1"><label>Address</label><input id="g-address" placeholder="Residential address"></div>
         <div class="rooms-extra"><label>Means of Identification</label><select id="g-idtype"></select></div>
         <div class="rooms-extra"><label>ID Number</label><input id="g-idnumber" placeholder="ID number"></div>
         <div class="rooms-extra"><label>Country</label><select id="g-country" onchange="window.__gCountryChanged()"></select></div>
+        <div class="rooms-extra" style="grid-column:1/-1;font-size:11.5px;color:#64748b;margin-top:-4px">The hotel collects these details for your reservation and ID verification at check-in.</div>
         <div class="rooms-extra"><label>State / Region</label><div id="g-state-wrap"></div></div>
         <div class="rooms-extra"><label>Next of Kin Name</label><input id="g-nokname" placeholder="Full name"></div>
         <div class="rooms-extra"><label>Next of Kin Phone</label><input id="g-nokphone" placeholder="+234…"></div>
@@ -193,7 +206,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
         document.querySelectorAll('#rooms .room').forEach((el, i) => {
           const rm = LAST_ROOMS[i]; if (!rm) return;
           el.querySelector('.price').innerHTML = moneyHtml(CURRENCY, rm.total);
-          el.querySelector('.meta').innerHTML = (rm.type||'') + (rm.view?' · '+rm.view:'') + ' · ' + rm.nights + ' night' + (rm.nights===1?'':'s') + ' @ ' + moneyHtml(CURRENCY, rm.rate);
+          el.querySelector('.meta').innerHTML = roomMetaHTML(rm);
         });
       }
       if (LAST_FACS) {
@@ -271,7 +284,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
         // Hide the Facilities tab entirely when the hotel has none to sell.
         fetch('/api/booking-engine/facilities?subdomain=' + encodeURIComponent(SUBDOMAIN))
           .then(r => r.ok ? r.json() : null)
-          .then(f => { if (f && !(f.halls.length + f.pools.length)) $('tab-facilities').style.display = 'none'; })
+          .then(f => { if (f && !(f.halls.length + f.pools.length + ((f.gyms || []).length))) $('tab-facilities').style.display = 'none'; })
           .catch(() => {});
       } catch (e) { $('h-sub').textContent = 'Cannot reach the hotel booking service'; }
     }
@@ -292,12 +305,16 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
         const r = await fetch('/api/booking-engine/availability?' + q);
         const b = await r.json();
         if (!r.ok) throw new Error(b.error || 'Could not load availability');
-        LAST_ROOMS = b.rooms.map(rm => ({ roomId: rm.roomId, number: rm.number, type: rm.type, view: rm.view, nights: rm.nights, rate: rm.rate, total: rm.total }));
+        LAST_ROOMS = b.rooms.map(rm => ({ roomId: rm.roomId, number: rm.number, type: rm.type, view: rm.view, capacity: rm.capacity, description: rm.description, amenities: rm.amenities || [], nights: rm.nights, rate: rm.rate, total: rm.total }));
         $('rooms').innerHTML = b.rooms.length
           ? b.rooms.map(rm =>
               '<div class="room" data-id="' + rm.roomId + '">' +
                 '<div class="top"><span class="num">Room ' + rm.number + '</span><span class="price">' + moneyHtml(rm.currency, rm.total) + '</span></div>' +
-                '<div class="meta">' + (rm.type||'') + (rm.view?' · '+rm.view:'') + ' · ' + rm.nights + ' night' + (rm.nights===1?'':'s') + ' @ ' + moneyHtml(rm.currency, rm.rate) + '</div>' +
+                '<div class="meta">' + roomMetaHTML(rm) + '</div>' +
+                (rm.description ? '<div class="desc">' + escapeA(rm.description) + '</div>' : '') +
+                ((rm.amenities && rm.amenities.length)
+                  ? '<div class="amen">' + rm.amenities.map(a => '<span>' + escapeA(a) + '</span>').join('') + '</div>'
+                  : '') +
               '</div>').join('')
           : '<p style="color:#64748b;font-size:14px;margin-top:14px">No rooms available for those dates — try different dates or call us.</p>';
         document.querySelectorAll('.room').forEach(el => {
@@ -340,6 +357,22 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
           } catch (e) { checks.push(Object.assign(f, { available: false, reason: 'Could not check availability' })); }
         }
         LAST_FACS = checks.map(f => ({ name: f.name, total: f.kind === 'hall' ? (f.dayRate > 0 ? f.dayRate : f.hourlyRate) : (f.pricePerPersonPerHour || 0) }));
+        // Gyms are published for information (memberships are sold at the desk),
+        // so they need no slot check and never enter the selection list.
+        fetch('/api/booking-engine/facilities?subdomain=' + encodeURIComponent(SUBDOMAIN))
+          .then(x => x.ok ? x.json() : null)
+          .then(ff => {
+            const gyms = (ff && ff.gyms) || [];
+            $('gym-info').innerHTML = gyms.length
+              ? '<h3>🏋️ Fitness facilities</h3>' + gyms.map(g =>
+                  '<div class="gym"><div class="n">' + escapeA(g.name) + '</div>' +
+                  '<div class="h">🕒 Open ' + escapeA(g.openTime || '06:00') + '–' + escapeA(g.closeTime || '22:00') +
+                    ((g.facilities && g.facilities.length) ? ' · ' + g.facilities.map(escapeA).join(', ') : '') +
+                    '<br/>Day pass ' + moneyHtml(CURRENCY, g.priceDaily || 0) + ' · monthly ' + moneyHtml(CURRENCY, g.priceMonthly || 0) +
+                    ' — register at the front desk.</div></div>').join('')
+              : '';
+          })
+          .catch(() => {});
         const priceLabel = f => {
           const amt = f.kind === 'hall' ? (f.dayRate > 0 ? f.dayRate : f.hourlyRate) : (f.pricePerPersonPerHour || 0);
           const unit = f.kind === 'hall' ? (f.dayRate > 0 ? ' day' : '/hour') : '/person/hour';
@@ -351,6 +384,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
               '<div class="room' + (!f.available ? '" style="opacity:.45;cursor:not-allowed' : '') + '" data-kind="' + f.kind + '" data-id="' + f.id + '" data-name="' + escapeA(f.name) + '" data-price="' + (f.kind === 'hall' ? (f.dayRate > 0 ? f.dayRate : f.hourlyRate) : (f.pricePerPersonPerHour || 0)) + '">' +
                 '<div class="top"><span class="num">' + f._icon + ' ' + escapeA(f.name) + '</span><span class="price">' + priceLabel(f) + '</span></div>' +
                 '<div class="meta">' + escapeA(f.category || '') + (f.capacity ? ' · up to ' + f.capacity + ' guests' : '') + (f.available ? '' : ' · ' + escapeA(f.reason || 'Unavailable')) + '</div>' +
+                (f.openTime && f.closeTime ? '<div class="hours">🕒 Open ' + escapeA(f.openTime) + '–' + escapeA(f.closeTime) + ' daily</div>' : '') +
               '</div>').join('')
           : '<p style="color:#64748b;font-size:14px;margin-top:14px">No facilities are available to book right now — call us instead.</p>';
         document.querySelectorAll('#facilities .room').forEach(el => {
@@ -369,13 +403,32 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
       } catch (e) { showErr(e.message); }
       $('f-search').disabled = false; $('f-search').textContent = 'Search Available Facilities';
     };
-    function escapeA(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+    // Safe both as text AND inside a double-quoted attribute (room/facility
+    // names are typed by hotel staff and can contain quotes).
+    function escapeA(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML.replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+    // Room facts line. Kept in one place because re-pricing rewrites it when the
+    // guest's currency view arrives after the list already rendered.
+    function roomMetaHTML(rm) {
+      const bits = [];
+      if (rm.type) bits.push(escapeA(rm.type));
+      if (rm.view) bits.push(escapeA(rm.view));
+      if (rm.capacity) bits.push('Sleeps ' + rm.capacity);
+      return bits.join(' · ') + ' · ' + rm.nights + ' night' + (rm.nights === 1 ? '' : 's') +
+             ' @ ' + moneyHtml(CURRENCY, rm.rate);
+    }
 
     $('submit').onclick = async () => {
       hideErr();
       const surname = $('g-surname').value.trim(), firstName = $('g-firstname').value.trim(), phone = $('g-phone').value.trim();
-      if (!surname && !firstName) { showErr('Surname and first name are required.'); return; }
+      const email = $('g-email').value.trim();
+      // Required guest identity: both names + a reachable phone. These are the
+      // same fields the desk's reservation form requires, so the guest never
+      // arrives as a half-filled record.
+      if (!surname || !firstName) { showErr('Please enter both your surname and first name.'); return; }
       if (!phone) { showErr('A phone number is required so the hotel can reach you.'); return; }
+      if (phone.replace(/\D/g, '').length < 7) { showErr('Enter a valid phone number (at least 7 digits).'); return; }
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showErr('Enter a valid email address, or leave it blank.'); return; }
       // Composite name derived the same way the desk derives it: First Surname.
       const fullName = [firstName, surname].filter(Boolean).join(' ');
       const isGroup = mode === 'rooms' && ($('g-group-toggle').checked || selected.size > 1);
@@ -389,7 +442,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
           const r = await fetch('/api/booking-engine/book', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ subdomain: SUBDOMAIN, guestName: fullName, surname, firstName,
-              guestPhone: phone, guestEmail: $('g-email').value.trim(),
+              guestPhone: phone, guestEmail: email,
               address: $('g-address').value.trim(), idType: $('g-idtype').value, idNumber: $('g-idnumber').value.trim(),
               country: $('g-country').value, state: ($('g-state') && $('g-state').value) || '',
               nextOfKinName: $('g-nokname').value.trim(), nextOfKinPhone: $('g-nokphone').value.trim(),
@@ -408,7 +461,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
           const r = await fetch('/api/booking-engine/facility-book', {
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ subdomain: SUBDOMAIN, kind: facilityPick.kind, facilityId: facilityPick.id,
-              guestName: fullName, guestPhone: phone, guestEmail: $('g-email').value.trim(),
+              guestName: fullName, guestPhone: phone, guestEmail: email,
               date:$('f-date').value, startTime:$('f-start').value, endTime:$('f-end').value,
               partySize: Math.max(1, parseInt($('f-party').value, 10) || 1), eventName: $('g-event').value.trim(),
               notes: $('g-notes').value.trim() })

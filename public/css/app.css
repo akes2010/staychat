@@ -341,7 +341,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--surface2);padd
 /* ── POS (Restaurant / Bar) ─────────────────────────────────────────────── */
 .pos-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
 .pos-ticket-card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:15px;cursor:pointer;transition:all .15s;position:relative}
-.pos-ticket-card:hover{box-shadow:var(--shadow);transform:translateY(-1px);border-color:var(--p)}
+.pos-ticket-card:hover{box-shadow:var(--shadow);border-color:var(--p)}
 .pos-ticket-card.restaurant{border-top:3px solid var(--info)}
 .pos-ticket-card.bar{border-top:3px solid #8b5cf6}
 .pos-ticket-label{font-size:15px;font-weight:700;color:var(--text);margin-bottom:2px}

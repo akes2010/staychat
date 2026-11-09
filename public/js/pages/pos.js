@@ -16,8 +16,13 @@ function buildPOSPage(forcedOutlet) {
   const wrap = el('div', 'fa');
   const state = { outlet: 'restaurant', tickets: [], menu: [], rooms: [], guests: [], bookings: [], summary: {}, menuLoaded: false, terminal: null };
 
-  async function load() {
-    wrap.innerHTML = loaderHTML('Loading point of sale…');
+  // silent = background refresh (WebSocket / another till). It must not blank
+  // the board or jump the operator back to the top of a long ticket list.
+  async function load(opts) {
+    const silent = !!(opts && opts.silent);
+    const scroller = document.getElementById('content');
+    const scrollTop = scroller ? scroller.scrollTop : 0;
+    if (!silent) wrap.innerHTML = loaderHTML('Loading point of sale…');
     try {
       const [tickets, summary] = await Promise.all([
         API.get('/api/pos/tickets'),
@@ -34,8 +39,10 @@ function buildPOSPage(forcedOutlet) {
       if (state.terminal) state.outlet = state.terminal.outlet;
       if (!state.terminal) renderTerminalScreen();
       else render();
+      if (silent && scroller) scroller.scrollTop = scrollTop;
     } catch (err) {
-      wrap.innerHTML = errorStateHTML(err.message, 'navigate(\'pos\')');
+      if (silent) toast(err.message, 'error');
+      else wrap.innerHTML = errorStateHTML(err.message, 'navigate(\'pos\')');
     }
   }
 
@@ -115,7 +122,8 @@ function buildPOSPage(forcedOutlet) {
     wrap.className = 'fa pos-outlet-' + state.outlet;
     const outletTickets = state.tickets.filter(t => t.outlet === state.outlet);
     const open = outletTickets.filter(t => t.status === 'open');
-    const closedToday = outletTickets.filter(t => t.status === 'closed').sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
+    const closedToday = outletTickets.filter(t => t.status === 'closed' || t.status === 'refunded' || t.status === 'void')
+      .sort((a, b) => new Date(b.closed_at || b.refunded_at) - new Date(a.closed_at || a.refunded_at));
     const s = state.summary[state.outlet] || { openTickets: 0, revenueToday: 0, ticketsClosedToday: 0 };
 
     wrap.innerHTML = '' +
@@ -133,14 +141,17 @@ function buildPOSPage(forcedOutlet) {
       : '<div class="pos-board" style="margin-bottom:28px">' + open.map(ticketCardHTML).join('') + '</div>') +
     (closedToday.length > 0
       ? '<div class="card-header" style="margin-bottom:12px"><span class="card-title">Closed Today</span></div>' +
-        '<div class="table-wrap"><table><thead><tr><th>Ticket</th><th>Guest / Room</th><th>Items</th><th>Total</th><th>Payment</th><th>Closed</th></tr></thead><tbody>' +
+        '<div class="table-wrap"><table><thead><tr><th>Ticket</th><th>Guest / Room</th><th>Items</th><th>Total</th><th>Payment</th><th>Closed</th><th></th></tr></thead><tbody>' +
         closedToday.slice(0, 15).map(t => '<tr>' +
-          '<td style="font-weight:600">' + escapeHtml(t.label) + '</td>' +
+          '<td style="font-weight:600">' + escapeHtml(t.label) + (t.status === 'refunded' ? ' ' + badge('Refunded', 'error') : t.status === 'void' ? ' ' + badge('Void', 'warn') : '') + '</td>' +
           '<td>' + escapeHtml(t.guest_name || '—') + (t.room_number ? ' · Rm ' + escapeHtml(t.room_number) : '') + '</td>' +
           '<td style="font-size:12px;color:var(--text3)">' + t.items.map(i => i.qty + '× ' + i.name).join(', ') + '</td>' +
           '<td style="font-weight:700;color:var(--p)">' + formatMoney(t.total) + '</td>' +
           '<td>' + badge(paymentLabel(t.payment_method), paymentBadgeType(t.payment_method)) + '</td>' +
-          '<td style="font-size:12px;color:var(--text3)">' + timeAgo(t.closed_at) + '</td>' +
+          '<td style="font-size:12px;color:var(--text3)">' + timeAgo(t.closed_at || t.refunded_at) + '</td>' +
+          '<td style="text-align:right">' + (t.status === 'refunded' || t.status === 'void'
+            ? '<span style="font-size:11px;color:var(--text3)" title="' + escapeHtml(t.refund_reason || t.void_reason || '') + '">' + escapeHtml(t.refund_reason || t.void_reason || '') + '</span>'
+            : (can('payments.manage') ? '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__posRefundTicket(\'' + t.id + '\')">Refund</button>' : '')) + '</td>' +
         '</tr>').join('') + '</tbody></table></div>'
       : '');
   }
@@ -246,6 +257,9 @@ function buildPOSPage(forcedOutlet) {
     try { await ensureMenuAndContext(); } catch (err) { toast(err.message, 'error'); return; }
     let ticket;
     try { ticket = await API.get('/api/pos/tickets/' + id); } catch (err) { toast(err.message, 'error'); return; }
+    // A fresh ticket starts from the full menu — never inherit the last
+    // search/category and appear to be missing items.
+    menuSearch = ''; menuCat = 'All';
     renderTicketModal(ticket);
   };
 
@@ -255,21 +269,17 @@ function buildPOSPage(forcedOutlet) {
   function renderTicketModal(ticket) {
     const items = state.menu.filter(m => m.available && (m.outlet === ticket.outlet || m.outlet === 'both' || !m.outlet));
     const cats = ['All']; items.forEach(m => { if (cats.indexOf(m.category) === -1) cats.push(m.category); });
-    const filtered = items.filter(m =>
-      (menuCat === 'All' || m.category === menuCat) &&
-      (!menuSearch || m.name.toLowerCase().includes(menuSearch.toLowerCase()))
-    );
 
     openPOSModal((ticket.outlet === 'bar' ? '🍸 ' : '🍽 ') + escapeHtml(ticket.label),
       '<div class="pos-layout">' +
         '<div>' +
-          '<div class="filter-pills" style="margin-bottom:8px">' + cats.map(c => '<button class="pill ' + (menuCat === c ? 'active' : '') + '" onclick="window.__posSetCat(\'' + id_(ticket) + '\',\'' + escapeJsInAttr(c) + '\')">' + escapeHtml(c) + '</button>').join('') + '</div>' +
+          '<div class="filter-pills" style="margin-bottom:8px">' + cats.map(c => '<button class="pill ' + (menuCat === c ? 'active' : '') + '" data-cat="' + escapeHtml(c) + '" onclick="window.__posSetCat(\'' + id_(ticket) + '\',\'' + escapeJsInAttr(c) + '\')">' + escapeHtml(c) + '</button>').join('') + '</div>' +
           '<input class="form-input pos-menu-search" id="pos-menu-search" placeholder="Search menu…" value="' + escapeHtml(menuSearch) + '" oninput="window.__posSearch(\'' + id_(ticket) + '\', this.value)"/>' +
-          '<div class="pos-menu-list">' +
-            (filtered.length === 0 ? '<div style="text-align:center;padding:20px;color:var(--text3);font-size:13px">No items match</div>' :
-            filtered.map(m => '<button class="pos-menu-item-btn" onclick="window.__posAddItem(\'' + ticket.id + '\',\'' + m.id + '\')">' +
+          '<div class="pos-menu-list" id="pos-menu-list">' +
+            items.map(m => '<button class="pos-menu-item-btn" data-name="' + escapeHtml(m.name.toLowerCase()) + '" data-cat="' + escapeHtml(m.category) + '" onclick="window.__posAddItem(\'' + ticket.id + '\',\'' + m.id + '\')">' +
               '<span><span class="pos-menu-item-name">' + escapeHtml(m.name) + '</span><br/><span class="pos-menu-item-cat">' + escapeHtml(m.category) + '</span></span>' +
-              '<span class="pos-menu-item-price">' + formatMoney(m.price) + '</span></button>').join('')) +
+              '<span class="pos-menu-item-price">' + formatMoney(m.price) + '</span></button>').join('') +
+            '<div id="pos-menu-empty" style="display:none;grid-column:1/-1;text-align:center;padding:20px;color:var(--text3);font-size:13px">No items match</div>' +
           '</div>' +
         '</div>' +
         '<div id="pos-cart-panel-wrap">' + cartPanelHTML(ticket) + '</div>' +
@@ -279,8 +289,26 @@ function buildPOSPage(forcedOutlet) {
       '<button class="btn primary" onclick="window.__posCheckout(\'' + ticket.id + '\')">Checkout →</button>',
       { wide: true, sub: escapeHtml(ticket.guest_name || 'Walk-in') + (ticket.room_number ? ' · Room ' + escapeHtml(ticket.room_number) : '') }
     );
+    applyMenuFilter();
   }
   function id_(t) { return t.id; }
+
+  // Filtering happens against the already-rendered tiles: no request, no modal
+  // re-render, so the menu does not flicker while the operator types.
+  function applyMenuFilter() {
+    const q = menuSearch.trim().toLowerCase();
+    let shown = 0;
+    document.querySelectorAll('#pos-menu-list .pos-menu-item-btn').forEach(btn => {
+      const ok = (menuCat === 'All' || btn.dataset.cat === menuCat) && (!q || (btn.dataset.name || '').includes(q));
+      btn.style.display = ok ? '' : 'none';
+      if (ok) shown++;
+    });
+    const empty = document.getElementById('pos-menu-empty');
+    if (empty) empty.style.display = shown ? 'none' : '';
+    document.querySelectorAll('.pos-layout .filter-pills .pill').forEach(p => {
+      p.classList.toggle('active', (p.dataset.cat || '') === menuCat);
+    });
+  }
 
   function cartPanelHTML(ticket) {
     const items = ticket.items;
@@ -328,8 +356,8 @@ function buildPOSPage(forcedOutlet) {
     if (idx > -1) state.tickets[idx] = ticket;
   }
 
-  window.__posSetCat = async (ticketId, cat) => { menuCat = cat; const ticket = await API.get('/api/pos/tickets/' + ticketId); renderTicketModal(ticket); };
-  window.__posSearch = async (ticketId, val) => { menuSearch = val; const ticket = await API.get('/api/pos/tickets/' + ticketId); renderTicketModal(ticket); document.getElementById('pos-menu-search').focus(); document.getElementById('pos-menu-search').selectionStart = document.getElementById('pos-menu-search').selectionEnd = val.length; };
+  window.__posSetCat = (ticketId, cat) => { menuCat = cat; applyMenuFilter(); };
+  window.__posSearch = (ticketId, val) => { menuSearch = val; applyMenuFilter(); };
 
   window.__posAddItem = async (ticketId, menuItemId) => {
     try {
@@ -346,15 +374,57 @@ function buildPOSPage(forcedOutlet) {
     } catch (err) { toast(err.message, 'error'); }
   };
 
+  // Voids are a write-off, so the reason is mandatory and is kept on the
+  // ticket for the shift report (server rejects an empty reason with 400).
   window.__posVoidTicket = (ticketId) => {
-    confirmAction('Void this ticket? All items will be discarded and no charge will be posted.', async () => {
-      try {
-        await API.post('/api/pos/tickets/' + ticketId + '/void');
-        toast('Ticket voided', 'warn');
-        closeModal();
-        await load();
-      } catch (err) { toast(err.message, 'error'); }
-    });
+    const t = state.tickets.find(x => x.id === ticketId);
+    openPOSModal('Void Ticket' + (t ? ' — ' + escapeHtml(t.label) : ''),
+      '<p style="font-size:13px;color:var(--text2);margin-bottom:12px">All items will be discarded and no charge will be posted. The reason is saved with the ticket and shown to the manager.</p>' +
+      '<div class="form-group"><label class="form-label">Reason for void <span style="color:var(--error)">*</span></label>' +
+        '<textarea class="form-input" id="pos-void-reason" rows="3" maxlength="300" placeholder="e.g. order rung on the wrong table / guest left before the kitchen started"></textarea></div>',
+      '<button class="btn outline" onclick="' + (t ? 'window.__posOpenTicket(\'' + ticketId + '\')' : 'closeModal()') + '">Back</button>' +
+      '<button class="btn danger" onclick="window.__confirmVoidTicket(\'' + ticketId + '\')">Void Ticket</button>'
+    );
+  };
+  window.__confirmVoidTicket = async (ticketId) => {
+    const reason = (document.getElementById('pos-void-reason').value || '').trim();
+    if (!reason) { toast('Enter a reason for the void', 'error'); return; }
+    try {
+      await API.post('/api/pos/tickets/' + ticketId + '/void', { reason });
+      toast('Ticket voided — reason recorded', 'warn');
+      closeModal();
+      await load();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
+  // Refunds are manager-only (payments.manage); the server enforces this too.
+  window.__posRefundTicket = (ticketId) => {
+    const t = state.tickets.find(x => x.id === ticketId);
+    if (!t) { toast('Ticket not found — refresh the board', 'error'); return; }
+    if (!can('payments.manage')) { toast('Only a manager can refund a settled ticket', 'error'); return; }
+    const pendingFolio = t.payment_method === 'room_charge' || t.payment_method === 'customer_bill' || t.payment_method === 'group_account';
+    openPOSModal('Refund — ' + escapeHtml(t.label),
+      '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:14px;font-size:13px">' +
+        '<div><b>' + formatMoney(t.total) + '</b> paid by ' + escapeHtml(paymentLabel(t.payment_method)) + '</div>' +
+        '<div style="font-size:11.5px;color:var(--text3);margin-top:3px">' + (pendingFolio
+          ? 'This was posted to a folio and not yet collected — the charge will be cancelled on the guest\'s account.'
+          : 'The full amount will be reversed on the original payment.') + ' This refunds the whole ticket.</div>' +
+      '</div>' +
+      '<div class="form-group"><label class="form-label">Reason for refund <span style="color:var(--error)">*</span></label>' +
+        '<textarea class="form-input" id="pos-refund-reason" rows="3" maxlength="300" placeholder="e.g. wrong dish served / guest complaint — order cancelled after billing"></textarea></div>',
+      '<button class="btn outline" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn danger" onclick="window.__confirmRefundTicket(\'' + ticketId + '\')">Refund ' + formatMoney(t.total) + '</button>'
+    );
+  };
+  window.__confirmRefundTicket = async (ticketId) => {
+    const reason = (document.getElementById('pos-refund-reason').value || '').trim();
+    if (!reason) { toast('Enter a reason for the refund', 'error'); return; }
+    try {
+      const r = await API.post('/api/pos/tickets/' + ticketId + '/refund', { reason });
+      toast('Refunded ' + formatMoney((r && r.refunded) || 0) + ' — reason recorded', 'success');
+      closeModal();
+      await load();
+    } catch (err) { toast(err.message, 'error'); }
   };
 
   // ── Checkout ──────────────────────────────────────────────────────────
@@ -533,10 +603,16 @@ function buildPOSPage(forcedOutlet) {
 
   load();
 
-  WSClient.on('pos.ticket.created', () => load());
-  WSClient.on('pos.ticket.updated', () => load());
-  WSClient.on('pos.ticket.closed', () => load());
-  WSClient.on('pos.ticket.voided', () => load());
+  // Every till in the building hears the same broadcasts. Coalesce a burst
+  // (add item → update → close) into one silent reload instead of rebuilding
+  // the page four times under the operator's finger.
+  let reloadTimer = null;
+  function scheduleReload() {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => load({ silent: true }), 300);
+  }
+  ['pos.ticket.created', 'pos.ticket.updated', 'pos.ticket.closed', 'pos.ticket.voided', 'pos.ticket.refunded']
+    .forEach(evt => WSClient.on(evt, scheduleReload));
 
   return wrap;
 }

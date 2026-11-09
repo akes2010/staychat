@@ -22,6 +22,61 @@ router.get('/', (req, res) => {
   res.json(rows.map(serialize));
 });
 
+// GET /api/rooms/housekeeping/today — the housekeeping shift report: how many
+// rooms were signed off clean today, per cleaner, with each room's remark.
+// This is a REAL count from the log — "available rooms" is not the same thing
+// (a room that was never dirty is available but was not cleaned today).
+router.get('/housekeeping/today', (req, res) => {
+  const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+  const entries = db.prepare(`
+    SELECT * FROM housekeeping_log WHERE tenant_id = ? AND cleaned_date = ? ORDER BY created_at DESC
+  `).all(req.tenantId, date);
+  const byStaff = {};
+  entries.forEach(e => {
+    const name = e.staff_name || e.created_by || 'Unassigned';
+    byStaff[name] = (byStaff[name] || 0) + 1;
+  });
+  res.json({
+    date,
+    count: entries.length,
+    rooms: [...new Set(entries.map(e => e.room_number))],
+    byStaff: Object.entries(byStaff).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+    entries,
+  });
+});
+
+// POST /api/rooms/:id/housekeeping/clean — sign a dirty/in-progress room off
+// clean, recording WHO did it and their REMARK against the room number. The
+// room status flip and the log row commit together, so the count can never
+// disagree with the room board.
+router.post('/:id/housekeeping/clean', requirePermission('rooms.manage'), (req, res) => {
+  const room = db.prepare('SELECT * FROM rooms WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.status === 'occupied') return res.status(409).json({ error: 'Room ' + room.number + ' is occupied — check the guest out before cleaning it' });
+  if (room.status === 'available') return res.status(409).json({ error: 'Room ' + room.number + ' is already clean and available' });
+
+  const remark = String((req.body && req.body.remark) || '').trim().slice(0, 500) || null;
+  const staffId = (req.body && req.body.staffId) || null;
+  const staff = staffId ? db.prepare('SELECT * FROM staff WHERE id = ? AND tenant_id = ?').get(staffId, req.tenantId) : null;
+  const staffName = staff ? staff.name : (req.user.name || null);
+  const logId = 'hkl_' + nanoid(10);
+  const today = new Date().toISOString().slice(0, 10);
+
+  db.transaction(() => {
+    db.prepare(`UPDATE rooms SET status='available', updated_at=datetime('now') WHERE id=? AND tenant_id=?`).run(room.id, req.tenantId);
+    db.prepare(`INSERT INTO housekeeping_log (id, tenant_id, room_id, room_number, staff_id, staff_name, remark, cleaned_date, created_by)
+                VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(logId, req.tenantId, room.id, room.number, staff ? staff.id : null, staffName, remark, today, req.user.name || null);
+  })();
+
+  const updated = db.prepare('SELECT * FROM rooms WHERE id = ?').get(room.id);
+  const entry = db.prepare('SELECT * FROM housekeeping_log WHERE id = ?').get(logId);
+  audit(req, 'housekeeping.clean', 'room', room.id, { roomNumber: room.number, staffName, remark });
+  broadcast(req.tenantId, 'room.updated', serialize(updated));
+  broadcast(req.tenantId, 'housekeeping.updated', entry);
+  res.json({ room: serialize(updated), entry });
+});
+
 // POST /api/rooms
 router.post('/', requirePermission('pricing.manage'), (req, res) => {
   const { number, type, view, floor, rate, capacity, amenities, floorId, categoryId, description } = req.body;

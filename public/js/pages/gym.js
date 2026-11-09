@@ -199,8 +199,10 @@ PAGES.gym = function () {
           '<div style="flex:1"><div style="font-weight:600;font-size:13px">' + escapeHtml(g.name) + ' ' + badge(g.type || 'Standard', 'default') + '</div>' +
           (g.description ? '<div style="font-size:11px;color:var(--text3);margin:2px 0">' + escapeHtml(g.description) + '</div>' : '') +
           '<div style="font-size:11px;color:var(--text3);margin:2px 0">' + (g.facilities || []).map(f => escapeHtml(f)).join(' · ') + '</div>' +
-          '<div style="font-size:11px;color:var(--text3)">Cap ' + g.capacity + ' &middot; ' + formatMoney(g.price_daily) + '/day &middot; ' + formatMoney(g.price_monthly) + '/month &middot; ' + formatMoney(g.price_quarterly) + '/quarter &middot; ' + formatMoney(g.price_yearly) + '/year</div></div>' +
+          '<div style="font-size:11px;color:var(--text3)">Cap ' + g.capacity + ' &middot; ' + formatMoney(g.price_daily) + '/day &middot; ' + formatMoney(g.price_monthly) + '/month &middot; ' + formatMoney(g.price_quarterly) + '/quarter &middot; ' + formatMoney(g.price_yearly) + '/year</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:2px">🕒 Access ' + escapeHtml(g.open_time || '06:00') + '–' + escapeHtml(g.close_time || '22:00') + '</div></div>' +
           (g.active ? badge('Active', 'success') : badge('Inactive', 'default')) +
+          '<button class="btn ghost sm" onclick="window.__editGymHours(\'' + g.id + '\')">Hours</button>' +
           '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__deleteGym(\'' + g.id + '\')">Delete</button></div>').join('')) +
       '</div>' +
       '<div style="border-top:1px solid var(--border);padding-top:14px">' +
@@ -213,6 +215,8 @@ PAGES.gym = function () {
           '<div class="form-group"><label class="form-label">Monthly Registration ($)</label><input class="form-input" type="number" min="0" id="ag-monthly" value="0"/></div>' +
           '<div class="form-group"><label class="form-label">Quarterly Registration ($)</label><input class="form-input" type="number" min="0" id="ag-quarterly" value="0"/></div>' +
           '<div class="form-group"><label class="form-label">Yearly Registration ($)</label><input class="form-input" type="number" min="0" id="ag-yearly" value="0"/></div>' +
+          '<div class="form-group"><label class="form-label">Opens</label><input class="form-input" type="time" id="ag-open" value="06:00"/></div>' +
+          '<div class="form-group"><label class="form-label">Closes</label><input class="form-input" type="time" id="ag-close" value="22:00"/></div>' +
         '</div>' +
         '<div class="form-group"><label class="form-label">Facilities</label>' +
           '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">' + FACILITY_OPTIONS.map((f, i) =>
@@ -235,9 +239,34 @@ PAGES.gym = function () {
         priceMonthly: Number(document.getElementById('ag-monthly').value || 0),
         priceQuarterly: Number(document.getElementById('ag-quarterly').value || 0),
         priceYearly: Number(document.getElementById('ag-yearly').value || 0),
+        openTime: document.getElementById('ag-open').value,
+        closeTime: document.getElementById('ag-close').value,
         description: document.getElementById('ag-desc').value.trim(),
       });
       toast('Gym added', 'success'); await load(); window.__manageGyms();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  // Opening hours are published to the OTA page and shown on this page; a
+  // gym that already exists can be re-timed without deleting and re-creating it.
+  window.__editGymHours = (id) => {
+    const g = state.gyms.find(x => x.id === id);
+    if (!g) return;
+    openModal('Access Hours — ' + escapeHtml(g.name),
+      '<div class="form-row cols-2">' +
+        '<div class="form-group"><label class="form-label">Opens</label><input class="form-input" type="time" id="gh-open" value="' + escapeHtml(g.open_time || '06:00') + '"/></div>' +
+        '<div class="form-group"><label class="form-label">Closes</label><input class="form-input" type="time" id="gh-close" value="' + escapeHtml(g.close_time || '22:00') + '"/></div>' +
+      '</div>' +
+      '<p style="font-size:11.5px;color:var(--text3)">Members can use the gym inside this window; the hours are shown to guests on the online booking page.</p>',
+      '<button class="btn outline" onclick="window.__manageGyms()">Back</button>' +
+      '<button class="btn primary" onclick="window.__saveGymHours(\'' + id + '\')">Save Hours</button>'
+    );
+  };
+  window.__saveGymHours = async (id) => {
+    const openTime = document.getElementById('gh-open').value, closeTime = document.getElementById('gh-close').value;
+    if (!openTime || !closeTime || closeTime <= openTime) { toast('Closing time must be after opening time', 'error'); return; }
+    try {
+      await API.patch('/api/gym/gyms/' + id, { openTime, closeTime });
+      toast('Access hours saved', 'success'); await load(); window.__manageGyms();
     } catch (err) { toast(err.message, 'error'); }
   };
   window.__deleteGym = (id) => {

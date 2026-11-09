@@ -22,6 +22,7 @@ const engine = require('../services/booking-engine');
 const { notifyStaffOfSubmission } = require('../services/engine-notifications');
 const emailSvc = require('../services/email');
 const billing = require('../services/billing');
+const { slotWithinHours } = require('../utils/facility-hours');
 
 const router = express.Router();
 
@@ -159,10 +160,22 @@ router.get('/availability', (req, res) => {
   const tenant = publicTenant(res, subdomain);
   if (!tenant) return;
 
+  // What the guest sees per room: the room's own amenities merged with its
+  // category's (so a "Suite" shows the suite facilities even when the single
+  // room row only carries the basics), plus capacity/description/floor.
+  const parseList = (raw) => {
+    try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+  };
   const rooms = engine.availableRooms(tenant.id, checkIn, checkOut).map(r => {
     const q = engine.quoteRoom(tenant.id, r, checkIn, checkOut);
+    const category = r.category_id
+      ? db.prepare('SELECT name, amenities FROM room_categories WHERE id = ? AND tenant_id = ?').get(r.category_id, tenant.id)
+      : null;
+    const amenities = [...new Set([...parseList(r.amenities), ...parseList(category && category.amenities)])];
     return {
       roomId: r.id, number: r.number, type: r.type, view: r.view, capacity: r.capacity,
+      floor: r.floor, description: r.description || null, category: category ? category.name : null,
+      amenities,
       nights: q.nights, rate: q.rate, total: q.total, currency: tenant.currency || '$',
     };
   });
@@ -234,14 +247,28 @@ router.get('/facilities', (req, res) => {
   const halls = engine.availableHalls(tenant.id).map(h => ({
     id: h.id, kind: 'hall', name: h.name, category: h.category || 'Event Space',
     capacity: h.capacity, description: h.description || null,
-    dayRate: h.day_rate, hourlyRate: h.hourly_rate, currency: tenant.currency || '$',
+    dayRate: h.day_rate, hourlyRate: h.hourly_rate,
+    openTime: h.open_time || '07:00', closeTime: h.close_time || '23:00',
+    currency: tenant.currency || '$',
   }));
   const pools = engine.availablePools(tenant.id).map(p => ({
     id: p.id, kind: 'pool', name: p.name, category: p.category || 'Pool',
     capacity: p.capacity, description: p.description || null,
-    pricePerPersonPerHour: p.price, currency: tenant.currency || '$',
+    pricePerPersonPerHour: p.price,
+    openTime: p.open_time || '08:00', closeTime: p.close_time || '20:00',
+    currency: tenant.currency || '$',
   }));
-  res.json({ halls, pools });
+  // Gyms are membership inventory (sold at the desk) — published here so the
+  // guest can see the hotel's fitness facilities and their opening hours.
+  const gyms = engine.availableGyms(tenant.id).map(g => ({
+    id: g.id, kind: 'gym', name: g.name, category: 'Gym & Fitness',
+    capacity: g.capacity, description: g.description || null,
+    facilities: (() => { try { const v = JSON.parse(g.facilities || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } })(),
+    priceDaily: g.price_daily, priceMonthly: g.price_monthly,
+    openTime: g.open_time || '06:00', closeTime: g.close_time || '22:00',
+    bookable: false, currency: tenant.currency || '$',
+  }));
+  res.json({ halls, pools, gyms });
 });
 
 // GET /api/booking-engine/facility-availability?subdomain=&kind=&facilityId=&date=&startTime=&endTime=
@@ -262,16 +289,20 @@ router.get('/facility-availability', (req, res) => {
     const hall = db.prepare('SELECT * FROM halls WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenant.id);
     if (!hall) return res.status(404).json({ error: 'Facility not found' });
     if (size > hall.capacity) return res.json({ available: false, reason: hall.name + ' holds up to ' + hall.capacity + ' guests' });
+    const hours = slotWithinHours(hall, startTime, endTime, { open: '07:00', close: '23:00' });
+    if (!hours.ok) return res.json({ available: false, reason: hall.name + ': ' + hours.reason });
     const free = engine.hallIsFree(tenant.id, hall.id, date, startTime, endTime);
-    return res.json({ available: free, reason: free ? null : hall.name + ' is already reserved for that time' });
+    return res.json({ available: free, reason: free ? null : hall.name + ' is already reserved for that time', openTime: hours.open, closeTime: hours.close });
   }
   if (kind === 'pool') {
     const pool = db.prepare('SELECT * FROM pools WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenant.id);
     if (!pool) return res.status(404).json({ error: 'Facility not found' });
+    const hours = slotWithinHours(pool, startTime, endTime, { open: '08:00', close: '20:00' });
+    if (!hours.ok) return res.json({ available: false, reason: pool.name + ': ' + hours.reason });
     const capacity = pool.capacity || 20;
     const current = engine.poolHeadcount(tenant.id, pool.id, date, startTime, endTime);
     const left = Math.max(0, capacity - current);
-    return res.json({ available: left >= size, reason: left >= size ? null : 'Only ' + left + ' of ' + capacity + ' slots left for that time' });
+    return res.json({ available: left >= size, reason: left >= size ? null : 'Only ' + left + ' of ' + capacity + ' slots left for that time', openTime: hours.open, closeTime: hours.close });
   }
   res.status(400).json({ error: 'kind must be hall or pool' });
 });

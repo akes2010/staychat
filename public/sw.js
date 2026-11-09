@@ -14,7 +14,7 @@
 //   • Navigations to unknown paths fall back to the SPA shell.
 'use strict';
 
-const VERSION = 'v10'; // v10: precache every desk page module + /js/theme.js so an installed app can open ANY page on first use offline (v9: offline write outbox + Background Sync tag)
+const VERSION = 'v11'; // v11: add /js/pages/training.js to the precache — the Training Tracker was the one desk page missing from v10, so installed clients could show its sidebar entry and then "Page not found". (v10: precache every desk page module + /js/theme.js so an installed app can open ANY page on first use offline)
 const SHELL_CACHE = 'staychat-shell-' + VERSION;
 const ASSET_CACHE = 'staychat-assets-' + VERSION;
 const API_CACHE = 'staychat-api-' + VERSION;
@@ -37,7 +37,7 @@ const ASSETS = [
   '/js/pages/payments.js', '/js/pages/accounting.js', '/js/pages/ai.js',
   '/js/pages/printers.js', '/js/pages/tables.js', '/js/pages/gym.js',
   '/js/pages/fitness-memberships.js',
-  '/js/pages/users.js', '/js/pages/settings.js', '/js/pages/integrations.js',
+  '/js/pages/users.js', '/js/pages/training.js', '/js/pages/settings.js', '/js/pages/integrations.js',
   '/js/pages/billing.js', '/js/pages/superadmin.js', '/js/theme.js', '/js/sales.js',
 ];
 

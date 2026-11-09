@@ -8,10 +8,14 @@
 
 const express = require('express');
 const db = require('../db/connection');
-const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
+const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
+const { requirePermission } = require('../utils/permissions');
 
 const router = express.Router();
-router.use(requireAuth, resolveTenant, requireTenant, requireRole('hotel_admin', 'superadmin'));
+// Gate on the SAME capability the sidebar uses for the Training Tracker
+// (users.manage), not a hardcoded role list: a tenant that delegates training
+// to a custom role was shown the page and then refused by this route.
+router.use(requireAuth, resolveTenant, requireTenant, requirePermission('users.manage'));
 
 const MAX_BYTES = 64 * 1024;
 const EMPTY = { trainer: '', goLiveDate: '', setup: {}, orientation: {}, roles: {}, goLive: {}, review: {} };

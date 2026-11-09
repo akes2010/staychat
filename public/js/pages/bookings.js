@@ -67,7 +67,10 @@ PAGES.bookings = function () {
 
     wrap.innerHTML = '' +
     '<div class="page-header"><div class="page-header-left"><h1>Bookings &amp; Reservations</h1><p>' + state.bookings.length + ' total reservations</p></div>' +
-      '<button class="btn primary" onclick="window.__openNewBooking()">+ New Reservation</button></div>' +
+      '<div style="display:flex;gap:10px">' +
+        '<button class="btn outline" onclick="window.__verifyCode()">🔎 Verify Guest Code</button>' +
+        '<button class="btn primary" onclick="window.__openNewBooking()">+ New Reservation</button>' +
+      '</div></div>' +
     '<div class="grid grid-3" style="margin-bottom:20px">' +
       metricCard('Confirmed (Upcoming)', String(counts.confirmed), null, '📅') +
       metricCard('Currently Checked In', String(counts.checked_in), null, '🏨') +
@@ -738,6 +741,58 @@ PAGES.bookings = function () {
       await API.post('/api/bookings/' + id + '/transfer', { roomId });
       toast('Booking transferred', 'success'); closeModal(); await load();
     } catch (err) { toast(err.message, 'error'); }
+  };
+
+  // ── Verify a guest's online booking code at the desk ────────────────────
+  // The guest presents a code from /book.html; reception looks it up and sees
+  // the reservation (room/hall/pool), its status and the actions to take.
+  window.__verifyCode = () => {
+    openModal('Verify Guest Booking Code',
+      '<div class="form-group" style="margin-bottom:12px">' +
+        '<label class="form-label">Booking code</label>' +
+        '<input class="form-input" id="vc-code" placeholder="BE-7K2M9QX4" autocomplete="off" maxlength="12" style="font-family:monospace;font-size:18px;letter-spacing:2px;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key===\'Enter\')window.__lookupCode()"/>' +
+      '</div>' +
+      '<p style="font-size:12px;color:var(--text3)">The guest reads this code from their confirmation slip (or the WhatsApp/email the hotel sent). It works for rooms, halls and pool reservations.</p>' +
+      '<div id="vc-result"></div>',
+      '<button class="btn outline" onclick="closeModal()">Close</button>' +
+      '<button class="btn primary" onclick="window.__lookupCode()">Look Up</button>'
+    );
+    setTimeout(() => { const el = document.getElementById('vc-code'); if (el) el.focus(); }, 50);
+  };
+  window.__lookupCode = async () => {
+    const input = document.getElementById('vc-code');
+    const code = input ? input.value.trim().toUpperCase() : '';
+    const out = document.getElementById('vc-result');
+    if (!code) { toast('Enter the guest\'s code', 'error'); return; }
+    out.innerHTML = '<div style="font-size:13px;color:var(--text3);margin-top:10px">Looking up ' + escapeHtml(code) + '…</div>';
+    try {
+      const b = await API.get('/api/bookings/verify-code?code=' + encodeURIComponent(code));
+      const status = b.pending
+        ? badge('Awaiting confirmation', 'warn')
+        : badge(String(b.status || '').replace('_', ' '), statusColor(b.status));
+      const confirmed = [b.pending ? '<span style="font-family:monospace;font-weight:800;letter-spacing:1px;color:var(--p)">' + escapeHtml(b.code) + '</span>' : ''].join('');
+      const actions = b.pending
+        ? (b.kind === 'room'
+            ? '<button class="btn primary sm" onclick="closeModal(); window.__confirmEngine(\'' + b.bookingId + '\')">✓ Confirm this booking</button>' +
+              '<button class="btn danger sm" onclick="closeModal(); window.__rejectEngine(\'' + b.bookingId + '\')">Reject</button>'
+            : '<button class="btn primary sm" onclick="closeModal(); window.__confirmFacility(\'' + b.code + '\')">✓ Confirm this reservation</button>' +
+              '<button class="btn danger sm" onclick="closeModal(); window.__rejectFacility(\'' + b.code + '\')">Reject</button>')
+        : '<div style="font-size:12px;color:var(--text3)">This code has already been processed — no further action needed.</div>';
+      out.innerHTML = '<div style="margin-top:14px;border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;background:var(--surface2)">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">' +
+          '<span style="font-weight:700;font-size:15px">' + escapeHtml(b.guestName || 'Guest') + '</span>' + status +
+          badge(b.kind === 'room' ? 'Room booking' : (b.kind === 'hall' ? 'Hall booking' : 'Pool booking'), 'info') +
+        '</div>' +
+        confirmed +
+        '<div style="font-size:13px;margin-top:8px">' + escapeHtml(b.detail || '') + '</div>' +
+        (b.guestPhone ? '<div style="font-size:12px;color:var(--text3);margin-top:4px">📞 ' + escapeHtml(b.guestPhone) + '</div>' : '') +
+        (b.total ? '<div style="font-size:12px;color:var(--text3);margin-top:4px">Total ' + formatMoney(b.total) + (b.paid ? ' · ' + formatMoney(b.paid) + ' paid' : '') + '</div>' : '') +
+        (b.reference ? '<div style="font-size:12px;color:var(--text3);margin-top:4px">Reference ' + escapeHtml(b.reference) + '</div>' : '') +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">' + actions + '</div>' +
+      '</div>';
+    } catch (err) {
+      out.innerHTML = '<div style="margin-top:12px;background:var(--error-bg);border:1px solid var(--error-border);color:var(--error);border-radius:var(--radius);padding:10px 12px;font-size:13px">' + escapeHtml(err.message) + '</div>';
+    }
   };
 
   window.__confirmEngine = (id) => {

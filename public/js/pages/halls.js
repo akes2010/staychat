@@ -107,6 +107,7 @@ PAGES.halls = function () {
         '<div class="form-group"><label class="form-label">Organizer Name</label><input class="form-input" id="hb-org" placeholder="Full name"/></div>' +
         '<div class="form-group"><label class="form-label">Organizer Phone</label><input class="form-input" id="hb-phone" placeholder="+234…"/></div>' +
         '<div class="form-group"><label class="form-label">Event Date</label><input class="form-input" type="date" id="hb-date" min="' + new Date().toISOString().slice(0, 10) + '"/></div>' +
+        '<div class="form-group" style="grid-column:1/-1;font-size:11.5px;color:var(--text3)">🕒 Bookings must fit inside the hall\'s bookable hours (set in Manage Halls → Hours).</div>' +
         '<div class="form-group"><label class="form-label">Guest Count</label><input class="form-input" type="number" min="1" id="hb-count" value="50"/></div>' +
         '<div class="form-group"><label class="form-label">Start Time</label><input class="form-input" type="time" id="hb-start" value="10:00"/></div>' +
         '<div class="form-group"><label class="form-label">End Time</label><input class="form-input" type="time" id="hb-end" value="14:00"/></div>' +
@@ -147,8 +148,10 @@ PAGES.halls = function () {
         state.halls.map(h => '<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border-radius:9px;padding:10px 12px">' +
           '<div style="flex:1"><div style="font-weight:600;font-size:13px">' + escapeHtml(h.name) + ' ' + badge(h.category || 'Standard', 'default') + '</div>' +
           (h.description ? '<div style="font-size:11px;color:var(--text3);margin:2px 0">' + escapeHtml(h.description) + '</div>' : '') +
-          '<div style="font-size:11px;color:var(--text3)">Cap ' + h.capacity + ' &middot; ' + formatMoney(h.hourly_rate) + '/hr &middot; ' + formatMoney(h.day_rate) + '/day</div></div>' +
+          '<div style="font-size:11px;color:var(--text3)">Cap ' + h.capacity + ' &middot; ' + formatMoney(h.hourly_rate) + '/hr &middot; ' + formatMoney(h.day_rate) + '/day</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:2px">🕒 Bookable ' + escapeHtml(h.open_time || '07:00') + '–' + escapeHtml(h.close_time || '23:00') + '</div></div>' +
           (h.active ? badge('Active', 'success') : badge('Inactive', 'default')) +
+          '<button class="btn ghost sm" onclick="window.__editHallHours(\'' + h.id + '\')">Hours</button>' +
           '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__deleteHall(\'' + h.id + '\')">Delete</button></div>').join('')) +
       '</div>' +
       '<div style="border-top:1px solid var(--border);padding-top:14px">' +
@@ -159,6 +162,8 @@ PAGES.halls = function () {
           '<div class="form-group"><label class="form-label">Capacity</label><input class="form-input" type="number" min="1" id="ah-cap" value="50"/></div>' +
           '<div class="form-group"><label class="form-label">Hourly Rate ($)</label><input class="form-input" type="number" min="0" id="ah-hourly" value="0"/></div>' +
           '<div class="form-group"><label class="form-label">Full Day Rate ($)</label><input class="form-input" type="number" min="0" id="ah-day" value="0"/></div>' +
+          '<div class="form-group"><label class="form-label">Bookable From</label><input class="form-input" type="time" id="ah-open" value="07:00"/></div>' +
+          '<div class="form-group"><label class="form-label">Bookable Until</label><input class="form-input" type="time" id="ah-close" value="23:00"/></div>' +
         '</div>' +
         '<div class="form-group"><label class="form-label">Description</label><input class="form-input" id="ah-desc" placeholder="What makes this hall special…"/></div>',
       '<button class="btn outline" onclick="closeModal()">Close</button><button class="btn primary" onclick="window.__addHall()">Add Hall</button>'
@@ -172,8 +177,30 @@ PAGES.halls = function () {
         name, category: document.getElementById('ah-category').value,
         capacity: Number(document.getElementById('ah-cap').value || 50), hourlyRate: Number(document.getElementById('ah-hourly').value || 0),
         dayRate: Number(document.getElementById('ah-day').value || 0), description: document.getElementById('ah-desc').value.trim(),
+        openTime: document.getElementById('ah-open').value, closeTime: document.getElementById('ah-close').value,
       });
       toast('Hall added', 'success'); await load(); window.__manageHalls();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  window.__editHallHours = (id) => {
+    const h = state.halls.find(x => x.id === id);
+    if (!h) return;
+    openModal('Bookable Hours — ' + escapeHtml(h.name),
+      '<div class="form-row cols-2">' +
+        '<div class="form-group"><label class="form-label">Bookable From</label><input class="form-input" type="time" id="hh-open" value="' + escapeHtml(h.open_time || '07:00') + '"/></div>' +
+        '<div class="form-group"><label class="form-label">Bookable Until</label><input class="form-input" type="time" id="hh-close" value="' + escapeHtml(h.close_time || '23:00') + '"/></div>' +
+      '</div>' +
+      '<p style="font-size:11.5px;color:var(--text3)">Desk and online event bookings must fit inside these hours.</p>',
+      '<button class="btn outline" onclick="window.__manageHalls()">Back</button>' +
+      '<button class="btn primary" onclick="window.__saveHallHours(\'' + id + '\')">Save Hours</button>'
+    );
+  };
+  window.__saveHallHours = async (id) => {
+    const openTime = document.getElementById('hh-open').value, closeTime = document.getElementById('hh-close').value;
+    if (!openTime || !closeTime || closeTime <= openTime) { toast('Closing time must be after opening time', 'error'); return; }
+    try {
+      await API.patch('/api/halls/halls/' + id, { openTime, closeTime });
+      toast('Bookable hours saved', 'success'); await load(); window.__manageHalls();
     } catch (err) { toast(err.message, 'error'); }
   };
   window.__deleteHall = (id) => {

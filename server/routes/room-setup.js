@@ -5,6 +5,7 @@ const { nanoid } = require('nanoid');
 const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, requireRole, audit } = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
+const { normalizeTime, validWindow } = require('../utils/facility-hours');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant);
@@ -155,11 +156,14 @@ router.get('/pools', (req, res) => {
 });
 
 router.post('/pools', requirePermission('pool.manage'), (req, res) => {
-  const { name, category, description, price, capacity } = req.body;
+  const { name, category, description, price, capacity, openTime, closeTime } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });
+  // Operating window (HH:MM) — pool slots outside it are refused everywhere.
+  const open = normalizeTime(openTime || '08:00'), close = normalizeTime(closeTime || '20:00');
+  if (!validWindow(open, close)) return res.status(400).json({ error: 'Open and close times must be valid HH:MM values with close after open' });
   const id = 'pool_' + nanoid(10);
-  db.prepare('INSERT INTO pools (id, tenant_id, name, category, description, price, capacity) VALUES (?,?,?,?,?,?,?)')
-    .run(id, req.tenantId, name, category || 'Standard', description || null, Number(price) || 0, Number(capacity) || 20);
+  db.prepare('INSERT INTO pools (id, tenant_id, name, category, description, price, capacity, open_time, close_time) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(id, req.tenantId, name, category || 'Standard', description || null, Number(price) || 0, Number(capacity) || 20, open, close);
   const pool = db.prepare('SELECT * FROM pools WHERE id = ?').get(id);
   audit(req, 'pool.create', 'pool', id, { name });
   res.status(201).json({ ...pool, active: !!pool.active });
@@ -168,9 +172,16 @@ router.post('/pools', requirePermission('pool.manage'), (req, res) => {
 router.patch('/pools/:id', requirePermission('pool.manage'), (req, res) => {
   const pool = db.prepare('SELECT * FROM pools WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!pool) return res.status(404).json({ error: 'Pool not found' });
-  const map = { name: 'name', category: 'category', description: 'description', price: 'price', capacity: 'capacity', active: 'active' };
+  const map = { name: 'name', category: 'category', description: 'description', price: 'price', capacity: 'capacity', active: 'active', openTime: 'open_time', closeTime: 'close_time' };
   const updates = {};
   Object.entries(map).forEach(([bodyKey, col]) => { if (req.body[bodyKey] !== undefined) updates[col] = bodyKey === 'active' ? (req.body[bodyKey] ? 1 : 0) : req.body[bodyKey]; });
+  if (Object.keys(updates).some(k => k === 'open_time' || k === 'close_time')) {
+    const open = normalizeTime(updates.open_time !== undefined ? updates.open_time : pool.open_time);
+    const close = normalizeTime(updates.close_time !== undefined ? updates.close_time : pool.close_time);
+    if (!validWindow(open, close)) return res.status(400).json({ error: 'Open and close times must be valid HH:MM values with close after open' });
+    if (updates.open_time !== undefined) updates.open_time = open;
+    if (updates.close_time !== undefined) updates.close_time = close;
+  }
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields to update' });
   const setClause = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE pools SET ${setClause} WHERE id = @id`).run({ ...updates, id: pool.id });

@@ -147,6 +147,65 @@ router.get('/returning-guest', (req, res) => {
   });
 });
 
+// ── Tender-code verification (front desk) ──────────────────────────────────
+// GET /api/bookings/verify-code?code=BE-XXXXX
+// The guest walks up with a code from /book.html (room, hall or pool). The desk
+// looks the code up ONCE and sees what it is, who it belongs to and whether it
+// is still awaiting approval — no hunting through the Pending tab. Deliberately
+// placed before every /:id/* route so "verify-code" is never read as an id.
+router.get('/verify-code', requirePermission('bookings.manage'), (req, res) => {
+  const raw = String(req.query.code || '').trim().toUpperCase();
+  if (!raw) return res.status(400).json({ error: 'Enter the guest\'s booking code (e.g. BE-7K2M9QX4)' });
+
+  const room = db.prepare('SELECT * FROM bookings WHERE tenant_id = ? AND engine_code = ?').get(req.tenantId, raw);
+  if (room) {
+    const rooms = db.prepare('SELECT room_number FROM booking_rooms WHERE booking_id = ?').all(room.id).map(r => r.room_number);
+    return res.json({
+      code: raw, kind: 'room', found: true,
+      status: room.status, engineSyncStatus: room.engine_sync_status || 'none',
+      pending: room.engine_sync_status === 'pending',
+      bookingId: room.id, reference: room.reference, guestName: room.guest_name, guestPhone: room.guest_phone,
+      checkIn: room.check_in, checkOut: room.check_out, rooms,
+      total: room.total_amount, paid: room.paid_amount, isGroup: !!room.is_group, groupName: room.group_name,
+      detail: 'Room' + (rooms.length > 1 ? 's' : '') + ' ' + rooms.join(', ') + ' · ' + room.check_in + ' → ' + room.check_out,
+    });
+  }
+
+  const hall = db.prepare(`
+    SELECT hb.*, h.name AS facility_name FROM hall_bookings hb JOIN halls h ON h.id = hb.hall_id
+    WHERE hb.tenant_id = ? AND hb.engine_code = ?
+  `).get(req.tenantId, raw);
+  if (hall) {
+    return res.json({
+      code: raw, kind: 'hall', found: true,
+      status: hall.status, engineSyncStatus: hall.engine_sync_status || 'none',
+      pending: hall.engine_sync_status === 'pending',
+      facilityId: hall.id, facilityName: hall.facility_name, guestName: hall.organizer_name, guestPhone: hall.organizer_phone,
+      eventName: hall.event_name, date: hall.event_date, startTime: hall.start_time, endTime: hall.end_time,
+      partySize: hall.guest_count, total: hall.total_amount,
+      detail: hall.facility_name + ' · ' + hall.event_date + ' ' + hall.start_time + '–' + hall.end_time,
+    });
+  }
+
+  const pool = db.prepare(`
+    SELECT pb.*, p.name AS facility_name FROM pool_bookings pb JOIN pools p ON p.id = pb.pool_id
+    WHERE pb.tenant_id = ? AND pb.engine_code = ?
+  `).get(req.tenantId, raw);
+  if (pool) {
+    return res.json({
+      code: raw, kind: 'pool', found: true,
+      status: pool.status, engineSyncStatus: pool.engine_sync_status || 'none',
+      pending: pool.engine_sync_status === 'pending',
+      facilityId: pool.id, facilityName: pool.facility_name, guestName: pool.guest_name, guestPhone: pool.guest_phone,
+      date: pool.date, startTime: pool.start_time, endTime: pool.end_time,
+      partySize: pool.party_size, total: pool.price * pool.party_size,
+      detail: pool.facility_name + ' · ' + pool.date + ' ' + pool.start_time + '–' + pool.end_time,
+    });
+  }
+
+  res.status(404).json({ error: 'No booking found with code ' + raw + ' — check the code with the guest' });
+});
+
 router.get('/:id', (req, res) => {
   const b = db.prepare('SELECT * FROM bookings WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
   if (!b) return res.status(404).json({ error: 'Booking not found' });

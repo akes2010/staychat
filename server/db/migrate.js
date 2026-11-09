@@ -286,6 +286,8 @@ function migrate() {
       hourly_rate REAL NOT NULL DEFAULT 0,
       day_rate REAL NOT NULL DEFAULT 0,
       amenities TEXT DEFAULT '[]',
+      open_time TEXT NOT NULL DEFAULT '07:00',
+      close_time TEXT NOT NULL DEFAULT '23:00',
       active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now'))
     );
@@ -302,6 +304,8 @@ function migrate() {
       description TEXT,
       price REAL NOT NULL DEFAULT 0,
       capacity INTEGER NOT NULL DEFAULT 20,
+      open_time TEXT NOT NULL DEFAULT '08:00',
+      close_time TEXT NOT NULL DEFAULT '20:00',
       active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now'))
     );
@@ -624,15 +628,21 @@ function migrate() {
       service_pct REAL NOT NULL DEFAULT 0,
       tax_pct REAL NOT NULL DEFAULT 0,
       total REAL NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','void')),
-      payment_method TEXT CHECK(payment_method IN ('cash','card','room_charge','customer_bill')),
+      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','void','refunded')),
+      payment_method TEXT CHECK(payment_method IN ('cash','card','room_charge','customer_bill','group_account')),
       transaction_id TEXT,
       note TEXT,
       opened_by TEXT,
       closed_by TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
-      closed_at TEXT
+      closed_at TEXT,
+      -- Void / refund trail: bar & restaurant money edits are never silent.
+      void_reason TEXT,
+      refund_reason TEXT,
+      refunded_amount REAL NOT NULL DEFAULT 0,
+      refunded_at TEXT,
+      refunded_by TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_pos_tenant ON pos_tickets(tenant_id, status);
     CREATE INDEX IF NOT EXISTS idx_pos_outlet ON pos_tickets(tenant_id, outlet, status);
@@ -869,6 +879,17 @@ function migrate() {
   [['description', 'TEXT'], ['category', "TEXT NOT NULL DEFAULT 'Standard'"]].forEach(([col, def]) => { if (!hallCols.includes(col)) db.exec(`ALTER TABLE halls ADD COLUMN ${col} ${def}`); });
   const poolBookingCols = db.prepare("PRAGMA table_info(pool_bookings)").all().map(c => c.name);
   if (!poolBookingCols.includes('pool_id')) db.exec("ALTER TABLE pool_bookings ADD COLUMN pool_id TEXT REFERENCES pools(id) ON DELETE SET NULL");
+
+  // halls & pools → the daily operating window guests may book inside. The OTA
+  // channel and the desk both refuse slots outside it (server/services/
+  // booking-engine.js), so a hotel never sells a 02:00 ballroom.
+  [['open_time', "TEXT NOT NULL DEFAULT '07:00'"], ['close_time', "TEXT NOT NULL DEFAULT '23:00'"]].forEach(([col, def]) => {
+    if (!hallCols.includes(col)) db.exec(`ALTER TABLE halls ADD COLUMN ${col} ${def}`);
+  });
+  const poolCols = db.prepare("PRAGMA table_info(pools)").all().map(c => c.name);
+  [['open_time', "TEXT NOT NULL DEFAULT '08:00'"], ['close_time', "TEXT NOT NULL DEFAULT '20:00'"]].forEach(([col, def]) => {
+    if (!poolCols.includes(col)) db.exec(`ALTER TABLE pools ADD COLUMN ${col} ${def}`);
+  });
 
   // eod_closings → attribute each closing to the exact staff account that made
   // it ("each user sees their own EOD; the owner/admin sees and manages all")
@@ -1272,6 +1293,9 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
       price_daily REAL NOT NULL DEFAULT 0,
       price_monthly REAL NOT NULL DEFAULT 0,
       price_yearly REAL NOT NULL DEFAULT 0,
+      -- Access window the desk publishes for the facility (24h clock).
+      open_time TEXT NOT NULL DEFAULT '06:00',
+      close_time TEXT NOT NULL DEFAULT '22:00',
       active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
@@ -1355,7 +1379,49 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
   const posTicketCols = db.prepare('PRAGMA table_info(pos_tickets)').all().map(c => c.name);
   if (!posTicketCols.includes('table_id')) db.exec('ALTER TABLE pos_tickets ADD COLUMN table_id TEXT');
   if (!posTicketCols.includes('covers')) db.exec('ALTER TABLE pos_tickets ADD COLUMN covers INTEGER');
+  // Void / refund trail (see server/routes/pos.js). Status values 'refunded'
+  // and payment method 'group_account' are permitted on fresh databases here;
+  // existing databases get their CHECK constraint widened by the load-time
+  // rebuild in routes/pos.js (same pattern as routes/gym.js).
+  [
+    ['void_reason', 'TEXT'],
+    ['refund_reason', 'TEXT'],
+    ['refunded_amount', 'REAL NOT NULL DEFAULT 0'],
+    ['refunded_at', 'TEXT'],
+    ['refunded_by', 'TEXT'],
+  ].forEach(([col, def]) => { if (!posTicketCols.includes(col)) db.exec(`ALTER TABLE pos_tickets ADD COLUMN ${col} ${def}`); });
   db.exec('CREATE INDEX IF NOT EXISTS idx_pos_table ON pos_tickets(table_id, status)');
+
+  // gyms → published access window (desk sets it on the gym; the OTA panel
+  // and the gym page show it).
+  const gymCols = db.prepare('PRAGMA table_info(gyms)').all().map(c => c.name);
+  [['open_time', "TEXT NOT NULL DEFAULT '06:00'"], ['close_time', "TEXT NOT NULL DEFAULT '22:00'"]].forEach(([col, def]) => {
+    if (!gymCols.includes(col)) db.exec(`ALTER TABLE gyms ADD COLUMN ${col} ${def}`);
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // HOUSEKEEPING LOG — one row every time a room is signed off clean.
+  // Gives the desk a real "rooms cleaned today" count (available-room count
+  // is not the same thing: it includes rooms that were never dirty) and keeps
+  // the cleaner's remark with the room number and staff name for the shift
+  // report and audits. Purely additive. See server/routes/rooms.js.
+  // ══════════════════════════════════════════════════════════
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS housekeeping_log (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      room_id TEXT REFERENCES rooms(id) ON DELETE SET NULL,
+      room_number TEXT NOT NULL,
+      staff_id TEXT REFERENCES staff(id) ON DELETE SET NULL,
+      staff_name TEXT,
+      remark TEXT,
+      cleaned_date TEXT NOT NULL,
+      created_by TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_hklog_tenant_date ON housekeeping_log(tenant_id, cleaned_date);
+    CREATE INDEX IF NOT EXISTS idx_hklog_room ON housekeeping_log(room_id, cleaned_date);
+  `);
 
   // ── Welcome & training tracker ────────────────────────────────────────
   // One JSON document per hotel mirroring the one-page checklist PDF:
