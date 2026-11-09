@@ -57,7 +57,10 @@ PAGES.housekeeping = function () {
         (cleaning.length === 0 ? '<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No rooms being cleaned</div>' : '') +
         cleaning.map(room => '<div style="padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">' +
           '<div style="width:36px;height:36px;border-radius:8px;background:var(--info-bg);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:var(--info)">' + escapeHtml(room.number) + '</div>' +
-          '<div style="flex:1"><div style="font-weight:600;font-size:13px">' + escapeHtml(room.type) + '</div><div style="font-size:11px;color:var(--text3)">In progress' + (state.assigned[room.id] ? ' &middot; ' + escapeHtml(state.assigned[room.id].name) : '') + '</div></div>' +
+          '<div style="flex:1"><div style="font-weight:600;font-size:13px">' + escapeHtml(room.type) + '</div><div style="font-size:11px;color:var(--text3)">In progress' +
+            (room.hk_staff_name || (state.assigned[room.id] && state.assigned[room.id].name)
+              ? ' &middot; ' + escapeHtml(room.hk_staff_name || state.assigned[room.id].name)
+              : '') + '</div></div>' +
           '<button class="btn primary sm" onclick="window.__markRoomClean(\'' + room.id + '\')">Clean</button></div>').join('') +
       '</div>' +
     '</div>' +
@@ -99,7 +102,9 @@ PAGES.housekeeping = function () {
     const staffId = sel ? sel.value : '';
     const staff = state.staff.find(s => s.id === staffId);
     try {
-      await API.patch('/api/rooms/' + roomId, { status: 'cleaning' });
+      // Same endpoint the room card uses, so the cleaner is stored on the room
+      // and both screens show the same assignment.
+      await API.post('/api/rooms/' + roomId + '/housekeeping/assign', { staffId: staffId || undefined });
       const room = state.rooms.find(r => r.id === roomId);
       if (staff) state.assigned[roomId] = staff;
       toast('Cleaning assigned' + (staff ? ' to ' + staff.name : '') + (room ? ' — Room ' + room.number : ''), 'success');
@@ -111,7 +116,7 @@ PAGES.housekeeping = function () {
   window.__markRoomClean = (roomId) => {
     const room = state.rooms.find(r => r.id === roomId);
     const hkActive = state.staff.filter(s => s.department === 'Housekeeping' && s.status === 'active');
-    const pre = state.assigned[roomId];
+    const pre = (room && room.hk_staff_id) ? { id: room.hk_staff_id } : state.assigned[roomId];
     openModal('Room Cleaned — ' + escapeHtml(room ? room.number : ''),
       '<div class="form-group" style="margin-bottom:12px"><label class="form-label">Cleaned By</label><select class="form-select" id="hkc-staff">' +
         '<option value="">— Me (' + escapeHtml(App.user ? App.user.name : 'Operator') + ') —</option>' +

@@ -231,8 +231,30 @@ function runReport(req, res, done) {
         break;
       }
       case 'hall': {
-        const rows = db.prepare(`SELECT * FROM hall_bookings WHERE tenant_id = ? AND event_date BETWEEN ? AND ? ORDER BY event_date DESC`).all(t, range.from, range.to);
-        result = { rows, summary: { count: rows.length, total: rows.reduce((s, r) => s + r.total_amount, 0) } };
+        // Event revenue is the hall charge PLUS the event's food & drink sales.
+        // Every order that wasn't cancelled counts — whether it went on the
+        // event bill or was paid on the spot. A cancelled order was taken back
+        // off the bill, so it must not inflate the report.
+        const rows = db.prepare(`
+          SELECT hb.*, COALESCE(f.sales, 0) AS fnb_sales, COALESCE(f.orders, 0) AS fnb_orders
+          FROM hall_bookings hb
+          LEFT JOIN (
+            SELECT hall_booking_id, SUM(total) AS sales, COUNT(*) AS orders
+            FROM hall_fnb_orders WHERE tenant_id = ? AND status != 'cancelled'
+            GROUP BY hall_booking_id
+          ) f ON f.hall_booking_id = hb.id
+          WHERE hb.tenant_id = ? AND hb.event_date BETWEEN ? AND ?
+          ORDER BY hb.event_date DESC
+        `).all(t, t, range.from, range.to);
+        const eventTotal = rows.reduce((s, r) => s + Number(r.total_amount || 0), 0);
+        const fnbSalesTotal = rows.reduce((s, r) => s + Number(r.fnb_sales || 0), 0);
+        result = { rows, summary: {
+          count: rows.length,
+          total: eventTotal + fnbSalesTotal,
+          eventTotal,
+          fnbSalesTotal,
+          fnbOrders: rows.reduce((s, r) => s + Number(r.fnb_orders || 0), 0),
+        } };
         break;
       }
       case 'other_services': {

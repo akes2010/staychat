@@ -13,6 +13,8 @@ const db = require('../db/connection');
 const { requireAuth, resolveTenant, requireTenant, audit } = require('../middleware/auth');
 const { broadcast } = require('../ws');
 const { requirePermission, hasPermission } = require('../utils/permissions');
+const { requireEntitlement } = require('../services/entitlements');
+const { fnbKind, fnbOutlet } = require('../utils/fnb');
 const { postCharge, reverseCharge } = require('../services/charges');
 const { refundTransaction } = require('../services/refunds');
 
@@ -64,7 +66,9 @@ router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pos.use
           refund_reason TEXT,
           refunded_amount REAL NOT NULL DEFAULT 0,
           refunded_at TEXT,
-          refunded_by TEXT
+          refunded_by TEXT,
+          parked_at TEXT,
+          park_reason TEXT
         );
         INSERT INTO pos_tickets_new (id, tenant_id, outlet, label, table_id, covers, guest_name, guest_id, room_number,
           items, subtotal, discount_pct, service_pct, tax_pct, total, status, payment_method, transaction_id, note,
@@ -174,6 +178,90 @@ router.get('/summary', (req, res) => {
     summary[outlet] = { openTickets: open, revenueToday: closedToday.rev, ticketsClosedToday: closedToday.c };
   });
   res.json(summary);
+});
+
+// ── Event (hall) food & drink orders ─────────────────────────────────────
+// An event booked in Halls & Events can order food and/or drinks from the
+// hotel menu. Each order is routed to the terminal that makes it — food to the
+// restaurant (kitchen), drinks to the bar — so staff serve it without opening
+// the Halls page. A mixed order shows on BOTH terminals, each seeing only its
+// own lines. Terminal operators may move an order forward (placed → preparing
+// → served); cancelling, re-billing and refunds stay with Halls & Events, where
+// the event bill lives.
+const FNB_SELECT = `SELECT o.*, b.event_name, b.event_date, b.start_time, b.end_time, b.guest_count,
+    b.organizer_name, h.name AS hall_name
+  FROM hall_fnb_orders o
+  JOIN hall_bookings b ON b.id = o.hall_booking_id
+  JOIN halls h ON h.id = b.hall_id`;
+
+function fnbMenuMap(tenantId) {
+  return new Map(db.prepare('SELECT id, name, category, outlet FROM menu_items WHERE tenant_id = ?')
+    .all(tenantId).map(m => [m.id, m]));
+}
+
+// One order as its terminal sees it: only the lines this terminal makes, plus
+// a count of what the other terminal is handling on the same event order.
+function fnbOrderForOutlet(row, menuById, outlet) {
+  const lines = JSON.parse(row.items || '[]').map(line => {
+    const menuItem = menuById.get(line.menuItemId) || { name: line.name, category: '', outlet: null };
+    return {
+      id: line.id, name: line.name, qty: line.qty, price: line.price,
+      kind: fnbKind(menuItem), outlet: fnbOutlet(menuItem),
+    };
+  });
+  const mine = lines.filter(l => l.outlet === outlet);
+  if (mine.length === 0) return null;
+  return {
+    id: row.id, bookingId: row.hall_booking_id,
+    eventName: row.event_name, hallName: row.hall_name,
+    eventDate: row.event_date, startTime: row.start_time, endTime: row.end_time,
+    guestCount: row.guest_count, organizerName: row.organizer_name,
+    status: row.status, payment: row.payment, note: row.note,
+    createdBy: row.created_by, createdAt: row.created_at, total: row.total,
+    lines: mine,
+    lineTotal: round2(mine.reduce((s, l) => s + (Number(l.price) || 0) * (Number(l.qty) || 0), 0)),
+    otherLines: lines.length - mine.length,
+  };
+}
+
+// GET /api/pos/hall-fnb?outlet=restaurant|bar — open event orders for this terminal
+// Any order that is still pending/preparing is outstanding work, whatever its
+// event date: an order placed for an event that has since passed must still be
+// cooked and served, not quietly disappear from the board.
+router.get('/hall-fnb', requireEntitlement('hall_events'), (req, res) => {
+  const outlet = lockedOutlet(req.user) || (['restaurant', 'bar'].includes(req.query.outlet) ? req.query.outlet : null);
+  if (!outlet) return res.status(400).json({ error: 'outlet must be "restaurant" or "bar"' });
+  const rows = db.prepare(FNB_SELECT + `
+    WHERE o.tenant_id = ? AND o.status IN ('pending','preparing') AND b.status != 'cancelled'
+    ORDER BY b.event_date ASC, b.start_time ASC, o.created_at ASC`).all(req.tenantId);
+  const menuById = fnbMenuMap(req.tenantId);
+  res.json(rows.map(r => fnbOrderForOutlet(r, menuById, outlet)).filter(Boolean));
+});
+
+// PATCH /api/pos/hall-fnb/:id — { status: 'preparing' | 'served' }
+router.patch('/hall-fnb/:id', requireEntitlement('hall_events'), (req, res) => {
+  const row = db.prepare(FNB_SELECT + ' WHERE o.id = ? AND o.tenant_id = ?').get(req.params.id, req.tenantId);
+  if (!row) return res.status(404).json({ error: 'Event food & drink order not found' });
+  const outlet = lockedOutlet(req.user) || (['restaurant', 'bar'].includes(req.body.outlet) ? req.body.outlet : null)
+    || (['restaurant', 'bar'].includes(req.query.outlet) ? req.query.outlet : null);
+  if (!outlet) return res.status(400).json({ error: 'outlet must be "restaurant" or "bar"' });
+  const menuById = fnbMenuMap(req.tenantId);
+  if (!fnbOrderForOutlet(row, menuById, outlet)) {
+    return res.status(403).json({ error: 'This order has nothing for the ' + OUTLET_NAMES[outlet] + ' terminal' });
+  }
+
+  const next = { pending: 'preparing', preparing: 'served' }[row.status];
+  if (!next || req.body.status !== next) {
+    return res.status(409).json({ error: 'This order is ' + row.status + ' and cannot move to ' + (req.body.status || 'that status') + ' from the terminal' });
+  }
+  const r = db.prepare(`UPDATE hall_fnb_orders SET status = ?, updated_at = datetime('now') WHERE id = ? AND status = ?`)
+    .run(next, row.id, row.status);
+  if (r.changes === 0) return res.status(409).json({ error: 'This order was just updated by someone else' });
+
+  const updated = db.prepare(FNB_SELECT + ' WHERE o.id = ? AND o.tenant_id = ?').get(row.id, req.tenantId);
+  audit(req, 'pos.hall_fnb_status', 'hall_fnb_order', row.id, { status: next, outlet });
+  broadcast(req.tenantId, 'hallfnb.updated', { id: row.id, hall_booking_id: row.hall_booking_id, status: next });
+  res.json(fnbOrderForOutlet(updated, menuById, outlet));
 });
 
 // GET /api/pos/tables — table picker data for the New Ticket flow: this
@@ -387,6 +475,39 @@ router.delete('/tickets/:id/items/:itemId', (req, res) => {
   const items = JSON.parse(t.items || '[]').filter(i => i.id !== req.params.itemId);
   db.prepare('UPDATE pos_tickets SET items = ? WHERE id = ?').run(JSON.stringify(items), t.id);
   const updated = recalc(db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(t.id));
+  broadcast(req.tenantId, 'pos.ticket.updated', serialize(updated));
+  res.json(serialize(updated));
+});
+
+// ── Parked orders (queue for later completion) ───────────────────────────
+// A guest who cannot settle right now — card declined, fetching cash, waiting
+// on a split bill — must not hold up the till. The operator parks the order:
+// it keeps its status 'open', its items, totals, table and guest untouched, and
+// simply moves out of the active board into the Parked Orders queue, oldest
+// first. Other tickets are never touched, and nothing is charged or voided by
+// parking. POST /resume puts it back on the board to finish the sale.
+router.post('/tickets/:id/park', (req, res) => {
+  const t = getOpenTicket(req, res); if (!t) return;
+  const items = JSON.parse(t.items || '[]');
+  if (items.length === 0) return res.status(400).json({ error: 'Add at least one item before parking this order' });
+  const reason = String((req.body && req.body.reason) || '').trim().slice(0, 200) || null;
+  // COALESCE keeps the original queue position when an already-parked ticket is
+  // parked again with a better reason.
+  db.prepare(`UPDATE pos_tickets SET parked_at = COALESCE(parked_at, datetime('now')), park_reason = ?,
+              updated_at = datetime('now') WHERE id = ? AND status = 'open'`)
+    .run(reason, t.id);
+  const updated = db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(t.id);
+  audit(req, 'pos.ticket_park', 'pos_ticket', t.id, { reason, total: updated.total });
+  broadcast(req.tenantId, 'pos.ticket.updated', serialize(updated));
+  res.json(serialize(updated));
+});
+
+router.post('/tickets/:id/resume', (req, res) => {
+  const t = getOpenTicket(req, res); if (!t) return;
+  db.prepare(`UPDATE pos_tickets SET parked_at = NULL, park_reason = NULL, updated_at = datetime('now')
+              WHERE id = ? AND status = 'open'`).run(t.id);
+  const updated = db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(t.id);
+  audit(req, 'pos.ticket_resume', 'pos_ticket', t.id, { total: updated.total });
   broadcast(req.tenantId, 'pos.ticket.updated', serialize(updated));
   res.json(serialize(updated));
 });

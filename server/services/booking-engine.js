@@ -387,12 +387,43 @@ function poolHeadcount(tenantId, poolId, date, startTime, endTime) {
   return rows.reduce((s, r) => s + r.party_size, 0);
 }
 
+// ── Event food & drink pre-orders ─────────────────────────────────────────
+// A guest pre-ordering for a hall event pays nothing online: the lines are
+// priced from the hotel's own menu and added to the event bill, exactly like
+// an order placed at the desk — so the kitchen/bar sees it in the POS
+// terminals and the event bill is right from the start.
+function pricedFnbPreOrder(tenantId, rawItems) {
+  const lines = Array.isArray(rawItems) ? rawItems : [];
+  if (lines.length === 0) return { lines: [], total: 0 };
+  if (lines.length > 60) {
+    throw Object.assign(new Error('Too many different items to pre-order online — the hotel can take the rest at the desk'), { status: 400 });
+  }
+  const priced = [];
+  let total = 0;
+  for (const line of lines) {
+    const qty = Number(line && line.qty);
+    if (!Number.isInteger(qty) || qty < 1 || qty > 500) {
+      throw Object.assign(new Error('Every pre-ordered item needs a whole quantity between 1 and 500'), { status: 400 });
+    }
+    const item = db.prepare('SELECT * FROM menu_items WHERE id = ? AND tenant_id = ?')
+      .get((line && line.menuItemId) || '', tenantId);
+    if (!item) throw Object.assign(new Error('One of the pre-ordered items is no longer on the menu — please refresh and try again'), { status: 400 });
+    if (!item.available) throw Object.assign(new Error(item.name + ' is not available for pre-order right now'), { status: 409 });
+    const price = Number(item.price) || 0;
+    const existing = priced.find(i => i.menuItemId === item.id);
+    if (existing) existing.qty += qty;
+    else priced.push({ id: 'li_' + nanoid(8), menuItemId: item.id, name: item.name, price, qty });
+    total += price * qty;
+  }
+  return { lines: priced, total: money(total) };
+}
+
 /**
  * Submit a facility booking (hall or pool slot).
  * kind: 'hall' | 'pool'. Returns the created booking with its tender code.
  */
 function submitFacilityBooking(tenantId, payload) {
-  const { kind, facilityId, guestName, guestPhone, guestEmail, date, startTime, endTime, partySize, eventName, notes } = payload;
+  const { kind, facilityId, guestName, guestPhone, guestEmail, date, startTime, endTime, partySize, eventName, notes, fnbItems } = payload;
 
   if (!['hall', 'pool'].includes(kind)) throw Object.assign(new Error('Unknown facility type'), { status: 400 });
   if (!guestName || !String(guestName).trim()) throw Object.assign(new Error('Your name is required'), { status: 400 });
@@ -436,15 +467,24 @@ function submitFacilityBooking(tenantId, payload) {
     const hours = Math.max(1, Math.ceil((new Date('2000-01-01T' + endTime) - new Date('2000-01-01T' + startTime)) / 3600000));
     const total = money(Math.min(hall.day_rate > 0 ? hall.day_rate : Infinity, hall.hourly_rate * hours));
     const name = String(eventName || '').trim() || (String(guestName).trim() + ' — Event');
+    // Validate the pre-order before the booking exists, so a bad item never
+    // leaves a half-made reservation behind.
+    const preOrder = pricedFnbPreOrder(tenantId, fnbItems);
     const tx = db.transaction(() => {
       db.prepare(`INSERT INTO hall_bookings (id, tenant_id, hall_id, event_name, event_type, organizer_name, organizer_phone, organizer_email,
-                  event_date, start_time, end_time, guest_count, total_amount, status, engine_code, engine_sync_status, notes, created_by)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'tentative', ?, 'pending', ?, 'booking-engine')`)
+                  event_date, start_time, end_time, guest_count, total_amount, fnb_total, status, engine_code, engine_sync_status, notes, created_by)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'tentative', ?, 'pending', ?, 'booking-engine')`)
         .run(id, tenantId, hall.id, name.slice(0, 120), 'Online', String(guestName).trim(), String(guestPhone).trim(), guestEmail || null,
-             date, startTime, endTime, size, total, code, notes ? String(notes).slice(0, 500) : null);
+             date, startTime, endTime, size, total, preOrder.total, code, notes ? String(notes).slice(0, 500) : null);
+      if (preOrder.lines.length > 0) {
+        db.prepare(`INSERT INTO hall_fnb_orders (id, tenant_id, hall_booking_id, items, total, payment, note, created_by)
+                    VALUES (?,?,?,?,?, 'event', ?, 'booking-engine')`)
+          .run('hfb_' + nanoid(10), tenantId, id, JSON.stringify(preOrder.lines), preOrder.total,
+               'Pre-ordered online with the event booking');
+      }
     });
     tx();
-    result = { id, kind, code, facility: hall.name, date, startTime, endTime, partySize: size, total, reference: null };
+    result = { id, kind, code, facility: hall.name, date, startTime, endTime, partySize: size, total, fnbTotal: preOrder.total, reference: null };
   } else {
     const pool = db.prepare('SELECT * FROM pools WHERE id = ? AND tenant_id = ? AND active = 1').get(facilityId, tenantId);
     if (!pool) throw Object.assign(new Error('That pool area is not available'), { status: 404 });
@@ -473,7 +513,9 @@ function submitFacilityBooking(tenantId, payload) {
     `Code: ${code}\n` +
     `Facility: ${result.facility}\n` +
     `${date} · ${startTime}–${endTime}\n` +
-    (result.total > 0 ? `Total: ${(t.currency || '')}${result.total} (pay at the hotel)\n\n` : '\n') +
+    (result.total > 0 ? `Total: ${(t.currency || '')}${result.total} (pay at the hotel)\n` : '') +
+    (result.fnbTotal > 0 ? `Food & drinks pre-ordered: ${(t.currency || '')}${result.fnbTotal} (added to your event bill)\n` : '') +
+    '\n' +
     `Present this code at the front desk to confirm your reservation.`);
 
   return result;

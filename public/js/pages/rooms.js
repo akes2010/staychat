@@ -3,13 +3,13 @@ window.PAGES = window.PAGES || {};
 
 PAGES.rooms = function () {
   const wrap = el('div', 'fa');
-  const state = { filter: 'all', floorFilter: 'all', search: '', rooms: [], floors: [], categories: [], holidays: [], guests: [] };
+  const state = { filter: 'all', floorFilter: 'all', search: '', rooms: [], floors: [], categories: [], holidays: [], guests: [], staff: [] };
 
   async function load() {
     wrap.innerHTML = loaderHTML('Loading rooms…');
     try {
-      const [rooms, floors, categories, holidays, guests] = await Promise.all([API.get('/api/rooms'), API.get('/api/room-setup/floors'), API.get('/api/room-setup/categories'), API.get('/api/room-setup/holidays'), API.get('/api/guests')]);
-      state.rooms = rooms; state.floors = floors; state.categories = categories; state.holidays = holidays; state.guests = guests;
+      const [rooms, floors, categories, holidays, guests, staff] = await Promise.all([API.get('/api/rooms'), API.get('/api/room-setup/floors'), API.get('/api/room-setup/categories'), API.get('/api/room-setup/holidays'), API.get('/api/guests'), API.get('/api/staff').catch(() => [])]);
+      state.rooms = rooms; state.floors = floors; state.categories = categories; state.holidays = holidays; state.guests = guests; state.staff = staff || [];
       render();
     } catch (err) {
       wrap.innerHTML = errorStateHTML(err.message, 'navigate(\'rooms\')');
@@ -52,9 +52,13 @@ PAGES.rooms = function () {
         let body = '';
         if (room.status === 'available') body = '<div class="room-info" style="color:var(--p);font-weight:600;font-size:12px">Ready for check-in</div>';
         if (room.status === 'occupied' && room.guest_name) body = '<div class="room-info">👤 ' + escapeHtml(room.guest_name) + '</div>' + (room.checkout_label ? '<div style="font-size:11px;color:var(--text3)">Checkout: ' + escapeHtml(room.checkout_label) + '</div>' : '');
-        if (room.status === 'dirty') body = '<button class="btn accent sm full" style="font-size:11px" onclick="event.stopPropagation();window.__quickClean(\'' + room.id + '\')">Assign Cleaning</button>';
+        // Dirty after checkout: hand it to a housekeeping staff member right
+        // here — no trip to the Housekeeping module in the sidebar.
+        if (room.status === 'dirty') body = '<button class="btn accent sm full" style="font-size:11px" onclick="event.stopPropagation();window.__assignHousekeeping(\'' + room.id + '\')">Assign housekeeping</button>';
         if (room.status === 'maintenance') body = '<div class="room-info" style="color:var(--error);background:var(--error-bg);padding:6px 9px;border-radius:7px;font-size:11px;font-weight:600">' + escapeHtml(room.issue || 'Issue pending') + '</div>';
-        if (room.status === 'cleaning') body = '<div class="room-info" style="color:#7c3aed;font-size:11px;font-weight:600">Cleaning in progress…</div>';
+        if (room.status === 'cleaning') body = '<div class="room-info" style="color:#7c3aed;font-size:11px;font-weight:600">' +
+          (room.hk_staff_name ? '🧹 ' + escapeHtml(room.hk_staff_name) + ' cleaning' : 'Cleaning in progress…') + '</div>' +
+          '<button class="btn outline sm full" style="font-size:11px;margin-top:6px" onclick="event.stopPropagation();window.__assignHousekeeping(\'' + room.id + '\')">Change cleaner</button>';
         return '<div class="room-card ' + room.status + '" onclick="window.__openRoomModal(\'' + room.id + '\')">' +
           '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px"><span style="font-size:10px;font-family:var(--font-mono);color:var(--text3)">ROOM</span>' + statusBadge(room.status) + '</div>' +
           '<div class="room-num">' + escapeHtml(room.number) + '</div><div class="room-type">' + escapeHtml(room.type) + ' &middot; ' + escapeHtml(room.view || '') + '</div><div class="room-divider"></div>' +
@@ -67,6 +71,40 @@ PAGES.rooms = function () {
   window.__roomsFilter = (f) => { state.filter = f; render(); };
   window.__roomsFloorFilter = (f) => { state.floorFilter = f; render(); };
   window.__roomsSearch = (v) => { state.search = v; render(); };
+
+  // ── Assign housekeeping from the room card ────────────────────────────
+  // Available = active staff on the Housekeeping team. The pick sets the room
+  // to "cleaning" and stores WHO took it, so the Housekeeping module shows the
+  // same cleaner and the assignment survives a reload.
+  window.__assignHousekeeping = (id) => {
+    const room = state.rooms.find(r => r.id === id);
+    if (!room) return;
+    if (!['dirty', 'cleaning'].includes(room.status)) {
+      toast('Room ' + room.number + ' is ' + room.status + ' — nothing to clean', 'warn');
+      return;
+    }
+    const hk = (state.staff || []).filter(s => s.department === 'Housekeeping' && s.status === 'active');
+    const current = room.hk_staff_id || '';
+    openModal('Assign Housekeeping — Room ' + escapeHtml(room.number),
+      '<div class="form-group" style="margin-bottom:12px"><label class="form-label">Assign To</label><select class="form-select" id="room-hk-staff">' +
+        '<option value=""' + (current ? '' : ' selected') + '>— Me (' + escapeHtml(App.user ? App.user.name : 'Operator') + ') —</option>' +
+        hk.map(s => '<option value="' + s.id + '"' + (current === s.id ? ' selected' : '') + '>' + escapeHtml(s.name) + (s.tasks_completed ? ' (' + s.tasks_completed + ' done today)' : '') + '</option>').join('') +
+      '</select></div>' +
+      (hk.length === 0 ? '<p style="font-size:11.5px;color:var(--text3)">No active housekeeping staff yet — add them in Staff, or assign the room to yourself.</p>' : '') +
+      '<p style="font-size:11.5px;color:var(--text3)">Room ' + escapeHtml(room.number) + ' moves to <b>Cleaning</b> and the cleaner is saved on the room card. Sign the room off from the Housekeeping module (or the room card) when it is done.</p>',
+      '<button class="btn outline" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn accent" onclick="window.__confirmAssignHK(\'' + id + '\')">Assign Now</button>'
+    );
+  };
+  window.__confirmAssignHK = async (id) => {
+    const sel = document.getElementById('room-hk-staff');
+    const staffId = sel ? sel.value : '';
+    try {
+      const room = await API.post('/api/rooms/' + id + '/housekeeping/assign', { staffId: staffId || undefined });
+      toast('Room ' + room.number + ' assigned' + (room.hk_staff_name ? ' to ' + room.hk_staff_name : ''), 'success');
+      closeModal(); await load();
+    } catch (err) { toast(err.message, 'error'); }
+  };
 
   window.__quickClean = async (id) => {
     try {
@@ -94,6 +132,11 @@ PAGES.rooms = function () {
       (room.status === 'occupied' ? '<p style="font-size:11px;color:var(--text3);margin-top:-8px;margin-bottom:14px">Guest is linked via Check-in and can only be changed by checking out and back in.</p>' : '') +
       '<div class="form-group"><label class="form-label">Maintenance Issue (if any)</label><input class="form-input" id="rm-issue" value="' + escapeHtml(room.issue || '') + '"/></div>' +
       '<div class="form-group"><label class="form-label">Description</label><input class="form-input" id="rm-desc" value="' + escapeHtml(room.description || '') + '" placeholder="Notes about this room…"/></div>' +
+      (room.status === 'dirty' || room.status === 'cleaning'
+        ? '<div style="margin-top:10px"><button class="btn accent full" onclick="window.__assignHousekeeping(\'' + id + '\')">' +
+            (room.status === 'cleaning' ? 'Reassign housekeeping' : 'Assign housekeeping') +
+            (room.hk_staff_name ? ' — currently ' + escapeHtml(room.hk_staff_name) : '') + '</button></div>'
+        : '') +
       '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px">' +
         '<button class="btn accent" onclick="window.__checkInRoom(\'' + id + '\')">Check-in</button>' +
         '<button class="btn outline" onclick="window.__checkOutRoom(\'' + id + '\')">Check-out</button>' +

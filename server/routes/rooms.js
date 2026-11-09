@@ -63,7 +63,9 @@ router.post('/:id/housekeeping/clean', requirePermission('rooms.manage'), (req, 
   const today = new Date().toISOString().slice(0, 10);
 
   db.transaction(() => {
-    db.prepare(`UPDATE rooms SET status='available', updated_at=datetime('now') WHERE id=? AND tenant_id=?`).run(room.id, req.tenantId);
+    // Signed off: the room is nobody's to clean any more.
+    db.prepare(`UPDATE rooms SET status='available', hk_staff_id=NULL, hk_staff_name=NULL, hk_assigned_at=NULL,
+                updated_at=datetime('now') WHERE id=? AND tenant_id=?`).run(room.id, req.tenantId);
     db.prepare(`INSERT INTO housekeeping_log (id, tenant_id, room_id, room_number, staff_id, staff_name, remark, cleaned_date, created_by)
                 VALUES (?,?,?,?,?,?,?,?,?)`)
       .run(logId, req.tenantId, room.id, room.number, staff ? staff.id : null, staffName, remark, today, req.user.name || null);
@@ -75,6 +77,42 @@ router.post('/:id/housekeeping/clean', requirePermission('rooms.manage'), (req, 
   broadcast(req.tenantId, 'room.updated', serialize(updated));
   broadcast(req.tenantId, 'housekeeping.updated', entry);
   res.json({ room: serialize(updated), entry });
+});
+
+// POST /api/rooms/:id/housekeeping/assign — hand a dirty room to a particular
+// housekeeping staff member from the room card, without opening the
+// Housekeeping module. The assignment is stored on the room (hk_staff_*), so it
+// survives reloads and shows up in Housekeeping as "Being Cleaned · <name>".
+// The room moves to 'cleaning'; the guest-facing status is unchanged from the
+// existing quick-assign flow (PATCH status='cleaning') — this only adds WHO.
+router.post('/:id/housekeeping/assign', requirePermission('rooms.manage'), (req, res) => {
+  const room = db.prepare('SELECT * FROM rooms WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.status === 'occupied') return res.status(409).json({ error: 'Room ' + room.number + ' is occupied — check the guest out before assigning housekeeping' });
+  if (room.status === 'available') return res.status(409).json({ error: 'Room ' + room.number + ' is already clean and available — nothing to assign' });
+  if (room.status !== 'cleaning' && room.status !== 'dirty') {
+    return res.status(409).json({ error: 'Room ' + room.number + ' is ' + room.status + ' — resolve that before assigning housekeeping' });
+  }
+
+  const staffId = req.body && req.body.staffId ? String(req.body.staffId) : null;
+  let staff = null;
+  if (staffId) {
+    staff = db.prepare('SELECT * FROM staff WHERE id = ? AND tenant_id = ?').get(staffId, req.tenantId);
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
+    if (staff.status !== 'active') return res.status(409).json({ error: staff.name + ' is not an active staff member' });
+    if (staff.department !== 'Housekeeping') return res.status(409).json({ error: staff.name + ' is not on the housekeeping team' });
+  }
+  // No pick = the operator takes it themselves (mirrors the Housekeeping module).
+  const staffName = staff ? staff.name : (req.user.name || null);
+
+  db.prepare(`UPDATE rooms SET status='cleaning', hk_staff_id=?, hk_staff_name=?, hk_assigned_at=datetime('now'),
+              updated_at=datetime('now') WHERE id=? AND tenant_id=?`)
+    .run(staff ? staff.id : null, staffName, room.id, req.tenantId);
+
+  const updated = db.prepare('SELECT * FROM rooms WHERE id = ?').get(room.id);
+  audit(req, 'housekeeping.assign', 'room', room.id, { roomNumber: room.number, staffId: staff ? staff.id : null, staffName });
+  broadcast(req.tenantId, 'room.updated', serialize(updated));
+  res.json(serialize(updated));
 });
 
 // POST /api/rooms
@@ -139,6 +177,12 @@ router.patch('/:id', requirePermission('rooms.manage'), (req, res) => {
   }
 
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No valid fields to update' });
+
+  // A status the operator set by hand is not a cleaning assignment: drop the
+  // saved cleaner unless the room is still being cleaned.
+  if (updates.status !== undefined && updates.status !== 'cleaning') {
+    updates.hk_staff_id = null; updates.hk_staff_name = null; updates.hk_assigned_at = null;
+  }
 
   const setClause = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
   db.prepare(`UPDATE rooms SET ${setClause}, updated_at = datetime('now') WHERE id = @id`)
@@ -208,7 +252,10 @@ router.post('/:id/checkout', requirePermission('bookings.manage'), idempotency, 
     if (!req.body.overrideReason || !req.body.overrideReason.trim()) return res.status(400).json({ error: 'A written reason is required to override checkout with an outstanding balance' });
   }
 
-  db.prepare(`UPDATE rooms SET status='dirty', guest_id=NULL, guest_name=NULL, checkout_label=NULL, updated_at=datetime('now') WHERE id=?`).run(room.id);
+  // Checked out → dirty for housekeeping, with no cleaner carried over from
+  // the previous stay: the room card offers a fresh assignment.
+  db.prepare(`UPDATE rooms SET status='dirty', guest_id=NULL, guest_name=NULL, checkout_label=NULL,
+              hk_staff_id=NULL, hk_staff_name=NULL, hk_assigned_at=NULL, updated_at=datetime('now') WHERE id=?`).run(room.id);
 
   // If this room belonged to a booking, and every other room on that booking is
   // already checked out (not occupied), the booking itself is now fully checked out.

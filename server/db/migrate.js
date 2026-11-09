@@ -882,8 +882,13 @@ function migrate() {
   }
 
   // rooms → link to floors/room_categories (legacy floor int / rate / type columns kept for compatibility)
+  // hk_staff_* = the housekeeping assignment made straight from the room card
+  // (front desk): who is cleaning this room, and when they were assigned.
+  // Additive; the clean sign-off clears them again.
   const roomCols = db.prepare("PRAGMA table_info(rooms)").all().map(c => c.name);
-  [['floor_id', 'TEXT'], ['category_id', 'TEXT'], ['description', 'TEXT']].forEach(([col, def]) => { if (!roomCols.includes(col)) db.exec(`ALTER TABLE rooms ADD COLUMN ${col} ${def}`); });
+  [['floor_id', 'TEXT'], ['category_id', 'TEXT'], ['description', 'TEXT'],
+   ['hk_staff_id', 'TEXT'], ['hk_staff_name', 'TEXT'], ['hk_assigned_at', 'TEXT']]
+    .forEach(([col, def]) => { if (!roomCols.includes(col)) db.exec(`ALTER TABLE rooms ADD COLUMN ${col} ${def}`); });
 
   // room_categories → festive rate tier (4th pricing tier, above holiday)
   const roomCatCols = db.prepare("PRAGMA table_info(room_categories)").all().map(c => c.name);
@@ -1409,6 +1414,11 @@ CREATE INDEX IF NOT EXISTS idx_platsub_pending ON platform_subscriptions(status,
     ['refunded_amount', 'REAL NOT NULL DEFAULT 0'],
     ['refunded_at', 'TEXT'],
     ['refunded_by', 'TEXT'],
+    // Parked orders (awaiting settlement): a ticket the till has set aside
+    // keeps its 'open' status and every item/total — parked_at is what moves
+    // it out of the active board into the queue. Purely additive.
+    ['parked_at', 'TEXT'],
+    ['park_reason', 'TEXT'],
   ].forEach(([col, def]) => { if (!posTicketCols.includes(col)) db.exec(`ALTER TABLE pos_tickets ADD COLUMN ${col} ${def}`); });
   db.exec('CREATE INDEX IF NOT EXISTS idx_pos_table ON pos_tickets(table_id, status)');
 

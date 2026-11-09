@@ -73,6 +73,17 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
                 padding:12px; margin:14px 0; user-select:all; }
     .ok .detail { color:var(--ink2); font-size:14px; line-height:1.7; }
     .hint { text-align:center; color:#9FB0C8; font-size:12px; margin-top:18px; }
+    /* Event food & drink pre-order */
+    .fnb-item { display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:10px; }
+    .fnb-item.sel { background:#EAF7EF; }
+    .fnb-item .fn { font-size:13px; font-weight:600; color:var(--ink); }
+    .fnb-item .fc { font-size:11px; color:#64748b; }
+    .fnb-item .fp { font-size:12.5px; font-weight:700; color:#166534; min-width:58px; text-align:right; }
+    .fnb-qty { width:auto; margin:0; padding:2px 9px; border-radius:8px; font-size:13px; font-weight:800; background:#fff;
+               border:1.5px solid #CBD9D0; color:#166534; }
+    .fnb-qty.add { background:#EAF7EF; border-color:#CDEBD8; }
+    .fnb-cat { font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#94a3b8; padding:8px 8px 2px; }
+    .fnb-sum { display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-size:13px; font-weight:700; color:#166534; }
     @media (max-width:640px){ .grid { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -102,6 +113,17 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
         </div>
         <button id="f-search" style="margin-top:14px">Search Available Facilities</button>
         <div id="facilities"></div>
+        <div id="fnb-wrap" style="display:none;margin-top:18px">
+          <label style="margin-top:0">🍽 Pre-order food &amp; drinks for your event <span style="font-weight:400;color:#64748b">(optional)</span></label>
+          <div style="font-size:12px;color:#64748b;margin:-2px 0 8px">Add what you'd like served. The total goes on your event bill and is paid at the hotel.</div>
+          <div class="tabs" id="fnb-tabs" style="margin-bottom:8px">
+            <button type="button" class="tab active" id="fnb-tab-all" onclick="window.__fnbFilter('all')">All</button>
+            <button type="button" class="tab" id="fnb-tab-food" onclick="window.__fnbFilter('food')">🍽 Food</button>
+            <button type="button" class="tab" id="fnb-tab-drinks" onclick="window.__fnbFilter('drinks')">🍸 Drinks</button>
+          </div>
+          <div id="fnb-menu" style="max-height:280px;overflow:auto;border:1.5px solid #DCE5DF;border-radius:14px;padding:8px"></div>
+          <div class="fnb-sum" id="fnb-summary"></div>
+        </div>
         <div id="gym-info" class="gym-info"></div>
       </div>
       <div class="grid" id="guest-fields" style="display:none">
@@ -157,6 +179,9 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
     let CURRENCY = '$';
     let CURRENCY_VIEW = null; // { displayCode, displaySymbol, rate, hotelCode } — null = hotel currency only
     let LAST_ROOMS = [], LAST_FACS = null, LAST_FAC_META = null;
+    // Event food & drink pre-order (halls only). Prices are re-checked
+    // server-side against the menu, so this basket is just a quantity picker.
+    let FNB_MENU = null, FNB_CART = {}, fnbFilter = 'all';
 
     const sym = c => (c === 'USD' ? '$' : c === 'EUR' ? '€' : c === 'GBP' ? '£' : c === 'NGN' ? '₦' : c === 'GHS' ? 'GH₵' : c === 'KES' ? 'KSh' : c === 'ZAR' ? 'R' : c === 'CAD' ? 'C$' : c === 'AUD' ? 'A$' : c === 'INR' ? '₹' : c === 'AED' ? 'د.إ' : c === 'ZAR' ? 'R' : c + ' ');
     // If a converted view is active, show "≈ 153,000 ₦ · hotel charges $100" style pair.
@@ -231,6 +256,7 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
       selected.clear(); facilityPick = null;
       $('g-group-toggle').checked = false; $('g-groupname-wrap').style.display = 'none';
       $('guest-fields').style.display = 'none'; $('submit').style.display = 'none';
+      $('fnb-wrap').style.display = 'none'; FNB_CART = {};
       hideErr();
     }
     $('tab-rooms').onclick = () => setMode('rooms');
@@ -398,6 +424,11 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
             $('guest-fields').style.display = facilityPick ? 'grid' : 'none';
             $('submit').style.display = facilityPick ? 'block' : 'none';
             $('submit').textContent = 'Reserve — pay at the hotel';
+            // Pre-ordering is an event-hall feature — pool slots have no menu.
+            const wantsFnb = !!(facilityPick && facilityPick.kind === 'hall');
+            $('fnb-wrap').style.display = wantsFnb ? 'block' : 'none';
+            if (wantsFnb) loadFnbMenu().then(renderFnb);
+            else { FNB_CART = {}; }
           };
         });
       } catch (e) { showErr(e.message); }
@@ -417,6 +448,59 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
       return bits.join(' · ') + ' · ' + rm.nights + ' night' + (rm.nights === 1 ? '' : 's') +
              ' @ ' + moneyHtml(CURRENCY, rm.rate);
     }
+
+    // ── Event food & drink pre-order ─────────────────────────────────────
+    // Shown once a hall is picked. The hotel's menu and prices come from the
+    // server; the basket only carries item ids and quantities.
+    async function loadFnbMenu() {
+      if (FNB_MENU) return FNB_MENU;
+      try {
+        const r = await fetch('/api/booking-engine/fnb-menu?subdomain=' + encodeURIComponent(SUBDOMAIN));
+        const b = r.ok ? await r.json() : { items: [] };
+        FNB_MENU = Array.isArray(b.items) ? b.items : [];
+      } catch (e) { FNB_MENU = []; }
+      return FNB_MENU;
+    }
+    function fnbCartTotal() {
+      return Object.keys(FNB_CART).reduce((s, k) => s + FNB_CART[k].price * FNB_CART[k].qty, 0);
+    }
+    function renderFnb() {
+      const host = $('fnb-menu');
+      if (!host) return;
+      const menu = (FNB_MENU || []).filter(m => fnbFilter === 'all' || (fnbFilter === 'food' ? m.kind !== 'drink' : m.kind === 'drink'));
+      const cats = [];
+      menu.forEach(m => { const c = m.category || 'Menu'; if (cats.indexOf(c) === -1) cats.push(c); });
+      host.innerHTML = menu.length
+        ? cats.map(cat => '<div class="fnb-cat">' + escapeA(cat) + '</div>' +
+            menu.filter(m => (m.category || 'Menu') === cat).map(m => {
+              const q = FNB_CART[m.id] ? FNB_CART[m.id].qty : 0;
+              return '<div class="fnb-item' + (q ? ' sel' : '') + '">' +
+                '<div style="flex:1;min-width:0"><div class="fn">' + escapeA(m.name) + '</div>' +
+                  (m.description ? '<div class="fc">' + escapeA(m.description) + '</div>' : '') + '</div>' +
+                '<div class="fp">' + moneyHtml(CURRENCY, m.price) + '</div>' +
+                '<div style="display:flex;align-items:center;gap:6px">' +
+                  (q ? '<button type="button" class="fnb-qty" onclick="window.__fnbStep(\'' + m.id + '\',-1)">−</button><span style="font-weight:800;min-width:16px;text-align:center">' + q + '</span>' : '') +
+                  '<button type="button" class="fnb-qty add" onclick="window.__fnbStep(\'' + m.id + '\',1)">+</button>' +
+                '</div></div>';
+            }).join('')).join('')
+        : '<p style="font-size:13px;color:#64748b;margin:8px">No food or drinks are published for online pre-order — you can order at the hotel.</p>';
+      const count = Object.keys(FNB_CART).reduce((s, k) => s + FNB_CART[k].qty, 0);
+      $('fnb-summary').innerHTML = '<span>' + (count ? count + ' item' + (count === 1 ? '' : 's') + ' pre-ordered' : 'Nothing pre-ordered yet') + '</span>' +
+        '<span>' + moneyHtml(CURRENCY, fnbCartTotal()) + '</span>';
+    }
+    window.__fnbStep = (id, delta) => {
+      const item = (FNB_MENU || []).find(m => m.id === id);
+      if (!item) return;
+      const q = (FNB_CART[id] ? FNB_CART[id].qty : 0) + delta;
+      if (q <= 0) delete FNB_CART[id];
+      else FNB_CART[id] = { menuItemId: id, name: item.name, price: item.price, qty: q };
+      renderFnb();
+    };
+    window.__fnbFilter = (f) => {
+      fnbFilter = f;
+      ['all', 'food', 'drinks'].forEach(k => { const el = $('fnb-tab-' + k); if (el) el.classList.toggle('active', k === f); });
+      renderFnb();
+    };
 
     $('submit').onclick = async () => {
       hideErr();
@@ -464,12 +548,17 @@ body { background:radial-gradient(900px 420px at 80% -10%, rgba(91,224,140,.10),
               guestName: fullName, guestPhone: phone, guestEmail: email,
               date:$('f-date').value, startTime:$('f-start').value, endTime:$('f-end').value,
               partySize: Math.max(1, parseInt($('f-party').value, 10) || 1), eventName: $('g-event').value.trim(),
-              notes: $('g-notes').value.trim() })
+              notes: $('g-notes').value.trim(),
+              fnbItems: facilityPick.kind === 'hall' ? Object.keys(FNB_CART).map(k => ({ menuItemId: k, qty: FNB_CART[k].qty })) : [] })
           });
           const b = await r.json();
           if (!r.ok) throw new Error(b.error || 'Booking failed');
+          const fnbTotal = Number(b.fnbTotal) || 0;
+          const grandTotal = (Number(b.total) || 0) + fnbTotal;
           $('d-summary').innerHTML = 'Reservation <b>' + escapeA(b.facility) + '</b> · ' + b.date + ' · ' + b.startTime + '–' + b.endTime +
-            ' · ' + b.partySize + ' guest' + (b.partySize===1?'':'s') + (b.total ? ' · Total <b>' + CURRENCY + b.total + '</b> (pay at hotel)' : '');
+            ' · ' + b.partySize + ' guest' + (b.partySize===1?'':'s') +
+            (fnbTotal > 0 ? ' · Food &amp; drinks <b>' + moneyHtml(CURRENCY, fnbTotal) + '</b> (on your event bill)' : '') +
+            (grandTotal ? ' · Total <b>' + moneyHtml(CURRENCY, grandTotal) + '</b> (pay at hotel)' : '');
           $('d-code').textContent = b.code;
         }
         $('step-form').style.display = 'none';

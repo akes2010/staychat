@@ -14,7 +14,7 @@ window.PAGES = window.PAGES || {};
 
 function buildPOSPage(forcedOutlet) {
   const wrap = el('div', 'fa');
-  const state = { outlet: 'restaurant', tickets: [], menu: [], rooms: [], guests: [], bookings: [], summary: {}, menuLoaded: false, terminal: null };
+  const state = { outlet: 'restaurant', tickets: [], hallFnb: [], menu: [], rooms: [], guests: [], bookings: [], summary: {}, menuLoaded: false, terminal: null };
 
   // silent = background refresh (WebSocket / another till). It must not blank
   // the board or jump the operator back to the top of a long ticket list.
@@ -37,6 +37,10 @@ function buildPOSPage(forcedOutlet) {
       // sign in straight away, no picker. The role's lock wins if there is one.
       if (!state.terminal && forcedOutlet) state.terminal = { outlet: lockedOutlet() || forcedOutlet, cashierName: App.user ? App.user.name : 'Operator', locked: true };
       if (state.terminal) state.outlet = state.terminal.outlet;
+      // Event food & drink orders from Halls & Events, routed to this
+      // terminal. Absent/unentitled halls simply means an empty list.
+      try { state.hallFnb = await API.get('/api/pos/hall-fnb?outlet=' + state.outlet); }
+      catch (e) { state.hallFnb = []; }
       if (!state.terminal) renderTerminalScreen();
       else render();
       if (silent && scroller) scroller.scrollTop = scrollTop;
@@ -100,7 +104,9 @@ function buildPOSPage(forcedOutlet) {
     state.terminal = { outlet, cashierName };
     state.outlet = outlet;
     closeModal();
-    render();
+    // Reload so the board and the event food & drink orders both belong to the
+    // terminal just signed into (each outlet sees its own lines).
+    load({ silent: true });
   };
   window.__posSwitchTerminal = () => {
     const lock = lockedOutlet();
@@ -121,14 +127,18 @@ function buildPOSPage(forcedOutlet) {
     // (public/css/pos-outlet.css) — warm restaurant vs dark bar.
     wrap.className = 'fa pos-outlet-' + state.outlet;
     const outletTickets = state.tickets.filter(t => t.outlet === state.outlet);
-    const open = outletTickets.filter(t => t.status === 'open');
+    const openTabs = outletTickets.filter(t => t.status === 'open');
+    // Parked orders are still open tabs: they wait in the queue (oldest first)
+    // instead of on the active board, so another order can be taken meanwhile.
+    const parked = openTabs.filter(t => t.parked_at).sort((a, b) => String(a.parked_at).localeCompare(String(b.parked_at)));
+    const open = openTabs.filter(t => !t.parked_at);
     const closedToday = outletTickets.filter(t => t.status === 'closed' || t.status === 'refunded' || t.status === 'void')
       .sort((a, b) => new Date(b.closed_at || b.refunded_at) - new Date(a.closed_at || a.refunded_at));
     const s = state.summary[state.outlet] || { openTickets: 0, revenueToday: 0, ticketsClosedToday: 0 };
 
     wrap.innerHTML = '' +
     '<div class="page-header">' +
-      '<div class="page-header-left"><h1>Point of Sale</h1><p>' + open.length + ' open tickets &middot; ' + escapeHtml(state.outlet === 'bar' ? 'Bar' : 'Restaurant') + ' Terminal &middot; Operator: ' + escapeHtml(state.terminal ? state.terminal.cashierName : '—') + '</p></div>' +
+      '<div class="page-header-left"><h1>Point of Sale</h1><p>' + open.length + ' open tickets' + (parked.length ? ' &middot; ' + parked.length + ' parked' : '') + ' &middot; ' + escapeHtml(state.outlet === 'bar' ? 'Bar' : 'Restaurant') + ' Terminal &middot; Operator: ' + escapeHtml(state.terminal ? state.terminal.cashierName : '—') + '</p></div>' +
       '<div style="display:flex;gap:10px">' + (state.terminal && state.terminal.locked ? '' : '<button class="btn outline" onclick="window.__posSwitchTerminal()">Switch Terminal</button>') + '<button class="btn primary" onclick="window.__posNewTicket()">+ New Ticket</button></div>' +
     '</div>' +
     '<div class="grid grid-3" style="margin-bottom:20px">' +
@@ -136,9 +146,11 @@ function buildPOSPage(forcedOutlet) {
       metricCard('Revenue Today', formatMoney(s.revenueToday), null, '💰') +
       metricCard('Tickets Closed Today', String(s.ticketsClosedToday), null, '✅') +
     '</div>' +
-    (open.length === 0
+    hallFnbSectionHTML() +
+    (open.length === 0 && parked.length === 0
       ? '<div class="empty-state"><div class="empty-state-icon">' + (state.outlet === 'bar' ? '🍸' : '🍽') + '</div><div class="empty-state-title">No open ' + state.outlet + ' tickets</div><div class="empty-state-desc">Start a new ticket to begin taking orders.</div></div>'
-      : '<div class="pos-board" style="margin-bottom:28px">' + open.map(ticketCardHTML).join('') + '</div>') +
+      : (open.length === 0 ? '' : '<div class="pos-board" style="margin-bottom:28px">' + open.map(ticketCardHTML).join('') + '</div>')) +
+    parkedQueueHTML(parked) +
     (closedToday.length > 0
       ? '<div class="card-header" style="margin-bottom:12px"><span class="card-title">Closed Today</span></div>' +
         '<div class="table-wrap"><table><thead><tr><th>Ticket</th><th>Guest / Room</th><th>Items</th><th>Total</th><th>Payment</th><th>Closed</th><th></th></tr></thead><tbody>' +
@@ -154,6 +166,67 @@ function buildPOSPage(forcedOutlet) {
             : (can('payments.manage') ? '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__posRefundTicket(\'' + t.id + '\')">Refund</button>' : '')) + '</td>' +
         '</tr>').join('') + '</tbody></table></div>'
       : '');
+  }
+
+  // Event food & drink orders from Halls & Events, routed to this terminal.
+  // These are not till tickets: the event bill, cancellation and refunds stay
+  // on the Halls & Events page — here the kitchen/bar only cooks and serves.
+  function hallFnbSectionHTML() {
+    const orders = state.hallFnb || [];
+    if (orders.length === 0) return '';
+    return '<div class="card-header" style="margin-bottom:12px"><span class="card-title">🍽 Event Food &amp; Drinks</span>' +
+        '<span style="font-size:12px;color:var(--text3)">' + orders.length + ' open from Halls &amp; Events</span></div>' +
+      '<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:28px">' +
+      orders.map(o => {
+        const when = new Date(o.eventDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        return '<div class="card" style="padding:14px">' +
+          '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">' +
+            '<div><div style="font-weight:800;font-size:13.5px">' + escapeHtml(o.eventName) + '</div>' +
+            '<div style="font-size:11px;color:var(--text3)">' + escapeHtml(o.hallName) + ' &middot; ' + when + ' &middot; ' + escapeHtml(o.startTime) + '–' + escapeHtml(o.endTime) + ' &middot; ' + o.guestCount + ' guests</div></div>' +
+            badge(o.status === 'preparing' ? 'Preparing' : 'New', o.status === 'preparing' ? 'info' : 'warn') +
+          '</div>' +
+          '<div style="margin:10px 0;display:flex;flex-direction:column;gap:4px">' +
+            o.lines.map(l => '<div style="display:flex;justify-content:space-between;font-size:12.5px"><span><b>' + l.qty + '×</b> ' + escapeHtml(l.name) + '</span><span style="color:var(--text3)">' + formatMoney(l.price * l.qty) + '</span></div>').join('') +
+          '</div>' +
+          (o.note ? '<div style="font-size:11.5px;color:var(--warn);margin-bottom:8px">📝 ' + escapeHtml(o.note) + '</div>' : '') +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--border);padding-top:8px">' +
+            '<div><div style="font-weight:800;font-size:14px;color:var(--p)">' + formatMoney(o.lineTotal) + '</div>' +
+              '<div style="font-size:10.5px;color:var(--text3)">' + (o.payment === 'event' ? 'On the event bill' : 'Paid ' + o.payment + ' — already settled') +
+              (o.otherLines ? ' &middot; ' + o.otherLines + ' item' + (o.otherLines === 1 ? '' : 's') + ' for the ' + (state.outlet === 'bar' ? 'kitchen' : 'bar') : '') + '</div></div>' +
+            (o.status === 'pending'
+              ? '<button class="btn outline sm" onclick="window.__posFnbStatus(\'' + o.id + '\',\'preparing\')">Start preparing</button>'
+              : '<button class="btn primary sm" onclick="window.__posFnbStatus(\'' + o.id + '\',\'served\')">Mark served</button>') +
+          '</div>' +
+        '</div>';
+      }).join('') + '</div>';
+  }
+
+  window.__posFnbStatus = async (id, status) => {
+    try {
+      await API.patch('/api/pos/hall-fnb/' + id, { status, outlet: state.outlet });
+      toast(status === 'served' ? 'Order marked served' : 'Order started', 'success');
+      await load({ silent: true });
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
+  // Parked orders — awaiting settlement, in the order they were held.
+  function parkedQueueHTML(list) {
+    if (!list || list.length === 0) return '';
+    return '<div class="card-header" style="margin:24px 0 12px"><span class="card-title">⏸ Parked Orders — Awaiting Settlement</span>' +
+        '<span style="font-size:12px;color:var(--text3)">' + list.length + ' in queue &middot; oldest first</span></div>' +
+      '<div class="table-wrap"><table><thead><tr><th>#</th><th>Order</th><th>Guest / Room</th><th>Items</th><th>Total</th><th>Held For</th><th></th></tr></thead><tbody>' +
+      list.map((t, i) => '<tr>' +
+        '<td style="font-weight:800;color:var(--text3)">' + (i + 1) + '</td>' +
+        '<td><div style="font-weight:600">' + escapeHtml(t.label) + '</div>' +
+          (t.park_reason ? '<div style="font-size:11px;color:var(--warn)">⏸ ' + escapeHtml(t.park_reason) + '</div>' : '') + '</td>' +
+        '<td>' + escapeHtml(t.guest_name || 'Walk-in') + (t.room_number ? ' · Rm ' + escapeHtml(t.room_number) : '') + '</td>' +
+        '<td style="font-size:12px;color:var(--text3)">' + t.items.map(x => x.qty + '× ' + escapeHtml(x.name)).join(', ') + '</td>' +
+        '<td style="font-weight:700;color:var(--p)">' + formatMoney(t.total) + '</td>' +
+        '<td style="font-size:12px;color:var(--text3)">' + timeAgo(t.parked_at) + '</td>' +
+        '<td style="text-align:right;white-space:nowrap">' +
+          '<button class="btn primary sm" onclick="window.__posResumeTicket(\'' + t.id + '\')">Resume</button> ' +
+          '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__posVoidTicket(\'' + t.id + '\')">Void</button>' +
+        '</td></tr>').join('') + '</tbody></table></div>';
   }
 
   function ticketCardHTML(t) {
@@ -285,6 +358,7 @@ function buildPOSPage(forcedOutlet) {
         '<div id="pos-cart-panel-wrap">' + cartPanelHTML(ticket) + '</div>' +
       '</div>',
       '<button class="btn outline" style="color:var(--error)" onclick="window.__posVoidTicket(\'' + ticket.id + '\')">Void Ticket</button>' +
+      '<button class="btn outline" onclick="window.__posParkTicket(\'' + ticket.id + '\')">Park for later</button>' +
       '<button class="btn outline" onclick="closeModal()">Close</button>' +
       '<button class="btn primary" onclick="window.__posCheckout(\'' + ticket.id + '\')">Checkout →</button>',
       { wide: true, sub: escapeHtml(ticket.guest_name || 'Walk-in') + (ticket.room_number ? ' · Room ' + escapeHtml(ticket.room_number) : '') }
@@ -397,6 +471,35 @@ function buildPOSPage(forcedOutlet) {
     } catch (err) { toast(err.message, 'error'); }
   };
 
+  // ── Parked orders: hold the sale, serve the next guest, finish it later ──
+  window.__posParkTicket = (ticketId) => {
+    const t = state.tickets.find(x => x.id === ticketId);
+    openPOSModal('Park Order' + (t ? ' — ' + escapeHtml(t.label) : ''),
+      '<p style="font-size:13px;color:var(--text2);margin-bottom:12px">The order keeps every item, its table and its total, but leaves the active board so you can serve other guests now. It waits in <b>Parked Orders</b> until you resume it — nothing is charged or voided.</p>' +
+      '<div class="form-group"><label class="form-label">Reason (optional)</label>' +
+        '<input class="form-input" id="pos-park-reason" maxlength="200" placeholder="e.g. card declined — guest stepped out to an ATM"/></div>',
+      '<button class="btn outline" onclick="' + (t ? 'window.__posOpenTicket(\'' + ticketId + '\')' : 'closeModal()') + '">Back</button>' +
+      '<button class="btn primary" onclick="window.__confirmParkTicket(\'' + ticketId + '\')">Park Order</button>'
+    );
+  };
+  window.__confirmParkTicket = async (ticketId) => {
+    const el = document.getElementById('pos-park-reason');
+    try {
+      await API.post('/api/pos/tickets/' + ticketId + '/park', { reason: el ? el.value.trim() : '' });
+      toast('Order parked — start another order and resume this one later', 'success');
+      closeModal();
+      await load();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  window.__posResumeTicket = async (ticketId) => {
+    try {
+      await API.post('/api/pos/tickets/' + ticketId + '/resume', {});
+      toast('Order resumed', 'success');
+      await load({ silent: true });
+      window.__posOpenTicket(ticketId);
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
   // Refunds are manager-only (payments.manage); the server enforces this too.
   window.__posRefundTicket = (ticketId) => {
     const t = state.tickets.find(x => x.id === ticketId);
@@ -481,6 +584,7 @@ function buildPOSPage(forcedOutlet) {
           '<div class="pos-cart-totals-row grand"><span>Total Due</span><span>' + formatMoney(t.total) + '</span></div></div>' +
         '</div>',
         '<button class="btn outline" onclick="window.__posOpenTicket(\'' + ticket.id + '\')">← Back</button>' +
+        '<button class="btn outline" onclick="window.__posParkTicket(\'' + ticket.id + '\')">Park for later</button>' +
         '<button class="btn primary" ' + (method ? '' : 'disabled') + ' onclick="window.__posConfirmCheckout(\'' + ticket.id + '\')">Confirm ' + (method ? paymentLabel(method) : 'Payment') + '</button>',
         { wide: true }
       );
@@ -611,7 +715,8 @@ function buildPOSPage(forcedOutlet) {
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(() => load({ silent: true }), 300);
   }
-  ['pos.ticket.created', 'pos.ticket.updated', 'pos.ticket.closed', 'pos.ticket.voided', 'pos.ticket.refunded']
+  ['pos.ticket.created', 'pos.ticket.updated', 'pos.ticket.closed', 'pos.ticket.voided', 'pos.ticket.refunded',
+   'hallfnb.created', 'hallfnb.updated']
     .forEach(evt => WSClient.on(evt, scheduleReload));
 
   return wrap;

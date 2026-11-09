@@ -220,10 +220,13 @@ PAGES.halls = function () {
   // ── Food & Drinks for an event ─────────────────────────────────────────
   // Order food, drinks, or both straight from a hall booking. Prices come from
   // the server (menu_items), so the basket is only a quantity picker here.
+  // Same classification the server uses to route an event order to the
+  // restaurant or bar (server/utils/fnb.js), so the All/Food/Drinks pills
+  // match the terminal the order will actually land on.
   const fnbIsDrink = (m) => {
     const cat = String(m.category || '').toLowerCase();
-    return m.outlet === 'bar' || ['drinks', 'cocktails', 'beer', 'wine', 'spirits'].includes(cat) ||
-      /drink|cocktail|beer|wine|spirit|liquor|juice|water|soda|smoothie|shake|coffee|tea|whisk|vodka|rum|gin|champagne/i.test(String(m.name || ''));
+    return ['drinks', 'drink', 'beverages', 'beverage', 'cocktails', 'cocktail', 'mocktails', 'beer', 'beers', 'wine', 'wines', 'spirits', 'liquor', 'soft drinks', 'hot drinks'].includes(cat) ||
+      /drink|cocktail|mocktail|beer|wine|spirit|liquor|juice|water|soda|smoothie|shake|coffee|tea|whisk|vodka|rum|gin|champagne|brandy|cognac|lemonade|sprite|coke|cola/i.test(String(m.name || ''));
   };
   const fnbOrdersFor = (id) => state.fnb.filter(o => o.hall_booking_id === id);
   const fnbCartTotal = (cart) => Object.keys(cart).reduce((s, k) => s + cart[k].price * cart[k].qty, 0);

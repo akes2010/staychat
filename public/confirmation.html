@@ -96,6 +96,7 @@ body { background:radial-gradient(800px 400px at 50% -10%, rgba(91,224,140,.10),
           <tr><td>Check-out</td><td id="s-cout"></td></tr>
           <tr><td>Room(s)</td><td id="s-rooms"></td></tr>
           <tr><td>Guests</td><td id="s-pax"></td></tr>
+          <tr id="s-fnb-row" style="display:none"><td>Food &amp; drinks (pre-ordered)</td><td id="s-fnb"></td></tr>
           <tr class="total"><td>Total (pay at hotel)</td><td id="s-total"></td></tr>
         </table>
         <div style="display:flex;gap:14px;align-items:center;margin-top:14px">
@@ -149,12 +150,17 @@ body { background:radial-gradient(800px 400px at 50% -10%, rgba(91,224,140,.10),
         $('s-rooms').textContent = (f.kind === 'hall' ? '🎪 ' : '🏊 ') + f.name + (f.eventName ? ' — ' + f.eventName : '');
         $('s-pax').textContent = f.guestCount + ' guest' + (f.guestCount === 1 ? '' : 's');
         $('s-total').textContent = Number(f.total) > 0 ? b.hotel.currency + Number(f.total).toFixed(2) : 'Free (pay for extras at the hotel)';
+        // Any food & drinks the guest pre-ordered with the event (added to the bill).
+        const fnb = Number(f.fnbTotal) || 0;
+        $('s-fnb-row').style.display = fnb > 0 ? '' : 'none';
+        $('s-fnb').textContent = fnb > 0 ? b.hotel.currency + fnb.toFixed(2) : '';
         $('s-citime').textContent = f.startTime;
         $('s-cotime').textContent = f.endTime;
       } else {
         $('s-cin').textContent = b.checkIn + ' (from ' + b.hotel.checkInTime + ')';
         $('s-cout').textContent = b.checkOut + ' (by ' + b.hotel.checkOutTime + ')';
         $('s-rooms').textContent = b.rooms.map(r => 'Room ' + r.number).join(', ');
+        $('s-fnb-row').style.display = 'none';
         $('s-pax').textContent = b.adults + ' adult' + (b.adults===1?'':'s') + (b.children ? ', ' + b.children + ' child' + (b.children===1?'':'ren') : '');
         $('s-total').textContent = b.hotel.currency + Number(b.total).toFixed(2);
         $('s-citime').textContent = b.hotel.checkInTime;

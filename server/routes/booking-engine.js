@@ -23,6 +23,7 @@ const { notifyStaffOfSubmission } = require('../services/engine-notifications');
 const emailSvc = require('../services/email');
 const billing = require('../services/billing');
 const { slotWithinHours } = require('../utils/facility-hours');
+const { fnbKind } = require('../utils/fnb');
 
 const router = express.Router();
 
@@ -271,6 +272,26 @@ router.get('/facilities', (req, res) => {
   res.json({ halls, pools, gyms });
 });
 
+// GET /api/booking-engine/fnb-menu?subdomain= — the food & drinks a guest can
+// pre-order for an event hall. Only public menu fields are returned; the price
+// is the hotel's menu price, so the guest quote matches the eventual bill.
+router.get('/fnb-menu', (req, res) => {
+  const subdomain = resolveSubdomain(req);
+  if (!subdomain) return res.status(400).json({ error: 'subdomain is required' });
+  const tenant = publicTenant(res, subdomain);
+  if (!tenant) return;
+  const items = db.prepare(`SELECT id, name, category, description, price, outlet FROM menu_items
+    WHERE tenant_id = ? AND available = 1 ORDER BY category, name`).all(tenant.id);
+  res.json({
+    currency: tenant.currency || '$',
+    items: items.map(i => ({
+      id: i.id, name: i.name, category: i.category || 'Menu',
+      description: i.description || null, price: i.price,
+      kind: fnbKind(i),
+    })),
+  });
+});
+
 // GET /api/booking-engine/facility-availability?subdomain=&kind=&facilityId=&date=&startTime=&endTime=
 // Live slot check for the widget before the guest commits.
 router.get('/facility-availability', (req, res) => {
@@ -316,7 +337,7 @@ router.post('/facility-book', (req, res) => {
   if (!engineEnabled(tenant.id)) return res.status(503).json({ error: 'Online booking is currently closed for this hotel' });
 
   try {
-    const result = engine.submitFacilityBooking(tenant.id, { kind, facilityId, guestName, guestPhone, guestEmail, date, startTime, endTime, partySize, eventName, notes });
+    const result = engine.submitFacilityBooking(tenant.id, { kind, facilityId, guestName, guestPhone, guestEmail, date, startTime, endTime, partySize, eventName, notes, fnbItems: (req.body || {}).fnbItems });
     // Staff heads-up (fire-and-forget) — reuse the room submission broadcast so
     // the desk sees one consistent "new online booking" notification stream.
     notifyStaffOfSubmission(tenant.id, {
@@ -380,7 +401,10 @@ router.get('/confirmation', (req, res) => {
           kind: 'hall', name: hallBk.facility_name, category: hallBk.facility_category || 'Event Space',
           eventName: hallBk.event_name, date: hallBk.event_date,
           startTime: hallBk.start_time, endTime: hallBk.end_time,
-          guestCount: hallBk.guest_count, total: hallBk.total_amount,
+          guestCount: hallBk.guest_count,
+          // The event bill is the hall charge plus any pre-ordered food & drinks.
+          total: Math.round((Number(hallBk.total_amount || 0) + Number(hallBk.fnb_total || 0)) * 100) / 100,
+          fnbTotal: Number(hallBk.fnb_total || 0),
         },
         code: hallBk.engine_code,
         // 'tentative' is internal hall vocabulary; guests see the same
