@@ -4,15 +4,24 @@
 //   npm test                everything (incl. the headless-Chromium suites)
 //   npm run test:fast       API/server suites only (no browser needed)
 //   node scripts/run-tests.js --only browser-test-settle-modal
+//   node scripts/run-tests.js --jobs 1     one suite at a time (old behaviour)
 //
-// Suites run SEQUENTIALLY on purpose: each boots its own throwaway server on
-// its own port, but running Chromium suites concurrently caused timing flakes.
+// API/server suites run sequentially (they are short and some share fixed
+// ports). The headless-Chromium suites run two at a time: after d0a30cf each
+// suite owns its own server port, OS-assigned DevTools port and Chromium
+// profile, so they no longer collide — CPU contention only slows them, and
+// every suite waits on conditions rather than the clock.
+//
 // ORDER MATTERS: browser-test-logout.js must run after every suite that signs
-// in (BTS-049 — a session teardown racing a live sign-in). The order is
+// in (BTS-049 — a session teardown racing a live sign-in). It is therefore a
+// barrier: the suites declared before it all finish before it starts, and the
+// walk-throughs after it start only once it has exited. The declared order is
 // guarded by scripts/verify-battery-order.js.
 // Exit code 0 only when every selected suite passes — safe to gate deploys on.
 'use strict';
 const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 // One machine hammers ONE throwaway server for the whole battery (plus the
@@ -68,6 +77,8 @@ const BROWSER = [
 ];
 
 const args = process.argv.slice(2);
+const jobsIdx = args.indexOf('--jobs');
+const JOBS = jobsIdx >= 0 ? Math.max(1, parseInt(args[jobsIdx + 1], 10) || 1) : 2;
 const onlyIdx = args.indexOf('--only');
 let suites;
 if (onlyIdx >= 0 && args[onlyIdx + 1]) {
@@ -88,34 +99,80 @@ if (args.includes('--list')) {
 }
 
 const results = [];
-console.log('════════════════════════════════════════════════');
-console.log(' StayChat OS — regression battery (' + suites.length + ' suite' + (suites.length === 1 ? '' : 's') + ')');
-console.log('════════════════════════════════════════════════');
+const wallStart = Date.now();
+
+function runSuite(suite, capture) {
+  const file = path.join(__dirname, suite);
+  const cmd = suite.endsWith('.sh') ? 'bash' : 'node';
+  const t0 = Date.now();
+  // Captured runs buffer their output so two suites never interleave their
+  // lines; the block is printed whole when the suite exits.
+  const log = capture ? path.join(os.tmpdir(), 'staychat-suite-' + process.pid + '-' + suite + '.log') : null;
+  const out = capture ? fs.openSync(log, 'w') : null;
+  return new Promise((resolve) => {
+    const done = (code) => {
+      if (out !== null) {
+        try { fs.closeSync(out); } catch (e) {}
+        let text = '';
+        try { text = fs.readFileSync(log, 'utf8'); } catch (e) {}
+        try { fs.unlinkSync(log); } catch (e) {}
+        process.stdout.write('\n▶ ' + suite + '\n' + text);
+      }
+      const secs = ((Date.now() - t0) / 1000).toFixed(1);
+      results.push({ suite, code: code === 0, secs });
+      console.log((code === 0 ? '✓ ' : '✗ ') + suite + ' — ' + secs + 's');
+      resolve(code);
+    };
+    if (!capture) process.stdout.write('\n▶ ' + suite + '\n');
+    const p = spawn(cmd, [file], { stdio: capture ? ['ignore', out, out] : 'inherit' });
+    p.on('exit', (code, signal) => done(signal ? 1 : code));
+    p.on('error', () => done(1));
+  });
+}
+
+// Run a list with at most `size` suites in flight; results keep declared order.
+async function runPool(list, size) {
+  const queue = list.slice();
+  const workers = Array.from({ length: Math.max(1, Math.min(size, queue.length)) }, async () => {
+    while (queue.length) {
+      const suite = queue.shift();
+      await runSuite(suite, size > 1);
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function runBrowser(list, size) {
+  if (size <= 1) return runPool(list, 1);
+  // BTS-049 barrier: nothing after logout may overlap it or anything before it.
+  const barrier = list.indexOf('browser-test-logout.js');
+  if (barrier === -1) return runPool(list, size);
+  await runPool(list.slice(0, barrier), size);
+  await runPool(list.slice(barrier, barrier + 1), 1);
+  await runPool(list.slice(barrier + 1), size);
+}
 
 (async () => {
-  for (const suite of suites) {
-    const file = path.join(__dirname, suite);
-    const cmd = suite.endsWith('.sh') ? 'bash' : 'node';
-    const t0 = Date.now();
-    process.stdout.write('\n▶ ' + suite + '\n');
-    const code = await new Promise((resolve) => {
-      const p = spawn(cmd, [file], { stdio: 'inherit' });
-      p.on('exit', resolve);
-      p.on('error', () => resolve(1));
-    });
-    const secs = ((Date.now() - t0) / 1000).toFixed(1);
-    results.push({ suite, code: code === 0, secs });
-    console.log((code === 0 ? '✓ ' : '✗ ') + suite + ' — ' + secs + 's');
-  }
+  console.log('════════════════════════════════════════════════');
+  console.log(' StayChat OS — regression battery (' + suites.length + ' suite' + (suites.length === 1 ? '' : 's') + ', ' + JOBS + ' browser lane' + (JOBS === 1 ? '' : 's') + ')');
+  console.log('════════════════════════════════════════════════');
 
-  const failed = results.filter(r => !r.code);
+  const fast = suites.filter(s => FAST.includes(s));
+  const browser = suites.filter(s => BROWSER.includes(s));
+  await runPool(fast, 1);
+  await runBrowser(browser, JOBS);
+
+  // Summary in declared order, whatever order the suites happened to finish.
+  const ordered = suites.map(s => results.find(r => r.suite === s)).filter(Boolean);
+  const failed = ordered.filter(r => !r.code);
+  const summed = ordered.reduce((s, r) => s + Number(r.secs), 0).toFixed(1);
+  const wall = ((Date.now() - wallStart) / 1000).toFixed(1);
   console.log('\n════════════════════════════════════════════════');
-  for (const r of results) console.log(' ' + (r.code ? '✓' : '✗') + ' ' + r.suite);
-  const total = results.reduce((s, r) => s + Number(r.secs), 0).toFixed(1);
+  for (const r of ordered) console.log(' ' + (r.code ? '✓' : '✗') + ' ' + r.suite);
   console.log('════════════════════════════════════════════════');
   console.log(failed.length === 0
-    ? ' ✓ ALL ' + results.length + ' SUITES PASSED (' + total + 's)'
-    : ' ✗ ' + failed.length + ' of ' + results.length + ' suites FAILED: ' + failed.map(f => f.suite).join(', '));
+    ? ' ✓ ALL ' + ordered.length + ' SUITES PASSED (wall ' + wall + 's, suite time ' + summed + 's)'
+    : ' ✗ ' + failed.length + ' of ' + ordered.length + ' suites FAILED: ' + failed.map(f => f.suite).join(', ') + ' (wall ' + wall + 's)');
   console.log('════════════════════════════════════════════════');
   process.exit(failed.length === 0 ? 0 : 1);
 })();
