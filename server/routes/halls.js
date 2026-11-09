@@ -73,8 +73,18 @@ router.delete('/halls/:id', requirePermission('halls.manage'), (req, res) => {
 // GET /api/halls/bookings?from=&to=&hallId=
 router.get('/bookings', (req, res) => {
   const { from, to, hallId } = req.query;
-  let sql = 'SELECT * FROM hall_bookings WHERE tenant_id = ?';
-  const params = [req.tenantId];
+  // Restaurant/bar tickets charged to this event's account are part of its F&B
+  // bill (they were added to hall_bookings.fnb_total at checkout); surface the
+  // count and value so the desk can see what makes up the F&B figure.
+  let sql = `SELECT b.*, COALESCE(p.tickets, 0) AS pos_charges, COALESCE(p.sales, 0) AS pos_sales
+    FROM hall_bookings b
+    LEFT JOIN (
+      SELECT hall_booking_id, COUNT(*) AS tickets, SUM(total) AS sales
+      FROM pos_tickets WHERE tenant_id = ? AND payment_method = 'hall_account' AND status = 'closed'
+      GROUP BY hall_booking_id
+    ) p ON p.hall_booking_id = b.id
+    WHERE b.tenant_id = ?`;
+  const params = [req.tenantId, req.tenantId];
   if (hallId) { sql += ' AND hall_id = ?'; params.push(hallId); }
   if (from) { sql += ' AND event_date >= ?'; params.push(from); }
   if (to) { sql += ' AND event_date <= ?'; params.push(to); }

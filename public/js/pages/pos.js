@@ -14,7 +14,7 @@ window.PAGES = window.PAGES || {};
 
 function buildPOSPage(forcedOutlet) {
   const wrap = el('div', 'fa');
-  const state = { outlet: 'restaurant', tickets: [], hallFnb: [], menu: [], rooms: [], guests: [], bookings: [], summary: {}, menuLoaded: false, terminal: null };
+  const state = { outlet: 'restaurant', tickets: [], hallFnb: [], menu: [], rooms: [], guests: [], bookings: [], hallAccounts: [], summary: {}, menuLoaded: false, terminal: null };
 
   // silent = background refresh (WebSocket / another till). It must not blank
   // the board or jump the operator back to the top of a long ticket list.
@@ -116,9 +116,15 @@ function buildPOSPage(forcedOutlet) {
 
   async function ensureMenuAndContext() {
     if (state.menuLoaded) return;
-    const [menu, rooms, guests, bookings] = await Promise.all([API.get('/api/menu'), API.get('/api/rooms'), API.get('/api/guests'), API.get('/api/bookings?isGroup=true')]);
+    // Event accounts are a Halls & Events entitlement — a hotel without it
+    // simply gets no Event Account button, never a broken checkout.
+    const [menu, rooms, guests, bookings, hallAccounts] = await Promise.all([
+      API.get('/api/menu'), API.get('/api/rooms'), API.get('/api/guests'), API.get('/api/bookings?isGroup=true'),
+      API.get('/api/pos/hall-accounts').catch(() => []),
+    ]);
     state.menu = menu; state.rooms = rooms; state.guests = guests;
     state.bookings = bookings.filter(b => ['confirmed', 'checked_in'].includes(b.status));
+    state.hallAccounts = Array.isArray(hallAccounts) ? hallAccounts : [];
     state.menuLoaded = true;
   }
 
@@ -239,8 +245,8 @@ function buildPOSPage(forcedOutlet) {
     '</div>';
   }
 
-  function paymentLabel(m) { return { cash: 'Cash', card: 'Card', room_charge: 'Room Charge', customer_bill: 'Customer Bill', group_account: 'Group Account' }[m] || m || '—'; }
-  function paymentBadgeType(m) { return m === 'room_charge' ? 'info' : m === 'customer_bill' || m === 'group_account' ? 'warn' : m ? 'success' : 'default'; }
+  function paymentLabel(m) { return { cash: 'Cash', card: 'Card', room_charge: 'Room Charge', customer_bill: 'Customer Bill', group_account: 'Group Account', hall_account: 'Hall / Event Account' }[m] || m || '—'; }
+  function paymentBadgeType(m) { return m === 'room_charge' ? 'info' : m === 'customer_bill' || m === 'group_account' || m === 'hall_account' ? 'warn' : m ? 'success' : 'default'; }
 
   // Outlet is locked to whichever terminal the operator signed into (see __posConfirmTerminal).
 
@@ -505,11 +511,14 @@ function buildPOSPage(forcedOutlet) {
     const t = state.tickets.find(x => x.id === ticketId);
     if (!t) { toast('Ticket not found — refresh the board', 'error'); return; }
     if (!can('payments.manage')) { toast('Only a manager can refund a settled ticket', 'error'); return; }
-    const pendingFolio = t.payment_method === 'room_charge' || t.payment_method === 'customer_bill' || t.payment_method === 'group_account';
+    const eventAccount = t.payment_method === 'hall_account';
+    const pendingFolio = t.payment_method === 'room_charge' || t.payment_method === 'customer_bill' || t.payment_method === 'group_account' || eventAccount;
     openPOSModal('Refund — ' + escapeHtml(t.label),
       '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:14px;font-size:13px">' +
         '<div><b>' + formatMoney(t.total) + '</b> paid by ' + escapeHtml(paymentLabel(t.payment_method)) + '</div>' +
-        '<div style="font-size:11.5px;color:var(--text3);margin-top:3px">' + (pendingFolio
+        '<div style="font-size:11.5px;color:var(--text3);margin-top:3px">' + (eventAccount
+          ? 'This was charged to the event bill and not yet collected — the amount will be taken off the Halls & Events account.'
+          : pendingFolio
           ? 'This was posted to a folio and not yet collected — the charge will be cancelled on the guest\'s account.'
           : 'The full amount will be reversed on the original payment.') + ' This refunds the whole ticket.</div>' +
       '</div>' +
@@ -553,6 +562,7 @@ function buildPOSPage(forcedOutlet) {
           payOptionHTML('room_charge', '🛏', 'Room Charge', 'Post to guest folio') +
           payOptionHTML('customer_bill', '📒', 'Customer Bill', 'Bill to an account') +
           (state.bookings.length > 0 ? payOptionHTML('group_account', '👥', 'Group Account', 'Bill a group reservation') : '') +
+          (state.hallAccounts.length > 0 ? payOptionHTML('hall_account', '🎪', 'Event Account', 'Charge a Halls & Events booking') : '') +
         '</div>' +
         (method === 'cash' ?
           '<div class="form-group" style="margin-bottom:14px"><label class="form-label">Cash Tendered</label><input class="form-input" type="number" min="0" step="0.01" id="co-cash" placeholder="Amount handed over by customer" oninput="window.__posRecalcCheckout(\'' + ticket.id + '\')"/></div>' +
@@ -573,6 +583,14 @@ function buildPOSPage(forcedOutlet) {
             '<option value="">— Select group —</option>' +
             state.bookings.map(b => '<option value="' + b.id + '">' + escapeHtml(b.group_name || b.guest_name) + ' — ' + escapeHtml(b.reference) + '</option>').join('') +
           '</select></div>' : '') +
+        (method === 'hall_account' ?
+          '<div class="form-group" style="margin-bottom:14px"><label class="form-label">Halls &amp; Events Booking</label><select class="form-select" id="co-hall">' +
+            '<option value="">— Select event —</option>' +
+            state.hallAccounts.map(b => '<option value="' + b.id + '">' + escapeHtml(b.eventName) + ' — ' + escapeHtml(b.organizerName) + ' &middot; ' +
+              new Date(b.eventDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+              (b.fnbTotal > 0 ? ' &middot; F&amp;B ' + formatMoney(b.fnbTotal) : '') + '</option>').join('') +
+          '</select>' +
+          '<div style="font-size:11.5px;color:var(--text3);margin-top:6px">The sale is added to the event\'s food &amp; drinks bill and collected with the event.</div></div>' : '') +
         (['room_charge', 'customer_bill', 'group_account'].includes(method) ? '<div id="co-balance">' + balanceInfoHTML(balanceInfo) + '</div>' : '') +
         '<div class="form-group" style="margin-bottom:14px"><label class="form-label">Discount %</label><input class="form-input" type="number" min="0" max="100" step="1" id="co-discount" value="' + (ticket.discount_pct || 0) + '" oninput="window.__posRecalcCheckout(\'' + ticket.id + '\')"/></div>' +
         '<div id="co-totals">' +
@@ -664,6 +682,11 @@ function buildPOSPage(forcedOutlet) {
         const bookingId = document.getElementById('co-booking').value;
         if (!bookingId) { toast('Select a group booking to charge', 'error'); return; }
         body.bookingId = bookingId;
+      }
+      if (method === 'hall_account') {
+        const hallBookingId = document.getElementById('co-hall').value;
+        if (!hallBookingId) { toast('Select a Halls & Events booking to charge', 'error'); return; }
+        body.hallBookingId = hallBookingId;
       }
       try {
         const result = await API.post('/api/pos/tickets/' + tid + '/checkout', body);

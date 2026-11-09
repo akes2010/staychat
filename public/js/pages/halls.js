@@ -96,6 +96,7 @@ PAGES.halls = function () {
         '<div><strong>Guests:</strong> ' + b.guest_count + ' &middot; <strong>Setup:</strong> ' + escapeHtml(b.setup_style) + ' &middot; <strong>Catering:</strong> ' + (b.catering ? 'Yes' : 'No') + '</div>' +
         '<div><strong>Total:</strong> ' + formatMoney(b.total_amount) + ' &nbsp; <strong>Deposit:</strong> ' + formatMoney(b.deposit_amount) + '</div>' +
         (b.fnb_total > 0 ? '<div><strong>Food &amp; drinks:</strong> ' + formatMoney(b.fnb_total) + ' &nbsp; <strong>Event bill:</strong> ' + formatMoney(Number(b.total_amount || 0) + Number(b.fnb_total || 0)) + '</div>' : '') +
+        (b.pos_charges > 0 ? '<div><strong>Charged at Restaurant / Bar:</strong> ' + b.pos_charges + ' ticket' + (Number(b.pos_charges) === 1 ? '' : 's') + ' &middot; ' + formatMoney(b.pos_sales) + ' <span style="color:var(--text3)">(included in food &amp; drinks)</span></div>' : '') +
         (b.notes ? '<div><strong>Notes:</strong> ' + escapeHtml(b.notes) + '</div>' : '') +
       '</div>',
       '<button class="btn outline" onclick="closeModal()">Close</button>' +

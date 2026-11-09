@@ -65,7 +65,7 @@ PAGES.reports = function () {
     // money, even though the key is literally called "total".
     // A few summaries need a human label the camel-case splitter can't produce
     // (Halls & Events breaks its revenue into hall charges vs food & drink).
-    const SUMMARY_LABELS = { eventTotal: 'Hall Charges', fnbSalesTotal: 'Food & Drink Sales', fnbOrders: 'Food & Drink Orders' };
+    const SUMMARY_LABELS = { eventTotal: 'Hall Charges', fnbSalesTotal: 'Food & Drink Sales', fnbOrders: 'Food & Drink Orders', posSalesTotal: 'Restaurant & Bar (on event bills)', posTickets: 'Pos Tickets on Event Bills' };
     const summaryCards = Object.entries(d.summary || {}).map(([k, v]) => {
       const label = SUMMARY_LABELS[k] || k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
       const isMoney = d.type !== 'rooms' && /total|amount|discount/i.test(k) && typeof v === 'number';
@@ -110,7 +110,7 @@ PAGES.reports = function () {
       bar: [{ label: 'Closed', render: r => esc(safeDate(r.closed_at)) }, { label: 'Ticket', render: r => esc(r.label) }, { label: 'Guest', render: r => esc(r.guest_name) }, { label: 'Method', render: r => esc(r.payment_method) }, { label: 'Total', money: true, render: r => money(r.total) }],
       room_service: [{ label: 'Date', render: r => esc(safeDate(r.created_at)) }, { label: 'Room', render: r => esc(r.room_number) }, { label: 'Guest', render: r => esc(r.guest_name) }, { label: 'Status', render: r => statusBadge(r.status) }, { label: 'Total', money: true, render: r => money(r.total) }],
       pool: [{ label: 'Date', render: r => esc(r.date) }, { label: 'Guest', render: r => esc(r.guest_name) }, { label: 'Area', render: r => esc(r.area) }, { label: 'Status', render: r => statusBadge(r.status) }, { label: 'Price', money: true, render: r => money(r.price) }],
-      hall: [{ label: 'Date', render: r => esc(r.event_date) }, { label: 'Event', render: r => esc(r.event_name) }, { label: 'Organizer', render: r => esc(r.organizer_name) }, { label: 'Status', render: r => statusBadge(r.status) }, { label: 'Hall Charge', money: true, render: r => money(r.total_amount) }, { label: 'F&B Sales', money: true, render: r => money(r.fnb_sales) }, { label: 'Event Total', money: true, render: r => money(Number(r.total_amount || 0) + Number(r.fnb_sales || 0)) }],
+      hall: [{ label: 'Date', render: r => esc(r.event_date) }, { label: 'Event', render: r => esc(r.event_name) }, { label: 'Organizer', render: r => esc(r.organizer_name) }, { label: 'Status', render: r => statusBadge(r.status) }, { label: 'Hall Charge', money: true, render: r => money(r.total_amount) }, { label: 'F&B Sales', money: true, render: r => money(r.fnb_sales) }, { label: 'Charged at POS', money: true, render: r => money(r.pos_sales) }, { label: 'Event Total', money: true, render: r => money(Number(r.total_amount || 0) + Number(r.fnb_sales || 0) + Number(r.pos_sales || 0)) }],
       other_services: [{ label: 'Date', render: r => esc(safeDate(r.created_at)) }, { label: 'Service', render: r => esc(r.service_name) }, { label: 'Guest', render: r => esc(r.guest_name) }, { label: 'Status', render: r => statusBadge(r.status) }, { label: 'Total', money: true, render: r => money(r.total) }],
       activity: [{ label: 'Date', render: r => esc(safeDate(r.created_at)) }, { label: 'User', render: r => esc(r.user_name) }, { label: 'Role', render: r => esc(r.user_role) }, { label: 'Action', render: r => esc(r.action) }, { label: 'Entity', render: r => esc(r.entity_type) }],
     };

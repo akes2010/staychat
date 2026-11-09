@@ -648,8 +648,12 @@ function migrate() {
       tax_pct REAL NOT NULL DEFAULT 0,
       total REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','void','refunded')),
-      payment_method TEXT CHECK(payment_method IN ('cash','card','room_charge','customer_bill','group_account')),
+      payment_method TEXT CHECK(payment_method IN ('cash','card','room_charge','customer_bill','group_account','hall_account')),
       transaction_id TEXT,
+      -- When the ticket was charged to a Halls & Events booking's account: the
+      -- event bill (hall_bookings.fnb_total) carries the money, not a ledger
+      -- receivable. Null for every other payment method.
+      hall_booking_id TEXT REFERENCES hall_bookings(id) ON DELETE SET NULL,
       note TEXT,
       opened_by TEXT,
       closed_by TEXT,
@@ -974,6 +978,10 @@ function migrate() {
   const posCols3 = db.prepare("PRAGMA table_info(pos_tickets)").all().map(c => c.name);
   if (!posCols3.includes('booking_id')) db.exec("ALTER TABLE pos_tickets ADD COLUMN booking_id TEXT REFERENCES bookings(id) ON DELETE SET NULL");
   if (!posCols3.includes('cashier_name')) db.exec("ALTER TABLE pos_tickets ADD COLUMN cashier_name TEXT");
+  // Restaurant/bar ticket charged to a Halls & Events booking's account. The
+  // payment-method CHECK is widened by the load-time rebuild in routes/pos.js
+  // on existing databases; here we only add the link column (purely additive).
+  if (!posCols3.includes('hall_booking_id')) db.exec("ALTER TABLE pos_tickets ADD COLUMN hall_booking_id TEXT REFERENCES hall_bookings(id) ON DELETE SET NULL");
 
   // users.role CHECK constraint → add accountant/auditor roles + permissions_customized flag.
   // SQLite can't alter a CHECK constraint in place, so rebuild the table.

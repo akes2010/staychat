@@ -7,6 +7,9 @@
 //                          to be settled at checkout (via the Payments page)
 //   customer_bill       -> posts a pending transaction against a guest's running
 //                          account (house account / city ledger), not tied to a room
+//   hall_account        -> adds the sale to a Halls & Events booking's account
+//                          (the event bill, hall_bookings.fnb_total), to be
+//                          collected with the rest of the event bill
 const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/connection');
@@ -30,7 +33,7 @@ router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pos.use
 // exactly like server/routes/gym.js does for gym_bookings. Idempotent.
 (function upgradePosTickets() {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pos_tickets'").get();
-  if (!row || (row.sql.includes("'refunded'") && row.sql.includes("'group_account'"))) return;
+  if (!row || (row.sql.includes("'refunded'") && row.sql.includes("'group_account'") && row.sql.includes("'hall_account'"))) return;
   db.pragma('foreign_keys = OFF');
   try {
     db.transaction(() => {
@@ -52,8 +55,9 @@ router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pos.use
           tax_pct REAL NOT NULL DEFAULT 0,
           total REAL NOT NULL DEFAULT 0,
           status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed','void','refunded')),
-          payment_method TEXT CHECK(payment_method IN ('cash','card','room_charge','customer_bill','group_account')),
+          payment_method TEXT CHECK(payment_method IN ('cash','card','room_charge','customer_bill','group_account','hall_account')),
           transaction_id TEXT,
+          hall_booking_id TEXT REFERENCES hall_bookings(id) ON DELETE SET NULL,
           note TEXT,
           opened_by TEXT,
           closed_by TEXT,
@@ -73,11 +77,11 @@ router.use(requireAuth, resolveTenant, requireTenant, requirePermission('pos.use
         INSERT INTO pos_tickets_new (id, tenant_id, outlet, label, table_id, covers, guest_name, guest_id, room_number,
           items, subtotal, discount_pct, service_pct, tax_pct, total, status, payment_method, transaction_id, note,
           opened_by, closed_by, created_at, updated_at, closed_at, booking_id, cashier_name,
-          void_reason, refund_reason, refunded_amount, refunded_at, refunded_by)
+          void_reason, refund_reason, refunded_amount, refunded_at, refunded_by, parked_at, park_reason)
           SELECT id, tenant_id, outlet, label, table_id, covers, guest_name, guest_id, room_number,
           items, subtotal, discount_pct, service_pct, tax_pct, total, status, payment_method, transaction_id, note,
           opened_by, closed_by, created_at, updated_at, closed_at, booking_id, cashier_name,
-          void_reason, refund_reason, refunded_amount, refunded_at, refunded_by FROM pos_tickets;
+          void_reason, refund_reason, refunded_amount, refunded_at, refunded_by, parked_at, park_reason FROM pos_tickets;
         DROP TABLE pos_tickets;
         ALTER TABLE pos_tickets_new RENAME TO pos_tickets;
         CREATE INDEX IF NOT EXISTS idx_pos_tenant ON pos_tickets(tenant_id, status);
@@ -262,6 +266,35 @@ router.patch('/hall-fnb/:id', requireEntitlement('hall_events'), (req, res) => {
   audit(req, 'pos.hall_fnb_status', 'hall_fnb_order', row.id, { status: next, outlet });
   broadcast(req.tenantId, 'hallfnb.updated', { id: row.id, hall_booking_id: row.hall_booking_id, status: next });
   res.json(fnbOrderForOutlet(updated, menuById, outlet));
+});
+
+// GET /api/pos/hall-accounts — the Halls & Events bookings a restaurant/bar
+// ticket can be charged to. A till operator has pos.use but usually not
+// halls.use, so the charge picker lives on the POS router rather than making
+// every cashier a banqueting user. Only events that can still take charges
+// are listed, and each carries its running F&B bill so the operator sees what
+// is already on the account.
+router.get('/hall-accounts', requireEntitlement('hall_events'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT b.id, b.event_name, b.event_date, b.start_time, b.end_time, b.organizer_name,
+           b.guest_count, b.status, b.fnb_total, h.name AS hall_name,
+           COALESCE(p.tickets, 0) AS pos_tickets, COALESCE(p.sales, 0) AS pos_sales
+    FROM hall_bookings b
+    JOIN halls h ON h.id = b.hall_id
+    LEFT JOIN (
+      SELECT hall_booking_id, COUNT(*) AS tickets, SUM(total) AS sales
+      FROM pos_tickets WHERE tenant_id = ? AND payment_method = 'hall_account' AND status = 'closed'
+      GROUP BY hall_booking_id
+    ) p ON p.hall_booking_id = b.id
+    WHERE b.tenant_id = ? AND b.status IN ('tentative','confirmed')
+    ORDER BY b.event_date ASC, b.start_time ASC`).all(req.tenantId, req.tenantId);
+  res.json(rows.map(r => ({
+    id: r.id, eventName: r.event_name, eventDate: r.event_date,
+    startTime: r.start_time, endTime: r.end_time, organizerName: r.organizer_name,
+    guestCount: r.guest_count, status: r.status, hallName: r.hall_name,
+    fnbTotal: round2(Number(r.fnb_total) || 0),
+    posTickets: r.pos_tickets, posSales: round2(Number(r.pos_sales) || 0),
+  })));
 });
 
 // GET /api/pos/tables — table picker data for the New Ticket flow: this
@@ -546,6 +579,35 @@ router.post('/tickets/:id/refund', requirePermission('payments.manage'), (req, r
 
   const reason = String((req.body && req.body.reason) || '').trim().slice(0, 300);
   if (!reason) return res.status(400).json({ error: 'A written reason is required to issue a refund' });
+
+  // Charged to a Halls & Events booking: no money was taken and no ledger
+  // receivable was posted — the sale sits on the event bill. Refunding it
+  // takes the amount back off that bill, exactly like cancelling an
+  // event-billed food & drink order does.
+  if (t.payment_method === 'hall_account') {
+    if (!t.hall_booking_id) {
+      return res.status(409).json({ error: 'This ticket is not linked to an event account — settle it from the Payments page' });
+    }
+    let ok = false;
+    db.transaction(() => {
+      const r = db.prepare(`UPDATE pos_tickets SET status = 'refunded', refund_reason = ?, refunded_amount = ?,
+                  refunded_at = datetime('now'), refunded_by = ?, updated_at = datetime('now')
+                  WHERE id = ? AND status = 'closed'`)
+        .run(reason, t.total, req.user.name, t.id);
+      if (r.changes === 0) return;
+      db.prepare(`UPDATE hall_bookings SET fnb_total = MAX(0, fnb_total - ?), updated_at = datetime('now')
+                  WHERE id = ? AND tenant_id = ?`).run(t.total, t.hall_booking_id, req.tenantId);
+      ok = true;
+    })();
+    if (!ok) return res.status(409).json({ error: 'This ticket was just refunded by someone else' });
+
+    const revoked = db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(t.id);
+    audit(req, 'pos.ticket_refund', 'pos_ticket', t.id, { amount: t.total, reason, hallBookingId: t.hall_booking_id, removedFromEventBill: true });
+    broadcast(req.tenantId, 'pos.ticket.refunded', serialize(revoked));
+    broadcast(req.tenantId, 'hallbooking.updated', { id: t.hall_booking_id });
+    return res.json({ ticket: serialize(revoked), refunded: revoked.refunded_amount, reason });
+  }
+
   if (!t.transaction_id) return res.status(409).json({ error: 'This ticket has no recorded payment to refund' });
 
   // Tickets settled before the id fix above stored a placeholder id; the charge
@@ -586,14 +648,14 @@ router.post('/tickets/:id/refund', requirePermission('payments.manage'), (req, r
 });
 
 // POST /api/pos/tickets/:id/checkout — settle the ticket
-// body: { paymentMethod: 'cash'|'card'|'room_charge'|'customer_bill'|'group_account', roomNumber?, guestId?, guestName?, discountPct?, bookingId? }
+// body: { paymentMethod: 'cash'|'card'|'room_charge'|'customer_bill'|'group_account'|'hall_account', roomNumber?, guestId?, guestName?, discountPct?, bookingId?, hallBookingId? }
 router.post('/tickets/:id/checkout', (req, res) => {
   const t = getOpenTicket(req, res); if (!t) return;
   const items = JSON.parse(t.items || '[]');
   if (items.length === 0) return res.status(400).json({ error: 'Cannot checkout an empty ticket' });
 
   const { paymentMethod } = req.body;
-  if (!['cash', 'card', 'room_charge', 'customer_bill', 'group_account'].includes(paymentMethod)) {
+  if (!['cash', 'card', 'room_charge', 'customer_bill', 'group_account', 'hall_account'].includes(paymentMethod)) {
     return res.status(400).json({ error: 'Invalid payment method' });
   }
 
@@ -617,6 +679,7 @@ router.post('/tickets/:id/checkout', (req, res) => {
   let guestName = req.body.guestName || t.guest_name || null;
   let guestId = req.body.guestId || t.guest_id || null;
   let bookingId = null;
+  let hallBookingId = null;
 
   if (paymentMethod === 'room_charge') {
     if (!roomNumber) return res.status(400).json({ error: 'roomNumber is required to post to room charge' });
@@ -645,7 +708,20 @@ router.post('/tickets/:id/checkout', (req, res) => {
     roomNumber = null;
   }
 
-  const methodLabel = { cash: 'Cash', card: 'Card', room_charge: 'Room Charge', customer_bill: 'Customer Bill', group_account: 'Group Account' }[paymentMethod];
+  if (paymentMethod === 'hall_account') {
+    hallBookingId = req.body.hallBookingId || t.hall_booking_id;
+    if (!hallBookingId) return res.status(400).json({ error: 'hallBookingId is required to charge a Halls & Events booking' });
+    const event = db.prepare(`SELECT b.*, h.name AS hall_name FROM hall_bookings b
+        JOIN halls h ON h.id = b.hall_id WHERE b.id = ? AND b.tenant_id = ?`).get(hallBookingId, req.tenantId);
+    if (!event) return res.status(404).json({ error: 'Hall / event booking not found' });
+    if (!['tentative', 'confirmed'].includes(event.status)) {
+      return res.status(409).json({ error: 'That event is ' + event.status + ' and can no longer accept charges' });
+    }
+    guestName = event.organizer_name || event.event_name;
+    roomNumber = null;
+  }
+
+  const methodLabel = { cash: 'Cash', card: 'Card', room_charge: 'Room Charge', customer_bill: 'Customer Bill', group_account: 'Group Account', hall_account: 'Hall / Event Account' }[paymentMethod];
   const isImmediate = paymentMethod === 'cash' || paymentMethod === 'card';
   const outletLabel = t.outlet === 'bar' ? 'Bar' : 'Restaurant';
   const itemsSummary = items.map(i => i.qty + '× ' + i.name).join(', ');
@@ -656,13 +732,25 @@ router.post('/tickets/:id/checkout', (req, res) => {
   // request slips past the status guard, the charge cannot be posted twice.
   let claimed = true;
   let txn = null;
-  const txnId = 'txn_' + nanoid(10);
+  // A hall-account sale produces no ledger receivable — it joins the event's
+  // own bill — so the ticket must not point at a transaction that never exists.
+  const txnId = paymentMethod === 'hall_account' ? null : 'txn_' + nanoid(10);
   db.transaction(() => {
     const r = db.prepare(`UPDATE pos_tickets SET status = 'closed', payment_method = ?, transaction_id = ?, guest_name = ?, room_number = ?, guest_id = ?,
-                booking_id = ?, discount_pct = ?, subtotal = ?, total = ?, closed_by = ?, closed_at = datetime('now'), updated_at = datetime('now')
+                booking_id = ?, hall_booking_id = ?, discount_pct = ?, subtotal = ?, total = ?, closed_by = ?, closed_at = datetime('now'), updated_at = datetime('now')
                 WHERE id = ? AND status = 'open'`)
-      .run(paymentMethod, txnId, guestName, roomNumber, guestId, bookingId, discountPct, subtotal, total, req.user.name, t.id);
+      .run(paymentMethod, txnId, guestName, roomNumber, guestId, bookingId, hallBookingId, discountPct, subtotal, total, req.user.name, t.id);
     if (r.changes === 0) { claimed = false; return; }
+
+    if (paymentMethod === 'hall_account') {
+      // The event's account is hall_bookings.fnb_total: the Halls & Events page
+      // shows total_amount + fnb_total as the event bill, and this sale joins
+      // it. Charging and closing the ticket are one atomic write, so the board
+      // and the event bill can never disagree.
+      db.prepare(`UPDATE hall_bookings SET fnb_total = fnb_total + ?, updated_at = datetime('now')
+                  WHERE id = ? AND tenant_id = ?`).run(total, hallBookingId, req.tenantId);
+      return;
+    }
 
     const posted = postCharge(req.tenantId, {
       source: 'pos', sourceId: t.id, idempotencyKey: 'pos:' + t.id,
@@ -684,9 +772,10 @@ router.post('/tickets/:id/checkout', (req, res) => {
 
   const updated = db.prepare('SELECT * FROM pos_tickets WHERE id = ?').get(t.id);
 
-  audit(req, 'pos.ticket_checkout', 'pos_ticket', t.id, { paymentMethod, total });
+  audit(req, 'pos.ticket_checkout', 'pos_ticket', t.id, { paymentMethod, total, hallBookingId: hallBookingId || undefined });
   broadcast(req.tenantId, 'pos.ticket.closed', serialize(updated));
-  if (!isImmediate) broadcast(req.tenantId, 'payment.created', txn);
+  if (!isImmediate && txn) broadcast(req.tenantId, 'payment.created', txn);
+  if (hallBookingId) broadcast(req.tenantId, 'hallbooking.updated', { id: hallBookingId });
   res.json({ ticket: serialize(updated), transaction: txn });
 });
 

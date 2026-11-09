@@ -42,6 +42,7 @@ const FAST = [
   'verify-tables-http.js',
   'verify-tenant-settings-http.js',
   'verify-pos-tables-http.js',
+  'verify-pos-hall-account-http.js',
   'verify-battery-order.js',
 ];
 const BROWSER = [
