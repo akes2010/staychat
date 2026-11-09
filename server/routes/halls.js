@@ -9,12 +9,14 @@ const { requirePermission } = require('../utils/permissions');
 const { requireEntitlement } = require('../services/entitlements');
 const { broadcast } = require('../ws');
 const { normalizeTime, validWindow, slotWithinHours } = require('../utils/facility-hours');
+const { postCharge } = require('../services/charges');
 
 const router = express.Router();
 router.use(requireAuth, resolveTenant, requireTenant, requirePermission('halls.use'), requireEntitlement('hall_events'));
 
 function serializeHall(h) { return { ...h, amenities: JSON.parse(h.amenities || '[]'), active: !!h.active }; }
 function serializeBooking(b) { return { ...b, catering: !!b.catering, engineCode: b.engine_code || undefined, engineSyncStatus: b.engine_sync_status || undefined }; }
+function serializeFnb(o) { return { ...o, items: JSON.parse(o.items || '[]') }; }
 
 // ── Halls (inventory) ───────────────────────────────────────────────────
 router.get('/halls', (req, res) => {
@@ -177,6 +179,109 @@ router.post('/bookings/:id/complete', (req, res) => {
   audit(req, 'hall_booking.complete', 'hall_booking', b.id);
   broadcast(req.tenantId, 'hallbooking.updated', serializeBooking(updated));
   res.json(serializeBooking(updated));
+});
+
+// ── Food & Drinks for an event ───────────────────────────────────────────
+// A hall booking can be fed: staff order from the hotel's own menu (food,
+// drinks, or both) straight from the event. The basket is priced from
+// menu_items server-side — the client can never send its own prices. Orders
+// are either added to the event bill (hall_bookings.fnb_total) or paid on the
+// spot, which posts a completed sale through the one ledger pipeline.
+router.get('/fnb', (req, res) => {
+  const { bookingId } = req.query;
+  let sql = 'SELECT * FROM hall_fnb_orders WHERE tenant_id = ?';
+  const params = [req.tenantId];
+  if (bookingId) { sql += ' AND hall_booking_id = ?'; params.push(bookingId); }
+  sql += ' ORDER BY created_at DESC';
+  res.json(db.prepare(sql).all(...params).map(serializeFnb));
+});
+
+router.post('/bookings/:id/fnb', (req, res) => {
+  const booking = db.prepare('SELECT * FROM hall_bookings WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+  if (!booking) return res.status(404).json({ error: 'Hall booking not found' });
+  if (['cancelled', 'completed'].includes(booking.status)) {
+    return res.status(409).json({ error: 'This event is ' + booking.status + ' — food & drinks can no longer be ordered' });
+  }
+
+  const lines = Array.isArray(req.body.items) ? req.body.items : [];
+  if (lines.length === 0) return res.status(400).json({ error: 'Add at least one food or drink item' });
+
+  const items = [];
+  let total = 0;
+  for (const line of lines) {
+    const qty = Number(line && line.qty);
+    if (!Number.isInteger(qty) || qty < 1 || qty > 999) {
+      return res.status(400).json({ error: 'Every item needs a whole quantity between 1 and 999' });
+    }
+    const item = db.prepare('SELECT * FROM menu_items WHERE id = ? AND tenant_id = ?').get((line && line.menuItemId) || '', req.tenantId);
+    if (!item) return res.status(400).json({ error: 'One of the items is not on this hotel\'s menu — refresh and try again' });
+    if (!item.available) return res.status(409).json({ error: item.name + ' is currently unavailable' });
+    const price = Number(item.price) || 0;
+    const existing = items.find(i => i.menuItemId === item.id);
+    if (existing) existing.qty += qty;
+    else items.push({ id: 'li_' + nanoid(8), menuItemId: item.id, name: item.name, price, qty });
+    total += price * qty;
+  }
+  total = Math.round(total * 100) / 100;
+
+  const payment = ['event', 'cash', 'card'].includes(req.body.payment) ? req.body.payment : 'event';
+  const note = String(req.body.note || '').trim().slice(0, 300) || null;
+  const id = 'hfb_' + nanoid(10);
+  let txn = null;
+
+  db.transaction(() => {
+    db.prepare(`INSERT INTO hall_fnb_orders (id, tenant_id, hall_booking_id, items, total, payment, note, created_by)
+                VALUES (?,?,?,?,?,?,?,?)`)
+      .run(id, req.tenantId, booking.id, JSON.stringify(items), total, payment, note, req.user.name);
+    if (payment === 'event') {
+      db.prepare(`UPDATE hall_bookings SET fnb_total = fnb_total + ?, updated_at = datetime('now') WHERE id = ?`).run(total, booking.id);
+    } else if (total > 0) {
+      // Paid on the spot: one completed ledger sale per order (idempotent key).
+      const posted = postCharge(req.tenantId, {
+        source: 'hall', sourceId: id, idempotencyKey: 'hallfnb:' + id,
+        amount: total, method: payment === 'cash' ? 'Cash' : 'Card',
+        description: 'Hall F&B — ' + booking.event_name + (note ? ' (' + note + ')' : ''),
+        guestName: booking.organizer_name || 'Event guest',
+        gatewayRef: 'HFB-' + id.slice(4).toUpperCase(),
+        immediate: true, createdBy: req.user.name,
+      });
+      txn = posted.transaction;
+      if (txn && txn.id) db.prepare('UPDATE hall_fnb_orders SET transaction_id = ? WHERE id = ?').run(txn.id, id);
+    }
+  })();
+
+  const order = db.prepare('SELECT * FROM hall_fnb_orders WHERE id = ?').get(id);
+  audit(req, 'hall_fnb.create', 'hall_fnb_order', id, { bookingId: booking.id, total, payment });
+  broadcast(req.tenantId, 'hallfnb.created', serializeFnb(order));
+  if (txn) broadcast(req.tenantId, 'payment.created', txn);
+  res.status(201).json({ ...serializeFnb(order), transaction: txn });
+});
+
+// Order lifecycle: placed → preparing → served, or cancelled while still open.
+// Cancelling takes the amount off the event bill again — no silent drift.
+const FNB_NEXT = { pending: ['preparing', 'cancelled'], preparing: ['served', 'cancelled'] };
+router.patch('/fnb/:id', (req, res) => {
+  const order = db.prepare('SELECT * FROM hall_fnb_orders WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenantId);
+  if (!order) return res.status(404).json({ error: 'Food & drink order not found' });
+  const status = req.body.status;
+  if (!FNB_NEXT[order.status] || !FNB_NEXT[order.status].includes(status)) {
+    return res.status(409).json({ error: 'This order is ' + order.status + ' and cannot move to ' + (status || 'that status') });
+  }
+  if (status === 'cancelled' && order.payment !== 'event') {
+    return res.status(409).json({ error: 'This order was paid on the spot — refund it from the Payments page instead of cancelling' });
+  }
+
+  db.transaction(() => {
+    db.prepare(`UPDATE hall_fnb_orders SET status = ?, updated_at = datetime('now') WHERE id = ? AND status = ?`).run(status, order.id, order.status);
+    if (status === 'cancelled') {
+      db.prepare(`UPDATE hall_bookings SET fnb_total = MAX(0, fnb_total - ?), updated_at = datetime('now') WHERE id = ?`).run(order.total, order.hall_booking_id);
+    }
+  })();
+
+  const updated = db.prepare('SELECT * FROM hall_fnb_orders WHERE id = ?').get(order.id);
+  audit(req, 'hall_fnb.status', 'hall_fnb_order', order.id, { status });
+  broadcast(req.tenantId, 'hallfnb.updated', serializeFnb(updated));
+  res.json(serializeFnb(updated));
 });
 
 module.exports = router;

@@ -251,7 +251,7 @@ router.post('/factory-reset', requireRole('hotel_admin', 'superadmin'), (req, re
     'booking_rooms', 'bookings', 'pos_tickets', 'transactions',
     'journal_lines', 'journal_entries', 'vouchers', 'analytics_daily',
     'rooms', 'guests', 'menu_items', 'orders', 'misc_service_orders',
-    'hall_bookings', 'pool_bookings', 'gym_bookings', 'memberships',
+    'hall_fnb_orders', 'hall_bookings', 'pool_bookings', 'gym_bookings', 'memberships',
     'eod_closings', 'attendance', 'maintenance_requests', 'wifi_provisions',
   ];
   const counts = {};
@@ -310,6 +310,7 @@ router.get('/data-export', requireRole('hotel_admin', 'superadmin'), (req, res) 
     rooms: all('SELECT * FROM rooms WHERE tenant_id = ?'),
     halls: all('SELECT * FROM halls WHERE tenant_id = ?'),
     hall_bookings: all('SELECT * FROM hall_bookings WHERE tenant_id = ?'),
+    hall_fnb_orders: all('SELECT * FROM hall_fnb_orders WHERE tenant_id = ?'),
     pools: all('SELECT * FROM pools WHERE tenant_id = ?'),
     pool_bookings: all('SELECT * FROM pool_bookings WHERE tenant_id = ?'),
     gyms: all('SELECT * FROM gyms WHERE tenant_id = ?'),

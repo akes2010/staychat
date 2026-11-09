@@ -576,6 +576,25 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_hallbookings_tenant ON hall_bookings(tenant_id, event_date);
     CREATE INDEX IF NOT EXISTS idx_hallbookings_hall ON hall_bookings(hall_id, event_date);
 
+    -- Food & drinks ordered for a hall/event booking. Each order is a basket
+    -- of menu products served in the hall and billed either to the event or
+    -- paid on the spot (cash/card), with the ledger transaction recorded.
+    CREATE TABLE IF NOT EXISTS hall_fnb_orders (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      hall_booking_id TEXT NOT NULL REFERENCES hall_bookings(id) ON DELETE CASCADE,
+      items TEXT NOT NULL DEFAULT '[]',
+      total REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','preparing','served','cancelled')),
+      payment TEXT NOT NULL DEFAULT 'event' CHECK(payment IN ('event','cash','card')),
+      transaction_id TEXT,
+      note TEXT,
+      created_by TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_hallfnb_tenant ON hall_fnb_orders(tenant_id, hall_booking_id);
+
     -- ══════════════════════════════════════════════════════════
     -- ORDERS (Room Service)
     -- ══════════════════════════════════════════════════════════
@@ -907,6 +926,7 @@ function migrate() {
   [
     ['engine_code', "TEXT"],        // tender code shown to the guest (unique, partial index below)
     ['engine_sync_status', "TEXT"], // pending → confirmed/rejected
+    ['fnb_total', "REAL NOT NULL DEFAULT 0"], // food & drinks billed to the event
   ].forEach(([col, def]) => { if (!hallBookingCols.includes(col)) db.exec(`ALTER TABLE hall_bookings ADD COLUMN ${col} ${def}`); });
   const poolBookingCols2 = db.prepare("PRAGMA table_info(pool_bookings)").all().map(c => c.name);
   [

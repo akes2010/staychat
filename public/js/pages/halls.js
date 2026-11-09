@@ -5,14 +5,17 @@ window.PAGES = window.PAGES || {};
 
 PAGES.halls = function () {
   const wrap = el('div', 'fa');
-  const state = { halls: [], bookings: [], view: 'upcoming' };
+  const state = { halls: [], bookings: [], fnb: [], menu: null, carts: {}, fnbFilter: 'all', fnbBookingId: null, view: 'upcoming' };
   const canManageHalls = typeof can === 'function' ? can('halls.manage') : true;
 
   async function load() {
     wrap.innerHTML = loaderHTML('Loading halls & events…');
     try {
-      const [halls, bookings] = await Promise.all([API.get('/api/halls/halls'), API.get('/api/halls/bookings')]);
-      state.halls = halls; state.bookings = bookings;
+      const [halls, bookings, fnb] = await Promise.all([
+        API.get('/api/halls/halls'), API.get('/api/halls/bookings'),
+        API.get('/api/halls/fnb').catch(() => []),
+      ]);
+      state.halls = halls; state.bookings = bookings; state.fnb = Array.isArray(fnb) ? fnb : [];
       render();
     } catch (err) { wrap.innerHTML = errorStateHTML(err.message, 'navigate(\'halls\')'); }
   }
@@ -55,8 +58,10 @@ PAGES.halls = function () {
           '<div style="font-size:12px;color:var(--text3)">' + escapeHtml(hall ? hall.name : 'Unknown Hall') + ' &middot; ' + escapeHtml(b.organizer_name) + '</div>' +
         '</div>' +
         '<div style="text-align:center;min-width:140px"><div style="font-size:12px;font-weight:600">' + fmtDate(b.event_date) + '</div><div style="font-size:11px;color:var(--text3)">' + b.start_time + ' – ' + b.end_time + ' &middot; ' + b.guest_count + ' guests</div></div>' +
-        '<div style="text-align:right;min-width:90px"><div style="font-weight:800;color:var(--p)">' + formatMoney(b.total_amount) + '</div><div style="font-size:11px;color:var(--text3)">' + formatMoney(b.deposit_amount) + ' deposit</div></div>' +
+        '<div style="text-align:right;min-width:90px"><div style="font-weight:800;color:var(--p)">' + formatMoney(b.total_amount) + '</div><div style="font-size:11px;color:var(--text3)">' + formatMoney(b.deposit_amount) + ' deposit</div>' +
+          (b.fnb_total > 0 ? '<div style="font-size:11px;font-weight:600;color:var(--text2)">+ ' + formatMoney(b.fnb_total) + ' F&amp;B</div>' : '') + '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          (['tentative', 'confirmed'].includes(b.status) ? '<button class="btn ghost sm" onclick="window.__openHallFnb(\'' + b.id + '\')">🍽 Food &amp; Drinks</button>' : '') +
           '<button class="btn ghost sm" onclick="window.__viewHallBooking(\'' + b.id + '\')">View</button>' +
           (b.status === 'tentative' ? '<button class="btn outline sm" onclick="window.__hallBookingAction(\'' + b.id + '\',\'confirm\')">Confirm</button>' : '') +
           (['tentative','confirmed'].includes(b.status) && b.event_date <= today ? '<button class="btn outline sm" onclick="window.__hallBookingAction(\'' + b.id + '\',\'complete\')">Complete</button>' : '') +
@@ -90,9 +95,11 @@ PAGES.halls = function () {
         '<div><strong>Date/Time:</strong> ' + fmtDate(b.event_date) + ', ' + b.start_time + ' – ' + b.end_time + '</div>' +
         '<div><strong>Guests:</strong> ' + b.guest_count + ' &middot; <strong>Setup:</strong> ' + escapeHtml(b.setup_style) + ' &middot; <strong>Catering:</strong> ' + (b.catering ? 'Yes' : 'No') + '</div>' +
         '<div><strong>Total:</strong> ' + formatMoney(b.total_amount) + ' &nbsp; <strong>Deposit:</strong> ' + formatMoney(b.deposit_amount) + '</div>' +
+        (b.fnb_total > 0 ? '<div><strong>Food &amp; drinks:</strong> ' + formatMoney(b.fnb_total) + ' &nbsp; <strong>Event bill:</strong> ' + formatMoney(Number(b.total_amount || 0) + Number(b.fnb_total || 0)) + '</div>' : '') +
         (b.notes ? '<div><strong>Notes:</strong> ' + escapeHtml(b.notes) + '</div>' : '') +
       '</div>',
-      '<button class="btn outline" onclick="closeModal()">Close</button>'
+      '<button class="btn outline" onclick="closeModal()">Close</button>' +
+      '<button class="btn primary" onclick="closeModal();window.__openHallFnb(\'' + b.id + '\')">🍽 Order Food &amp; Drinks</button>'
     );
   };
 
@@ -207,6 +214,149 @@ PAGES.halls = function () {
     confirmAction('Delete this hall? Halls with upcoming bookings cannot be deleted.', async () => {
       try { await API.del('/api/halls/halls/' + id); toast('Hall deleted', 'warn'); await load(); window.__manageHalls(); }
       catch (err) { toast(err.message, 'error'); }
+    });
+  };
+
+  // ── Food & Drinks for an event ─────────────────────────────────────────
+  // Order food, drinks, or both straight from a hall booking. Prices come from
+  // the server (menu_items), so the basket is only a quantity picker here.
+  const fnbIsDrink = (m) => {
+    const cat = String(m.category || '').toLowerCase();
+    return m.outlet === 'bar' || ['drinks', 'cocktails', 'beer', 'wine', 'spirits'].includes(cat) ||
+      /drink|cocktail|beer|wine|spirit|liquor|juice|water|soda|smoothie|shake|coffee|tea|whisk|vodka|rum|gin|champagne/i.test(String(m.name || ''));
+  };
+  const fnbOrdersFor = (id) => state.fnb.filter(o => o.hall_booking_id === id);
+  const fnbCartTotal = (cart) => Object.keys(cart).reduce((s, k) => s + cart[k].price * cart[k].qty, 0);
+
+  window.__openHallFnb = async (bookingId) => {
+    const b = state.bookings.find(x => x.id === bookingId);
+    if (!b) return;
+    state.fnbBookingId = bookingId;
+    state.fnbFilter = 'all';
+    if (!state.carts[bookingId]) state.carts[bookingId] = {};
+    try {
+      const [menu, orders] = await Promise.all([
+        state.menu ? Promise.resolve(state.menu) : API.get('/api/menu'),
+        API.get('/api/halls/fnb?bookingId=' + encodeURIComponent(bookingId)),
+      ]);
+      state.menu = (Array.isArray(menu) ? menu : []).filter(m => m.available);
+      state.fnb = Array.isArray(orders) ? orders : [];
+    } catch (err) { toast(err.message, 'error'); return; }
+    const hall = state.halls.find(h => h.id === b.hall_id);
+    openModal('🍽 Food & Drinks — ' + escapeHtml(b.event_name),
+      '<div id="hall-fnb-body"></div>',
+      '<button class="btn outline" onclick="closeModal()">Close</button>' +
+      '<button class="btn primary" onclick="window.__hallFnbPlace()">Place Order</button>',
+      { wide: true, sub: escapeHtml(hall ? hall.name : 'Hall') + ' &middot; ' + fmtDate(b.event_date) + ' &middot; ' + b.start_time + '–' + b.end_time }
+    );
+    renderFnbBody();
+  };
+
+  function renderFnbBody() {
+    const host = document.getElementById('hall-fnb-body');
+    if (!host) return;
+    const bookingId = state.fnbBookingId;
+    const cart = state.carts[bookingId] || {};
+    const menu = (state.menu || []).filter(m => state.fnbFilter === 'all' || (state.fnbFilter === 'food' ? !fnbIsDrink(m) : fnbIsDrink(m)));
+    const cats = [];
+    menu.forEach(m => { if (cats.indexOf(m.category) === -1) cats.push(m.category); });
+    const cartLines = Object.keys(cart).map(k => cart[k]);
+    const orders = fnbOrdersFor(bookingId).slice().sort((a, b2) => String(b2.created_at).localeCompare(String(a.created_at)));
+    const tint = { pending: 'warn', preparing: 'info', served: 'success', cancelled: 'error' };
+
+    const itemLine = (m) => {
+      const q = cart[m.id] ? cart[m.id].qty : 0;
+      return '<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:8px;background:' + (q ? 'var(--surface2)' : 'transparent') + '">' +
+        '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">' + escapeHtml(m.name) + '</div>' +
+          (m.description ? '<div style="font-size:10.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(m.description) + '</div>' : '') + '</div>' +
+        '<div style="font-size:12px;font-weight:700;min-width:58px;text-align:right">' + formatMoney(m.price) + '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          (q ? '<button class="btn ghost sm" style="padding:2px 9px" onclick="window.__hallFnbStep(\'' + m.id + '\',-1)">−</button><span style="font-weight:700;min-width:18px;text-align:center">' + q + '</span>' : '') +
+          '<button class="btn outline sm" style="padding:2px 9px" onclick="window.__hallFnbStep(\'' + m.id + '\',1)">+</button></div></div>';
+    };
+
+    host.innerHTML =
+      '<div class="filter-pills" style="margin-bottom:12px">' +
+        [['all', 'All'], ['food', '🍽 Food'], ['drinks', '🍸 Drinks']].map(([v, label]) =>
+          '<button class="pill ' + (state.fnbFilter === v ? 'active' : '') + '" onclick="window.__hallFnbFilter(\'' + v + '\')">' + label + '</button>').join('') +
+      '</div>' +
+      (menu.length === 0
+        ? '<div class="empty-state" style="padding:22px"><div class="empty-state-icon">🍽</div><div class="empty-state-title">No products available</div><div class="empty-state-desc">Add food or drinks in Menu Manager to order them for events.</div></div>'
+        : '<div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:8px">' +
+            cats.map(cat => '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text3);padding:8px 10px 4px">' + escapeHtml(cat) + '</div>' +
+              menu.filter(m => m.category === cat).map(itemLine).join('')).join('') + '</div>') +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 10px;font-size:13px">' +
+        '<span style="color:var(--text3)">' + (cartLines.length ? cartLines.reduce((s, c) => s + c.qty, 0) + ' item(s) in this order' : 'Nothing in this order yet') + '</span>' +
+        '<span style="font-weight:800;font-size:16px;color:var(--p)">' + formatMoney(fnbCartTotal(cart)) + '</span></div>' +
+      '<div class="form-row cols-2">' +
+        '<div class="form-group"><label class="form-label">Payment</label><select class="form-select" id="hall-fnb-payment">' +
+          '<option value="event">Charge to event bill</option><option value="cash">Paid now — cash</option><option value="card">Paid now — card</option>' +
+        '</select></div>' +
+        '<div class="form-group"><label class="form-label">Note for kitchen / bar</label><input class="form-input" id="hall-fnb-note" placeholder="e.g. no onions, serve at 13:00"/></div>' +
+      '</div>' +
+      '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:12px">' +
+        '<div style="font-size:12px;font-weight:700;margin-bottom:8px">Orders for this event ' + (orders.length ? badge(String(orders.length), 'default') : '') + '</div>' +
+        (orders.length === 0 ? '<div style="font-size:12px;color:var(--text3)">No food or drinks ordered yet.</div>' :
+          '<div style="display:flex;flex-direction:column;gap:8px">' + orders.map(o =>
+            '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border-radius:9px;padding:9px 12px">' +
+              '<div style="flex:1;min-width:160px"><div style="font-size:12px;font-weight:600">' + escapeHtml((o.items || []).map(i => i.qty + '× ' + i.name).join(', ')) + '</div>' +
+                '<div style="font-size:10.5px;color:var(--text3)">' + (o.payment === 'event' ? 'Charged to event bill' : 'Paid ' + o.payment) + (o.note ? ' &middot; ' + escapeHtml(o.note) : '') + '</div></div>' +
+              '<div style="font-weight:700;font-size:12.5px">' + formatMoney(o.total) + '</div>' + badge(o.status, tint[o.status] || 'default') +
+              (o.status === 'pending' ? '<button class="btn outline sm" onclick="window.__hallFnbStatus(\'' + o.id + '\',\'preparing\')">Prepare</button>' : '') +
+              (o.status === 'preparing' ? '<button class="btn primary sm" onclick="window.__hallFnbStatus(\'' + o.id + '\',\'served\')">Served</button>' : '') +
+              (['pending', 'preparing'].includes(o.status) && o.payment === 'event' ? '<button class="btn ghost sm" style="color:var(--error)" onclick="window.__hallFnbCancel(\'' + o.id + '\')">Cancel</button>' : '') +
+            '</div>').join('') + '</div>') +
+      '</div>';
+  }
+
+  window.__hallFnbFilter = (f) => { state.fnbFilter = f; renderFnbBody(); };
+  window.__hallFnbStep = (menuItemId, delta) => {
+    const bookingId = state.fnbBookingId;
+    if (!bookingId) return;
+    const cart = state.carts[bookingId] || (state.carts[bookingId] = {});
+    const item = (state.menu || []).find(m => m.id === menuItemId);
+    if (!item) return;
+    const q = (cart[menuItemId] ? cart[menuItemId].qty : 0) + delta;
+    if (q <= 0) delete cart[menuItemId];
+    else cart[menuItemId] = { menuItemId, name: item.name, price: item.price, qty: q };
+    renderFnbBody();
+  };
+  window.__hallFnbPlace = async () => {
+    const bookingId = state.fnbBookingId;
+    if (!bookingId) return;
+    const cart = state.carts[bookingId] || {};
+    const items = Object.keys(cart).map(k => ({ menuItemId: k, qty: cart[k].qty }));
+    if (items.length === 0) { toast('Add at least one food or drink item', 'error'); return; }
+    const paymentEl = document.getElementById('hall-fnb-payment');
+    const noteEl = document.getElementById('hall-fnb-note');
+    try {
+      await API.post('/api/halls/bookings/' + bookingId + '/fnb', {
+        items, payment: paymentEl ? paymentEl.value : 'event', note: noteEl ? noteEl.value.trim() : '',
+      });
+      toast('Food & drink order placed', 'success');
+      state.carts[bookingId] = {};
+      await load();
+      window.__openHallFnb(bookingId);
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  window.__hallFnbStatus = async (id, status) => {
+    const bookingId = state.fnbBookingId;
+    try {
+      await API.patch('/api/halls/fnb/' + id, { status });
+      toast('Order ' + status, status === 'served' ? 'success' : 'info');
+      await load();
+      window.__openHallFnb(bookingId);
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  window.__hallFnbCancel = (id) => {
+    const bookingId = state.fnbBookingId;
+    confirmAction('Cancel this food & drink order? The amount comes off the event bill.', async () => {
+      try {
+        await API.patch('/api/halls/fnb/' + id, { status: 'cancelled' });
+        toast('Order cancelled', 'warn');
+        await load();
+        window.__openHallFnb(bookingId);
+      } catch (err) { toast(err.message, 'error'); }
     });
   };
 
