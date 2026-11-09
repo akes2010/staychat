@@ -150,11 +150,17 @@ function maybeShowManualOnboarding() {
   } catch (e) { /* non-fatal — onboarding must never block the app */ }
 }
 
+// Two deferred nudges can be pending at once (the sign-in path arms one, and
+// a retry from an earlier arm can still be alive), so displaying it is guarded
+// here too — the once-per-device flag stops it next session, not twice now.
+let onboardingNudgeShown = false;
 function showManualOnboarding() {
   try {
       // The deferred nudge must not fire onto the sign-in screen (or another
       // role's session) if the admin signed out while we waited.
       if (!window.App || !App.user || App.user.role !== 'hotel_admin') return;
+      if (onboardingNudgeShown) return;
+      onboardingNudgeShown = true;
       openModal('Start your team on the right foot',
         '<p style="font-size:13.5px;color:var(--text2);margin:0 0 10px">Your workspace is live. Before the first shift, download the training pack and print the desk copy.</p>' +
         '<ul style="font-size:13px;color:var(--text2);margin:0 0 12px 18px;line-height:1.7">' +

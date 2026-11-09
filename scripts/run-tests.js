@@ -50,6 +50,7 @@ const BROWSER = [
   'browser-test-settle-modal.js',
   'browser-test-checkout-flow.js',
   'browser-test-changepw.js',
+  'browser-test-onboarding-modal.js',
   'browser-test-offline-sync.js',
   'browser-test-print-style.js',
   // BTS-049: logout LAST among the signing-in suites — a session teardown
